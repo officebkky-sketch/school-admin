@@ -28,8 +28,10 @@ export default function Settings() {
     local_gov_name: '',
     line_channel_access_token: '',
     line_group_id: '',
-    gemini_api_key: ''
+    gemini_api_key: '',
+    ai_cowork_api_key: ''
   });
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedSignature, setSelectedSignature] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -238,17 +240,30 @@ export default function Settings() {
 
           <div className="p-8 space-y-6">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-indigo-600">Gemini API Key</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-indigo-600">Gemini API Key (หลัก)</label>
               <input 
                 type="password" 
                 className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 transition-all"
                 value={settings.gemini_api_key}
                 onChange={e => setSettings({...settings, gemini_api_key: e.target.value})}
-                placeholder="ใส่ Gemini API Key จาก aistudio.google.com..."
+                placeholder="ใส่ Gemini API Key หลัก..."
               />
-              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">ใช้สำหรับการสรุปเนื้อหาหนังสือราชการ (รวมถึงไฟล์ที่มาจากการสแกน)</p>
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">ใช้สำหรับการสรุปเนื้อหาหนังสือราชการ (งานสารบรรณ)</p>
+            </div>
+
+            <div className="space-y-1.5 pt-4 border-t border-slate-50">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-brand-primary">AI Cowork API Key (เฉพาะส่วนผู้ช่วยครู)</label>
+              <input 
+                type="password" 
+                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-green-100 focus:border-brand-primary transition-all"
+                value={settings.ai_cowork_api_key}
+                onChange={e => setSettings({...settings, ai_cowork_api_key: e.target.value})}
+                placeholder="ใส่ API Key แยกสำหรับ AI Cowork (ถ้ามี)..."
+              />
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase italic">* แนะนำให้แยก Key เพื่อไม่ให้กระทบงานสารบรรณเมื่อคุณครูใช้งานพร้อมกันจำนวนมาก</p>
             </div>
           </div>
+
         </div>
 
         {/* Section: Academic Year & Logo */}

@@ -18,7 +18,7 @@ function createWindow() {
       contextIsolation: false,
       webSecurity: false,
     },
-    title: "ระบบบริหารจัดการข้อมูลโรงเรียนบ้านควนโคกยา",
+    title: "ระบบบริหารจัดการข้อมูลโรงเรียน",
     icon: path.join(__dirname, 'public/logo.png')
   });
 
@@ -44,7 +44,7 @@ autoUpdater.on('update-available', () => {
   dialog.showMessageBox({
     type: 'info',
     title: 'พบการอัปเดตใหม่',
-    message: 'พบเวอร์ชันใหม่ของระบบบริหารจัดการโรงเรียน คุณต้องการดาวน์โหลดตอนนี้เลยหรือไม่?',
+    message: 'พบเวอร์ชันใหม่ของระบบบริหารจัดการข้อมูลโรงเรียน คุณต้องการดาวน์โหลดตอนนี้เลยหรือไม่?',
     buttons: ['ดาวน์โหลด', 'ไว้ทีหลัง']
   }).then((result) => {
     if (result.response === 0) {

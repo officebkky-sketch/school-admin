@@ -2,7 +2,7 @@
   "name": "school-admin-v2",
   "private": true,
   "version": "1.0.1",
-  "description": "ระบบบริหารจัดการโรงเรียนบ้านควนโคกยา (V2)",
+  "description": "ระบบบริหารจัดการข้อมูลโรงเรียน",
   "author": "Phairot มากแก้ว",
   "repository": {
     "type": "git",
@@ -30,6 +30,7 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.2",
+    "recharts": "^3.8.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -57,7 +58,7 @@
   },
   "build": {
     "appId": "com.schooladmin.v2",
-    "productName": "ระบบบริหารจัดการโรงเรียนบ้านควนโคกยา",
+    "productName": "ระบบบริหารจัดการข้อมูลโรงเรียน",
     "publish": [
       {
         "provider": "github",
@@ -72,7 +73,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "School Admin V2",
+      "shortcutName": "ระบบบริหารจัดการข้อมูลโรงเรียน",
       "deleteAppDataOnUninstall": false
     },
     "win": {

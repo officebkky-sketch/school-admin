@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { LogIn, UserPlus, Loader2, ArrowLeft } from 'lucide-react';
 
@@ -10,6 +10,19 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
+
+  useEffect(() => {
+    async function fetchSchoolName() {
+      try {
+        const { data } = await supabase.from('settings').select('school_name').single();
+        if (data?.school_name) setSchoolName(data.school_name);
+      } catch (err) {
+        console.error('Error fetching school name:', err);
+      }
+    }
+    fetchSchoolName();
+  }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,8 +93,8 @@ export default function Login() {
           <div className="bg-white w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg p-2 overflow-hidden">
             <img src="logo.png" alt="School Logo" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-2xl font-bold">{isSignUp ? 'ลงทะเบียนผู้ใช้งาน' : 'ระบบบริหารจัดการโรงเรียน'}</h1>
-          <p className="text-green-100/80 mt-1">โรงเรียนบ้านควนโคกยา</p>
+          <h1 className="text-2xl font-bold">{isSignUp ? 'ลงทะเบียนผู้ใช้งาน' : 'ระบบบริหารจัดการข้อมูลโรงเรียน'}</h1>
+          <p className="text-green-100/80 mt-1">{schoolName}</p>
         </div>
 
         <div className="p-8">
@@ -165,7 +178,7 @@ export default function Login() {
 
           <div className="mt-8 pt-6 border-t border-slate-100 text-center">
             <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-              © 2025 โรงเรียนบ้านควนโคกยา
+              © {new Date().getFullYear()} {schoolName}
             </p>
           </div>
         </div>

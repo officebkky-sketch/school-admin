@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './contexts/AuthContext';
+import { supabase } from './lib/supabase';
 import Login from './pages/Login';
 import IncomingDocs from './pages/IncomingDocs';
 import OutgoingDocs from './pages/OutgoingDocs';
@@ -20,7 +21,9 @@ import UsersManagement from './pages/Users';
 import ProfilePage from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import Academic from './pages/Academic';
-import ComingSoon from './components/ComingSoon';
+import Finance from './pages/Finance';
+import AICowork from './pages/AICowork';
+
 import { 
   Loader2, 
   LayoutDashboard, 
@@ -43,14 +46,29 @@ import {
   BarChart3,
   FileDown,
   FileUp,
-  User
+  User,
+  Bot
 } from 'lucide-react';
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile';
+
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork';
 
 function App() {
   const { user, profile, loading, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
+
+  useEffect(() => {
+    async function fetchSchoolName() {
+      try {
+        const { data } = await supabase.from('settings').select('school_name').single();
+        if (data?.school_name) setSchoolName(data.school_name);
+      } catch (err) {
+        console.error('Error fetching school name:', err);
+      }
+    }
+    fetchSchoolName();
+  }, []);
 
   const isAdmin = profile?.role === 'admin';
   const isDirector = profile?.role === 'director' || isAdmin;
@@ -73,12 +91,13 @@ function App() {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
+      {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col sticky top-0 h-screen overflow-y-auto scrollbar-hide shrink-0 shadow-sm">
         <div className="p-6 border-b border-slate-50 flex items-center gap-3 bg-white">
           <img src="logo.png" alt="School Logo" className="w-12 h-12 object-contain" />
           <div>
-            <h1 className="font-black text-slate-800 text-xs tracking-tighter">โรงเรียนบ้านควนโคกยา</h1>
-            <p className="text-[9px] text-brand-primary font-black uppercase tracking-widest">School Admin V2</p>
+            <h1 className="font-black text-slate-800 text-xs tracking-tighter">{schoolName}</h1>
+            <p className="text-[9px] text-brand-primary font-black uppercase tracking-widest">ระบบบริหารจัดการข้อมูลโรงเรียน</p>
           </div>
         </div>
 
@@ -97,7 +116,11 @@ function App() {
               <SidebarItem icon={<MessageSquare size={20} />} label="บันทึกข้อความ" active={activeTab === 'memos'} onClick={() => setActiveTab('memos')} />
               <SidebarItem icon={<ClipboardList size={20} />} label="ติดตามงาน/สั่งการ" active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} />
 
+              <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">นวัตกรรม AI</div>
+              <SidebarItem icon={<Bot size={20} />} label="AI Cowork" active={activeTab === 'ai_cowork'} onClick={() => setActiveTab('ai_cowork')} />
+
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานวิชาการ</div>
+
               <SidebarItem icon={<GraduationCap size={20} />} label="ระบบวิชาการ" active={activeTab === 'academic'} onClick={() => setActiveTab('academic')} />
               <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />
 
@@ -133,6 +156,7 @@ function App() {
         </div>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-xs">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 uppercase tracking-tight">
@@ -156,6 +180,7 @@ function App() {
             {activeTab === 'users' && 'จัดการสิทธิ์ผู้ใช้งาน'}
             {activeTab === 'academic' && 'งานวิชาการ'}
             {activeTab === 'finance' && 'งานงบประมาณ (การเงิน/พัสดุ)'}
+            {activeTab === 'ai_cowork' && 'AI Cowork'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -195,13 +220,15 @@ function App() {
             {activeTab === 'settings' && <SettingsPage />}
             {activeTab === 'users' && <UsersManagement />}
             {activeTab === 'academic' && <Academic />}
-            {activeTab === 'finance' && <ComingSoon title="ระบบการเงินและพัสดุ" />}
+            {activeTab === 'finance' && <Finance />}
+            {activeTab === 'ai_cowork' && <AICowork />}
           </div>
         </div>
       </main>
     </div>
   );
 }
+
 
 interface SidebarItemProps {
   icon: React.ReactNode;
