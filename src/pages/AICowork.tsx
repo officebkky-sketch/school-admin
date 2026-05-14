@@ -1,22 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Bot, 
-  Send, 
-  Loader2, 
-  Trash2, 
-  FolderOpen, 
-  FileText, 
-  ChevronRight,
-  Database,
-  Search,
-  Sparkles,
-  RefreshCw,
-  Plus,
-  ArrowRight
-} from 'lucide-react';
-import { extractTextFromPdf } from '../lib/aiService';
+import { Bot, Send, Loader2, Trash2, FolderOpen, FileText, ChevronRight, Database, Search, Sparkles, RefreshCw, Plus, ArrowRight } from 'lucide-react';
+import { extractTextFromPdf, getAvailableModels } from '../lib/aiService';
 
 // Standard Folders for Knowledge Base (Thai School Admin Standard)
 const KNOWLEDGE_FOLDERS = [
@@ -142,28 +128,60 @@ export default function AICowork() {
       
       const context = kbFiles?.map(f => `[จากไฟล์: ${f.file_name}]\n${f.content_text?.substring(0, 1000)}`).join('\n\n') || "ไม่มีข้อมูลในคลัง";
 
-      // 2. Call Gemini
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-      const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะ 
-      ข้อมูลบริบทจากคลังเอกสารของครู:
+      // 2. Call Gemini with Robust Logic
+      const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา 
+      ข้อมูลบริบทจากคลังเอกสารส่วนตัวของคุณครู:
       ${context}
 
-      คำถามของครู: ${userMsg}
+      คำถามของคุณครู: ${userMsg}
 
-      ตอบคำถามโดยอ้างอิงจากข้อมูลที่มี (ถ้ามี) หากไม่มีให้ตอบตามความรู้ของคุณในฐานะผู้ช่วยครู ใช้ภาษาที่เป็นกันเองแต่สุภาพ และเป็นมืออาชีพ`;
+      คำแนะนำในการตอบ:
+      1. ตอบคำถามโดยอ้างอิงจากข้อมูลในบริบท (ถ้ามีข้อมูลที่เกี่ยวข้อง) 
+      2. หากไม่มีข้อมูลในบริบท ให้ตอบตามความรู้ของคุณในฐานะผู้ช่วยครูที่เป็นมืออาชีพ
+      3. ใช้ภาษาไทยที่สุภาพ เป็นกันเอง และให้เกียรติเพื่อนร่วมวิชาชีพ
+      4. หากเป็นเรื่องเกี่ยวกับระเบียบหรือนโยบาย ให้พยายามอ้างอิงแหล่งที่มาที่น่าเชื่อถือ`;
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
+      let modelsToTry = await getAvailableModels(apiKey);
+      if (modelsToTry.length === 0) {
+        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+      }
 
-      const resData = await response.json();
-      const aiText = resData.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัยครับ ผมไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
+      const apiVersions = ["v1beta", "v1"];
+      let aiResponseText = "";
+      let success = false;
+
+      for (const modelName of modelsToTry) {
+        if (success) break;
+        for (const version of apiVersions) {
+          if (success) break;
+          try {
+            const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`;
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+
+            const resData = await response.json();
+            if (response.ok && resData.candidates?.[0]?.content?.parts?.[0]?.text) {
+              aiResponseText = resData.candidates[0].content.parts[0].text.trim();
+              success = true;
+            } else if (resData.error) {
+              console.warn(`AICowork: Model ${modelName} (${version}) failed:`, resData.error.message);
+            }
+          } catch (fetchErr) {
+            console.error(`AICowork: Fetch error with ${modelName} (${version}):`, fetchErr);
+          }
+        }
+      }
+
+      if (!success) {
+        throw new Error('ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ โปรดตรวจสอบการเชื่อมต่ออินเทอร์เน็ตหรือ API Key ของคุณ');
+      }
       
-      setMessages(prev => [...prev, { role: 'ai', text: aiText }]);
+      setMessages(prev => [...prev, { role: 'ai', text: aiResponseText }]);
     } catch (err: any) {
-      setMessages(prev => [...prev, { role: 'ai', text: `เกิดข้อผิดพลาด: ${err.message}` }]);
+      setMessages(prev => [...prev, { role: 'ai', text: `ขออภัยครับ เกิดข้อผิดพลาด: ${err.message}` }]);
     } finally {
       setIsThinking(false);
     }
