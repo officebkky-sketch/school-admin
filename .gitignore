@@ -4,3 +4,6 @@ dist
 dist-installer
 .DS_Store
 *.local
+
+.vercel
+.env*.local

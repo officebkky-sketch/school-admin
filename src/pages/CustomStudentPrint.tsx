@@ -14,9 +14,13 @@ export default function CustomStudentPrint() {
   const [loading, setLoading] = useState(false);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   
+  // Custom Columns State
+  const [customColumns, setCustomColumns] = useState<string[]>([]);
+  const [newColumnName, setNewColumnName] = useState('');
+
   // Selection State
   const [config, setConfig] = useState({
-    academicYear: '2568',
+    academicYear: '',
     classLevel: 'ทั้งหมด',
     room: 'ทั้งหมด',
     reportTitle: 'รายชื่อนักเรียน',
@@ -37,18 +41,23 @@ export default function CustomStudentPrint() {
     status: true,
   });
 
-  const fetchYears = async () => {
-    const { data } = await supabase.from('students').select('academic_year');
-    if (data) {
-      const years = Array.from(new Set(data.map(d => d.academic_year))).sort((a, b) => b.localeCompare(a));
-      setAvailableYears(years);
-      if (years.length > 0 && !years.includes(config.academicYear)) {
-        setConfig(prev => ({ ...prev, academicYear: years[0] }));
-      }
+  const fetchInitialData = async () => {
+    // Fetch Years
+    const { data: yearData } = await supabase.from('students').select('academic_year');
+    if (yearData) {
+      const years = Array.from(new Set(yearData.map(d => d.academic_year))).filter(Boolean).sort((a: any, b: any) => b.localeCompare(a));
+      setAvailableYears(years as string[]);
+    }
+
+    // Fetch Current Year from Settings
+    const { data: settings } = await supabase.from('settings').select('current_academic_year').single();
+    if (settings?.current_academic_year) {
+      setConfig(prev => ({ ...prev, academicYear: settings.current_academic_year }));
     }
   };
 
   const fetchStudents = async () => {
+    if (!config.academicYear) return;
     setLoading(true);
     let query = supabase
       .from('students')
@@ -66,8 +75,19 @@ export default function CustomStudentPrint() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchYears(); }, []);
+  useEffect(() => { fetchInitialData(); }, []);
   useEffect(() => { fetchStudents(); }, [config.academicYear, config.classLevel, config.room]);
+
+  const addCustomColumn = () => {
+    if (newColumnName.trim()) {
+      setCustomColumns([...customColumns, newColumnName.trim()]);
+      setNewColumnName('');
+    }
+  };
+
+  const removeCustomColumn = (index: number) => {
+    setCustomColumns(customColumns.filter((_, i) => i !== index));
+  };
 
   const toggleColumn = (col: string) => {
     setSelectedColumns(prev => ({ ...prev, [col]: !prev[col as keyof typeof selectedColumns] }));
@@ -92,6 +112,7 @@ export default function CustomStudentPrint() {
         ${selectedColumns.parent_name ? `<td style="text-align:left;">${s.parent_first_name} ${s.parent_last_name}</td>` : ''}
         ${selectedColumns.address ? `<td style="text-align:left; font-size: 10pt;">${s.address_no} ม.${s.moo} ต.${s.sub_district}</td>` : ''}
         ${selectedColumns.status ? `<td>${s.graduation_status}</td>` : ''}
+        ${customColumns.map(() => `<td></td>`).join('')}
       </tr>
     `).join('');
 
@@ -106,6 +127,7 @@ export default function CustomStudentPrint() {
         ${selectedColumns.parent_name ? '<th>ผู้ปกครอง</th>' : ''}
         ${selectedColumns.address ? '<th>ที่อยู่</th>' : ''}
         ${selectedColumns.status ? '<th>สถานะ</th>' : ''}
+        ${customColumns.map(col => `<th>${col}</th>`).join('')}
       </tr>
     `;
 
@@ -263,6 +285,40 @@ export default function CustomStudentPrint() {
                <ColumnToggle label="ผู้ปกครอง" active={selectedColumns.parent_name} onClick={() => toggleColumn('parent_name')} />
                <ColumnToggle label="ที่อยู่" active={selectedColumns.address} onClick={() => toggleColumn('address')} />
                <ColumnToggle label="สถานะ" active={selectedColumns.status} onClick={() => toggleColumn('status')} />
+            </div>
+
+            {/* Custom Columns Section */}
+            <div className="pt-8 space-y-4">
+              <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest flex items-center gap-2">
+                <LayoutGrid size={16} /> 3. เพิ่มคอลัมน์เปล่า (กำหนดเอง)
+              </h4>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="ชื่อคอลัมน์ เช่น ลายมือชื่อ, หมายเหตุ" 
+                  className="flex-1 p-3.5 bg-white border border-slate-200 rounded-2xl font-bold outline-hidden focus:ring-2 ring-brand-primary/20"
+                  value={newColumnName}
+                  onChange={e => setNewColumnName(e.target.value)}
+                  onKeyPress={e => e.key === 'Enter' && addCustomColumn()}
+                />
+                <button 
+                  onClick={addCustomColumn}
+                  className="px-6 py-3 bg-slate-800 text-white rounded-2xl font-bold text-sm hover:bg-slate-700 transition-all shadow-lg shadow-slate-200"
+                >
+                  เพิ่มคอลัมน์
+                </button>
+              </div>
+
+              {customColumns.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  {customColumns.map((col, index) => (
+                    <div key={index} className="flex items-center gap-2 bg-brand-primary/10 text-brand-primary px-4 py-2 rounded-xl font-bold text-xs border border-brand-primary/20">
+                      {col}
+                      <button onClick={() => removeCustomColumn(index)} className="hover:text-red-500 transition-colors">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="pt-10 border-t border-slate-50 flex items-center justify-between">

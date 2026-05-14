@@ -22,6 +22,7 @@ import ProfilePage from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import Academic from './pages/Academic';
 import Finance from './pages/Finance';
+import FreeEducation from './pages/FreeEducation';
 import AICowork from './pages/AICowork';
 
 import { 
@@ -47,11 +48,12 @@ import {
   FileDown,
   FileUp,
   User,
-  Bot
+  Bot,
+  Coins
 } from 'lucide-react';
 
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education';
 
 function App() {
   const { user, profile, loading, signOut } = useAuth();
@@ -126,6 +128,7 @@ function App() {
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานงบประมาณ</div>
               <SidebarItem icon={<Wallet size={20} />} label="การเงิน/พัสดุ" active={activeTab === 'finance'} onClick={() => setActiveTab('finance')} />
+              <SidebarItem icon={<Coins size={20} />} label="จ่ายเงินเรียนฟรี" active={activeTab === 'free_education'} onClick={() => setActiveTab('free_education')} />
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบุคคล</div>
               {canAccessStaff && <SidebarItem icon={<UserCheck size={20} />} label="จัดการข้อมูลครู" active={activeTab === 'teachers'} onClick={() => setActiveTab('teachers')} />}
@@ -180,6 +183,7 @@ function App() {
             {activeTab === 'users' && 'จัดการสิทธิ์ผู้ใช้งาน'}
             {activeTab === 'academic' && 'งานวิชาการ'}
             {activeTab === 'finance' && 'งานงบประมาณ (การเงิน/พัสดุ)'}
+            {activeTab === 'free_education' && 'ระบบจ่ายเงินเรียนฟรี (๑๕ ปี)'}
             {activeTab === 'ai_cowork' && 'AI Cowork'}
           </h2>
           <div className="flex items-center gap-4">
@@ -221,6 +225,7 @@ function App() {
             {activeTab === 'users' && <UsersManagement />}
             {activeTab === 'academic' && <Academic />}
             {activeTab === 'finance' && <Finance />}
+            {activeTab === 'free_education' && <FreeEducation />}
             {activeTab === 'ai_cowork' && <AICowork />}
           </div>
         </div>

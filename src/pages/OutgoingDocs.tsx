@@ -18,6 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import garuda3cm from '../assets/saraban/garuda-3cm.png';
+import { getAvailableModels } from '../lib/aiService';
 
 export default function OutgoingDocs() {
   const { user } = useAuth();
@@ -99,46 +100,121 @@ export default function OutgoingDocs() {
     return `${day} ${month} ${year}`;
   };
 
-  const handleAiDraft = async (incoming: any) => {
+  const [aiPurpose, setAiPurpose] = useState('');
+
+  const handleAiDraft = async (incoming: any = null) => {
+    // แก้ไข: ถ้าอิงจากหนังสือรับ ไม่จำเป็นต้องระบุรายละเอียดเพิ่มก็ได้ แต่ถ้าหนังสือใหม่โดยตรงต้องระบุ
+    if (!incoming && !aiPurpose.trim()) {
+      alert('กรุณาระบุรายละเอียดหรือความต้องการในการร่างหนังสือ');
+      return;
+    }
+    
     setIsSaving(true);
     try {
       // 1. Fetch API Key
       const { data: sets } = await supabase.from('settings').select('gemini_api_key').single();
       const apiKey = sets?.gemini_api_key;
 
-      // 2. Draft content using AI if API Key is available
-      let draftedContent = `ตามหนังสือที่อ้างถึง ${incoming.from_agency} แจ้งว่า... ความละเอียดแจ้งแล้วนั้น\n\nในการนี้ โรงเรียนบ้านควนโคกยาได้พิจารณาแล้วเห็นว่า... จึงเรียนมาเพื่อโปรดพิจารณา`;
+      if (!apiKey) {
+        throw new Error('ไม่พบ API Key ของ Gemini ในหน้าตั้งค่าระบบ');
+      }
+
+      // 2. Draft content using AI
+      let draftedContent = '';
       
-      if (apiKey && incoming.subject) {
-        try {
-          // ใช้หัวข้อและหน่วยงานส่งเป็นบริบทในการร่าง (เนื่องจากเรามีแค่ metadata ในตอนนี้)
-          // หากต้องการร่างจากไฟล์ PDF ต้องโหลดไฟล์มาด้วย แต่อันนี้เป็น Metadata เบื้องต้น
-          draftedContent = `ตามหนังสือที่อ้างถึง ${incoming.from_agency} ได้แจ้งเรื่อง ${incoming.subject} มายังโรงเรียนบ้านควนโคกยา เพื่อพิจารณาดำเนินการในส่วนที่เกี่ยวข้อง ความละเอียดแจ้งแล้วนั้น\n\nในการนี้ โรงเรียนบ้านควนโคกยาได้พิจารณาข้อมูลและรายละเอียดดังกล่าวเรียบร้อยแล้ว จึงใคร่ขอแจ้งผลการดำเนินงานดังนี้... (ระบุรายละเอียดเพิ่มเติม) จึงเรียนมาเพื่อโปรดพิจารณา`;
-        } catch (aiErr) {
-          console.error('AI Drafting error:', aiErr);
+      const referenceContext = incoming ? `
+หนังสือรับอ้างถึง:
+- เรื่อง: ${incoming.subject}
+- จาก: ${incoming.from_agency}
+- เลขที่: ${incoming.doc_number}` : 'เป็นการร่างหนังสือใหม่โดยตรง (ไม่มีการอ้างถึงหนังสือรับ)';
+
+      const userDetail = aiPurpose.trim() ? `ความต้องการหรือรายละเอียดเพิ่มเติมที่ผู้ใช้ระบุ: "${aiPurpose}"` : 'กรุณาร่างเนื้อหาตอบกลับที่เหมาะสมตามหัวข้อหนังสือรับ';
+
+      const prompt = `คุณคือผู้ช่วยร่างหนังสือราชการไทย (โรงเรียนบ้านควนโคกยา) 
+กรุณาร่าง "เนื้อหาหลัก" ของหนังสือตอบกลับหรือหนังสือส่งออก โดยอ้างอิงจากข้อมูลดังนี้:
+
+บริบท:
+${referenceContext}
+
+${userDetail}
+
+แนวทางการร่าง:
+1. ใช้ภาษาราชการที่ถูกต้อง เป็นทางการ และสละสลวย
+2. แบ่งเป็นย่อหน้า (ย่อหน้าแรกเกริ่นนำ/อ้างถึง, ย่อหน้าต่อมาแจ้งรายละเอียด/เหตุผล, ย่อหน้าสุดท้ายเป็นคำสรุปพิจารณา)
+3. ห้ามใส่ "ที่", "เรื่อง", "เรียน" หรือ "คำลงท้าย (เช่น จึงเรียนมาเพื่อโปรดพิจารณา)" เนื่องจากระบบมีส่วนเหล่านั้นแยกต่างหากแล้ว
+4. ให้เน้นเฉพาะเนื้อหาใจความสำคัญที่จะใส่ในพื้นที่เขียนข้อความเท่านั้น
+
+ร่างเฉพาะข้อความเนื้อหา:`;
+
+      let modelsToTry = await getAvailableModels(apiKey);
+      if (modelsToTry.length === 0) {
+        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+      }
+
+      const apiVersions = ["v1beta", "v1"];
+      let aiDrafted = false;
+
+      for (const modelName of modelsToTry) {
+        if (aiDrafted) break;
+        for (const version of apiVersions) {
+          if (aiDrafted) break;
+          try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+              })
+            });
+            
+            const result = await response.json();
+            if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
+              draftedContent = result.candidates[0].content.parts[0].text.trim();
+              aiDrafted = true;
+            } else if (result.error) {
+              console.warn(`Model ${modelName} (${version}) failed:`, result.error.message);
+            }
+          } catch (aiErr: any) {
+            console.error(`AI Drafting error with ${modelName} (${version}):`, aiErr);
+          }
         }
       }
 
-      // 3. Parse extra data from remark
+      if (!aiDrafted) {
+        throw new Error('ไม่สามารถรับข้อมูลจาก AI ได้ในขณะนี้ โปรดตรวจสอบว่า API Key ของคุณเปิดใช้งานโปรโตคอลที่จำเป็นหรือยัง หรือลองใหม่อีกครั้ง');
+      }
+
+      // 3. Prepare Form Data
       let extra: any = {};
-      try {
-        if (incoming.remark && incoming.remark.startsWith('{')) {
-          extra = JSON.parse(incoming.remark);
-        }
-      } catch (e) {}
+      if (incoming) {
+        try {
+          if (incoming.remark && incoming.remark.startsWith('{')) {
+            extra = JSON.parse(incoming.remark);
+          }
+        } catch (e) {}
 
-      const originalDocNum = extra.sender_doc_number || incoming.doc_number;
-      const originalDocDate = extra.sender_doc_date || incoming.doc_date;
-      const formattedDate = formatThaiFullDate(originalDocDate);
+        const originalDocNum = extra.sender_doc_number || incoming.doc_number;
+        const originalDocDate = extra.sender_doc_date || incoming.doc_date;
+        const formattedDate = formatThaiFullDate(originalDocDate);
 
-      setFormData({
-        ...formData,
-        to_agency: incoming.from_agency,
-        subject: incoming.subject,
-        reference: `หนังสือ${incoming.from_agency} ที่ ${originalDocNum}\nลงวันที่ ${formattedDate}`,
-        closing_phrase: 'จึงเรียนมาเพื่อโปรดพิจารณา'
-      });
+        setFormData({
+          ...formData,
+          to_agency: incoming.from_agency,
+          subject: `แจ้งผลการดำเนินงานเรื่อง ${incoming.subject}`,
+          reference: `หนังสือ${incoming.from_agency} ที่ ${originalDocNum}\nลงวันที่ ${formattedDate}`,
+          closing_phrase: 'จึงเรียนมาเพื่อโปรดพิจารณา'
+        });
+      } else {
+        setFormData({
+          ...formData,
+          subject: aiPurpose.length > 50 ? aiPurpose.substring(0, 50) + '...' : aiPurpose,
+          reference: '',
+          closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบ'
+        });
+      }
+
       setContent(draftedContent);
+      setAiPurpose(''); // Reset purpose
       setIsAiModalOpen(false);
       setIsModalOpen(true);
     } catch (err: any) {
@@ -527,27 +603,53 @@ export default function OutgoingDocs() {
       </div>
 
       <Modal isOpen={isAiModalOpen} onClose={() => setIsAiModalOpen(false)} title="ร่างหนังสือส่งด้วย AI (เลือกจากหนังสือรับ)">
-        <div className="space-y-4">
-          <p className="text-sm font-bold text-slate-500">กรุณาเลือกหนังสือรับที่ต้องการร่างหนังสือตอบกลับ:</p>
-          <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-2">
-            {incomingDocs.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</div>
-            ) : (
-              incomingDocs.map(inc => (
+        <div className="space-y-6">
+          <div className="bg-brand-primary/5 p-4 rounded-2xl border border-brand-primary/10 space-y-3">
+             <label className="text-xs font-black text-brand-primary uppercase tracking-widest flex items-center gap-2">
+                <Sparkles size={14} /> สิ่งที่ต้องการให้ AI ร่าง (รายละเอียดเพิ่มเติม)
+             </label>
+             <textarea 
+                className="w-full p-4 bg-white border border-brand-primary/20 rounded-xl font-bold text-slate-700 outline-hidden focus:ring-2 ring-brand-primary/20"
+                placeholder="เช่น แจ้งผลการดำเนินงานจัดซื้อพัสดุ หรือ ร่างหนังสือเชิญประชุมคณะกรรมการสถานศึกษา..."
+                rows={3}
+                value={aiPurpose}
+                onChange={e => setAiPurpose(e.target.value)}
+             />
+             <div className="flex justify-between items-center gap-4">
+                <p className="text-[10px] text-slate-400 font-bold italic flex-1">* ระบุรายละเอียดที่ต้องการ แล้วเลือกหนังสือรับด้านล่าง หรือกดปุ่มร่างใหม่โดยตรง</p>
                 <button 
-                  key={inc.id}
-                  onClick={() => handleAiDraft(inc)}
-                  className="w-full text-left p-4 bg-slate-50 hover:bg-brand-primary/5 border border-slate-100 rounded-2xl transition-all group"
+                  onClick={() => handleAiDraft(null)}
+                  disabled={isSaving || !aiPurpose.trim()}
+                  className="shrink-0 px-4 py-2 bg-brand-primary text-white rounded-xl font-bold text-xs shadow-lg shadow-green-100 hover:bg-green-700 disabled:opacity-50 transition-all flex items-center gap-2"
                 >
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="text-[10px] font-black text-brand-primary uppercase tracking-widest">เลขที่รับ: {inc.doc_number}</span>
-                    <span className="text-[10px] font-bold text-slate-400">{inc.doc_date}</span>
-                  </div>
-                  <h4 className="text-sm font-bold text-slate-800 group-hover:text-brand-primary transition-colors">{inc.subject}</h4>
-                  <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold">จาก: {inc.from_agency}</p>
+                  {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  ร่างหนังสือใหม่โดยตรง
                 </button>
-              ))
-            )}
+             </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">เลือกหนังสือรับอ้างถึง:</p>
+            <div className="max-h-[40vh] overflow-y-auto space-y-2 pr-2">
+              {incomingDocs.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</div>
+              ) : (
+                incomingDocs.map(inc => (
+                  <button 
+                    key={inc.id}
+                    onClick={() => handleAiDraft(inc)}
+                    className="w-full text-left p-4 bg-slate-50 hover:bg-brand-primary/5 border border-slate-100 rounded-2xl transition-all group"
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="text-[10px] font-black text-brand-primary uppercase tracking-widest">เลขที่รับ: {inc.doc_number}</span>
+                      <span className="text-[10px] font-bold text-slate-400">{inc.doc_date}</span>
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800 group-hover:text-brand-primary transition-colors">{inc.subject}</h4>
+                    <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold">จาก: {inc.from_agency}</p>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </Modal>
@@ -610,20 +712,21 @@ export default function OutgoingDocs() {
 
           <div className="bg-slate-50 p-4 rounded-2xl space-y-4 border border-slate-100">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Send size={14} /> คำลงท้าย</h4>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
               {[
                 'จึงเรียนมาเพื่อทราบ',
                 'จึงเรียนมาเพื่อโปรดทราบ',
                 'จึงเรียนมาเพื่อพิจารณา',
-                'จึงเรียนมาเพื่อโปรดพิจารณา'
+                'จึงเรียนมาเพื่อโปรดพิจารณา',
+                'ไม่ระบุ / ใช้ตามเนื้อหา AI'
               ].map((phrase) => (
                 <button
                   key={phrase}
                   type="button"
-                  onClick={() => setFormData({ ...formData, closing_phrase: phrase })}
-                  className={`p-3 text-sm font-bold rounded-xl border-2 transition-all ${
-                    formData.closing_phrase === phrase 
-                      ? 'bg-brand-primary border-brand-primary text-white' 
+                  onClick={() => setFormData({ ...formData, closing_phrase: phrase.includes('ไม่ระบุ') ? '' : phrase })}
+                  className={`p-3 text-[11px] font-bold rounded-xl border-2 transition-all ${
+                    (formData.closing_phrase === phrase || (phrase.includes('ไม่ระบุ') && !formData.closing_phrase))
+                      ? 'bg-brand-primary border-brand-primary text-white shadow-md' 
                       : 'bg-white border-slate-100 text-slate-500 hover:border-slate-200'
                   }`}
                 >
