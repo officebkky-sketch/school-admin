@@ -28,6 +28,7 @@ const FreeEducation = () => {
   const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
   const [directorName, setDirectorName] = useState('');
   const [payerName, setPayerName] = useState('');
+  const [paymentType, setPaymentType] = useState<'all' | 'uniform' | 'materials'>('all');
   const [payers, setPayers] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('free_education_payers');
     return saved ? JSON.parse(saved) : {};
@@ -156,7 +157,12 @@ const FreeEducation = () => {
   };
 
   const calculateGrandTotal = () => {
-    return students.reduce((sum, s) => sum + getStudentAmounts(s.class_level).total, 0);
+    return students.reduce((sum, s) => {
+      const amounts = getStudentAmounts(s.class_level);
+      if (paymentType === 'uniform') return sum + amounts.uniform;
+      if (paymentType === 'materials') return sum + amounts.materials;
+      return sum + amounts.total;
+    }, 0);
   };
 
   const bahttext = (amount: number) => {
@@ -191,9 +197,88 @@ const FreeEducation = () => {
     const isPayment = activeView === 'payment';
     const totalAmount = calculateGrandTotal();
     
+    // Dynamic Title and Headers based on paymentType
+    let docTitle = isPayment ? 'แบบหลักฐานการจ่ายเงินอุดหนุนค่าเครื่องแบบนักเรียน และอุปกรณ์การเรียน' : 'ใบลงทะเบียนเข้าร่วมประชุมผู้ปกครอง';
+    if (isPayment) {
+      if (paymentType === 'uniform') docTitle = 'แบบหลักฐานการจ่ายเงินอุดหนุนค่าเครื่องแบบนักเรียน';
+      if (paymentType === 'materials') docTitle = 'แบบหลักฐานการจ่ายเงินอุดหนุนค่าอุปกรณ์การเรียน';
+    }
+
+    const tableRows = students.map((student, i) => {
+      const studentAmounts = getStudentAmounts(student.class_level);
+      if (!isPayment) {
+        return `
+          <tr>
+            <td style="text-align:center;">${toThaiDigits(i + 1)}</td>
+            <td style="text-align:left; white-space:nowrap;">${student.prefix}${student.first_name} ${student.last_name}</td>
+            <td style="text-align:center;">${formatClassThai(student.class_level, student.room)}</td>
+            <td></td>
+            <td></td>
+            <td style="text-align:center;">${toThaiDigits(student.parent_phone || '')}</td>
+            <td></td>
+          </tr>
+        `;
+      }
+
+      // Payment Rows - Dynamic columns
+      let amountCols = '';
+      if (paymentType === 'all') {
+        amountCols = `
+          <td style="text-align:right;">${toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>
+          <td style="text-align:right;">${toThaiDigits(studentAmounts.materials.toLocaleString())}</td>
+          <td style="text-align:right;">${toThaiDigits(studentAmounts.total.toLocaleString())}</td>
+        `;
+      } else if (paymentType === 'uniform') {
+        amountCols = `<td style="text-align:right;">${toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>`;
+      } else {
+        amountCols = `<td style="text-align:right;">${toThaiDigits(studentAmounts.materials.toLocaleString())}</td>`;
+      }
+
+      return `
+        <tr>
+          <td style="text-align:center;">${toThaiDigits(i + 1)}</td>
+          <td style="text-align:left; white-space:nowrap;">${student.prefix}${student.first_name} ${student.last_name}</td>
+          <td style="text-align:center;">${formatClassThai(student.class_level, student.room)}</td>
+          ${amountCols}
+          <td style="text-align:center;"></td>
+          <td></td>
+          <td></td>
+        </tr>
+      `;
+    }).join('');
+
+    const headerRow = !isPayment ? `
+      <tr>
+        <th style="width: 25px;">ที่</th>
+        <th style="width: 160px;">ชื่อ - สกุล นักเรียน</th>
+        <th style="width: 50px;">ชั้น</th>
+        <th style="width: 240px;">ชื่อ - สกุล ผู้ปกครอง</th>
+        <th style="width: 65px;">ความสัมพันธ์</th>
+        <th style="width: 120px;">เบอร์โทรศัพท์</th>
+        <th style="width: 100px;">ลายมือชื่อ</th>
+      </tr>
+    ` : `
+      <tr>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 25px;">ที่</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 210px;">ชื่อ - สกุล นักเรียน</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 50px;">ชั้น</th>
+        <th ${paymentType === 'all' ? 'colspan="2"' : ''}>รายการที่ได้รับเงิน (บาท)</th>
+        ${paymentType === 'all' ? '<th rowspan="2" style="width: 70px;">รวมเงิน<br/>(บาท)</th>' : ''}
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 120px;">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 180px;">ลายมือชื่อผู้รับเงิน<br/>(ผู้ปกครอง)</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 50px;">หมายเหตุ</th>
+      </tr>
+      ${paymentType === 'all' ? `
+        <tr>
+          <th style="width: 60px;">เครื่องแบบ</th>
+          <th style="width: 60px;">อุปกรณ์</th>
+        </tr>
+      ` : ''}
+    `;
+
     const footerTotal = isPayment && students.length > 0 ? `
       <tr style="font-weight:bold; background:#f8fafc;">
-        <td colspan="5" style="text-align:right;">รวมเป็นเงินทั้งสิ้น</td>
+        <td colspan="${paymentType === 'all' ? 5 : 3}" style="text-align:right;">รวมเป็นเงินทั้งสิ้น</td>
         <td style="text-align:right;">${toThaiDigits(totalAmount.toLocaleString())}</td>
         <td colspan="3" style="text-align:left;">บาท</td>
       </tr>
@@ -202,7 +287,7 @@ const FreeEducation = () => {
     const html = `
       <html>
         <head>
-          <title>${isPayment ? 'แบบหลักฐานการจ่ายเงิน' : 'ใบลงทะเบียน'} - ${selectedClass}</title>
+          <title>${docTitle} - ${selectedClass}</title>
           <style>
             @media print {
               @page { size: A4; margin: 15mm 5mm 5mm 5mm; }
@@ -244,7 +329,7 @@ const FreeEducation = () => {
           <div class="page">
             ${!isPayment ? `
               <div class="header">
-                <h1 style="font-size: 20pt; font-weight: bold; margin: 0;">ใบลงทะเบียนเข้าร่วมประชุมผู้ปกครอง</h1>
+                <h1 style="font-size: 20pt; font-weight: bold; margin: 0;">${docTitle}</h1>
                 <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">
                   ภาคเรียนที่ ${toThaiDigits(semester)} ปีการศึกษา ${toThaiDigits(academicYear)} 
                   ${selectedClass !== 'ทั้งหมด' ? ` (ชั้น ${selectedClass})` : ''}
@@ -254,28 +339,10 @@ const FreeEducation = () => {
               </div>
               <table>
                 <thead>
-                  <tr>
-                    <th style="width: 25px;">ที่</th>
-                    <th style="width: 160px;">ชื่อ - สกุล นักเรียน</th>
-                    <th style="width: 50px;">ชั้น</th>
-                    <th style="width: 240px;">ชื่อ - สกุล ผู้ปกครอง</th>
-                    <th style="width: 65px;">ความสัมพันธ์</th>
-                    <th style="width: 120px;">เบอร์โทรศัพท์</th>
-                    <th style="width: 100px;">ลายมือชื่อ</th>
-                  </tr>
+                  ${headerRow}
                 </thead>
                 <tbody>
-                  ${students.map((student, i) => `
-                    <tr>
-                      <td style="text-align:center;">${toThaiDigits(i + 1)}</td>
-                      <td class="td-name">${student.prefix}${student.first_name} ${student.last_name}</td>
-                      <td style="text-align:center;">${formatClassThai(student.class_level, student.room)}</td>
-                      <td></td>
-                      <td></td>
-                      <td style="text-align:center;">${toThaiDigits(student.parent_phone || '')}</td>
-                      <td></td>
-                    </tr>
-                  `).join('')}
+                  ${tableRows}
                 </tbody>
               </table>
               <div class="footer-area">
@@ -294,7 +361,7 @@ const FreeEducation = () => {
               </div>
             ` : `
               <div class="header">
-                <h1 style="font-size: 18pt; font-weight: bold; margin: 0;">แบบหลักฐานการจ่ายเงินเงินอุดหนุนค่าเครื่องแบบนักเรียน และอุปกรณ์การเรียน</h1>
+                <h1 style="font-size: 18pt; font-weight: bold; margin: 0;">${docTitle}</h1>
                 <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">โครงการสนับสนุนค่าใช้จ่ายในการจัดการศึกษาตั้งแต่ระดับอนุบาลจนจบการศึกษาขั้นพื้นฐาน</h2>
                 <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">
                   ภาคเรียนที่ ${toThaiDigits(semester)} ปีการศึกษา ${toThaiDigits(academicYear)}
@@ -304,38 +371,10 @@ const FreeEducation = () => {
               </div>
               <table>
                 <thead>
-                  <tr>
-                    <th rowspan="2" style="width: 25px;">ที่</th>
-                    <th rowspan="2" style="width: 210px;">ชื่อ - สกุล นักเรียน</th>
-                    <th rowspan="2" style="width: 50px;">ชั้น</th>
-                    <th colspan="2">รายการที่ได้รับเงิน (บาท)</th>
-                    <th rowspan="2" style="width: 70px;">รวมเงิน<br/>(บาท)</th>
-                    <th rowspan="2" style="width: 120px;">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
-                    <th rowspan="2" style="width: 180px;">ลายมือชื่อผู้รับเงิน<br/>(ผู้ปกครอง)</th>
-                    <th rowspan="2" style="width: 50px;">หมายเหตุ</th>
-                  </tr>
-                  <tr>
-                    <th style="width: 60px;">เครื่องแบบ</th>
-                    <th style="width: 60px;">อุปกรณ์</th>
-                  </tr>
+                  ${headerRow}
                 </thead>
                 <tbody>
-                  ${students.map((student, i) => {
-                    const studentAmounts = getStudentAmounts(student.class_level);
-                    return `
-                      <tr>
-                        <td style="text-align:center;">${toThaiDigits(i + 1)}</td>
-                        <td class="td-name">${student.prefix}${student.first_name} ${student.last_name}</td>
-                        <td style="text-align:center;">${formatClassThai(student.class_level, student.room)}</td>
-                        <td style="text-align:right;">${toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>
-                        <td style="text-align:right;">${toThaiDigits(studentAmounts.materials.toLocaleString())}</td>
-                        <td style="text-align:right;">${toThaiDigits(studentAmounts.total.toLocaleString())}</td>
-                        <td style="text-align:center;">${toThaiDigits(student.parent_phone || '')}</td>
-                        <td></td>
-                        <td></td>
-                      </tr>
-                    `;
-                  }).join('')}
+                  ${tableRows}
                   ${footerTotal}
                 </tbody>
               </table>
@@ -421,6 +460,14 @@ const FreeEducation = () => {
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">ชื่อผู้จ่ายเงิน</label>
             <input type="text" value={payerName} onChange={(e) => handlePayerChange(e.target.value)} className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-brand-primary" placeholder="ชื่อ-สกุล ผู้จ่ายเงิน" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">รายการจ่ายเงิน</label>
+            <select value={paymentType} onChange={(e) => setPaymentType(e.target.value as any)} className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-brand-primary">
+              <option value="all">ทั้งหมด (เครื่องแบบ + อุปกรณ์)</option>
+              <option value="uniform">เฉพาะค่าเครื่องแบบนักเรียน</option>
+              <option value="materials">เฉพาะค่าอุปกรณ์การเรียน</option>
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">วันที่ประชุม/จ่ายเงิน</label>
@@ -512,7 +559,11 @@ const FreeEducation = () => {
             ) : (
               <>
                 <div className="text-center mb-6 leading-tight">
-                  <h1 className="text-[18pt] font-bold">แบบหลักฐานการจ่ายเงินเงินอุดหนุนค่าเครื่องแบบนักเรียน และอุปกรณ์การเรียน</h1>
+                  <h1 className="text-[18pt] font-bold">
+                    {paymentType === 'all' ? 'แบบหลักฐานการจ่ายเงินอุดหนุนค่าเครื่องแบบนักเรียน และอุปกรณ์การเรียน' : 
+                     paymentType === 'uniform' ? 'แบบหลักฐานการจ่ายเงินอุดหนุนค่าเครื่องแบบนักเรียน' : 
+                     'แบบหลักฐานการจ่ายเงินอุดหนุนค่าอุปกรณ์การเรียน'}
+                  </h1>
                   <h2 className="text-[16pt]">โครงการสนับสนุนค่าใช้จ่ายในการจัดการศึกษาตั้งแต่ระดับอนุบาลจนจบการศึกษาขั้นพื้นฐาน</h2>
                   <h2 className="text-[16pt]">ภาคเรียนที่ {toThaiDigits(semester)} ปีการศึกษา {toThaiDigits(academicYear)} {selectedClass !== 'ทั้งหมด' && ` (ชั้น ${selectedClass})`}</h2>
                   <h2 className="text-[16pt]">{schoolName}</h2>
@@ -520,19 +571,21 @@ const FreeEducation = () => {
                 <table className="w-full border-collapse border border-black table-auto">
                   <thead>
                     <tr className="bg-slate-50">
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-10 text-center">ที่</th>
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-[180px]">ชื่อ - สกุล นักเรียน</th>
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-16 text-center">ชั้น</th>
-                      <th colSpan={2} className="border border-black p-1 text-[14pt] text-center">รายการที่ได้รับเงิน (บาท)</th>
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-20 text-center">รวมเงิน<br/>(บาท)</th>
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-32 text-center">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-32 text-center">ลายมือชื่อผู้รับเงิน<br/>(ผู้ปกครอง)</th>
-                      <th rowSpan={2} className="border border-black p-1 text-[14pt] w-16 text-center">หมายเหตุ</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-10 text-center">ที่</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-[180px]">ชื่อ - สกุล นักเรียน</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-16 text-center">ชั้น</th>
+                      <th colSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] text-center">รายการที่ได้รับเงิน (บาท)</th>
+                      {paymentType === 'all' && <th rowSpan={2} className="border border-black p-1 text-[14pt] w-20 text-center">รวมเงิน<br/>(บาท)</th>}
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-32 text-center">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-32 text-center">ลายมือชื่อผู้รับเงิน<br/>(ผู้ปกครอง)</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-16 text-center">หมายเหตุ</th>
                     </tr>
-                    <tr className="bg-slate-50">
-                      <th className="border border-black p-1 text-[14pt] w-16 text-center">เครื่องแบบ</th>
-                      <th className="border border-black p-1 text-[14pt] w-16 text-center">อุปกรณ์</th>
-                    </tr>
+                    {paymentType === 'all' && (
+                      <tr className="bg-slate-50">
+                        <th className="border border-black p-1 text-[14pt] w-16 text-center">เครื่องแบบ</th>
+                        <th className="border border-black p-1 text-[14pt] w-16 text-center">อุปกรณ์</th>
+                      </tr>
+                    )}
                   </thead>
                   <tbody>
                     {students.map((student, i) => {
@@ -542,9 +595,19 @@ const FreeEducation = () => {
                           <td className="border border-black p-1 text-[15pt] text-center">{toThaiDigits(i + 1)}</td>
                           <td className="border border-black p-1 text-[15pt] whitespace-nowrap">{student.prefix}{student.first_name} {student.last_name}</td>
                           <td className="border border-black p-1 text-[15pt] text-center whitespace-nowrap">{formatClassThai(student.class_level, student.room)}</td>
-                          <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>
-                          <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.materials.toLocaleString())}</td>
-                          <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.total.toLocaleString())}</td>
+                          
+                          {paymentType === 'all' ? (
+                            <>
+                              <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>
+                              <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.materials.toLocaleString())}</td>
+                              <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.total.toLocaleString())}</td>
+                            </>
+                          ) : paymentType === 'uniform' ? (
+                            <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>
+                          ) : (
+                            <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(studentAmounts.materials.toLocaleString())}</td>
+                          )}
+
                           <td className="border border-black p-1 text-[15pt] text-center"></td>
                           <td className="border border-black p-1 text-[15pt]"></td>
                           <td className="border border-black p-1 text-[15pt]"></td>
@@ -553,7 +616,7 @@ const FreeEducation = () => {
                     })}
                     {students.length > 0 && (
                       <tr className="font-bold bg-slate-50">
-                        <td colSpan={5} className="border border-black p-1 text-[15pt] text-right">รวมเป็นเงินทั้งสิ้น</td>
+                        <td colSpan={paymentType === 'all' ? 5 : 3} className="border border-black p-1 text-[15pt] text-right">รวมเป็นเงินทั้งสิ้น</td>
                         <td className="border border-black p-1 text-[15pt] text-right">{toThaiDigits(calculateGrandTotal().toLocaleString())}</td>
                         <td colSpan={3} className="border border-black p-1 text-[15pt]">บาท</td>
                       </tr>

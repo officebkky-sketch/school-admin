@@ -19,6 +19,7 @@ export default function CustomStudentPrint() {
   const [newColumnName, setNewColumnName] = useState('');
 
   // Selection State
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [config, setConfig] = useState({
     academicYear: '',
     classLevel: 'ทั้งหมด',
@@ -73,6 +74,12 @@ export default function CustomStudentPrint() {
     if (error) console.error(error);
     else setStudents(data || []);
     setLoading(false);
+  };
+
+  const toThaiDigits = (num: string | number) => {
+    if (!num) return '';
+    const thaiDigits = ['๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙'];
+    return num.toString().split('').map(d => isNaN(parseInt(d)) ? d : thaiDigits[parseInt(d)]).join('');
   };
 
   useEffect(() => { fetchInitialData(); }, []);
@@ -138,16 +145,37 @@ export default function CustomStudentPrint() {
     ` : '';
 
     const signatureHtml = config.showSignatures ? `
-      <div class="footer-sign" style="margin-top: 2cm; display: flex; justify-content: space-between; page-break-inside: avoid;">
-        <div class="sign-box" style="text-align: center; width: 45%;">
-          <p>(ลงชื่อ)......................................................ผู้ให้ข้อมูล</p>
-          <p>(${config.teacherName || '................................................'})</p>
-          <p>ตำแหน่ง ครู</p>
+      <div class="footer-sign" style="margin-top: 1.5cm; display: flex; justify-content: space-between; page-break-inside: avoid; width: 100%;">
+        <div style="display: flex; flex-direction: column; align-items: center; width: 48%;">
+          <table style="border: none !important; margin: 0 auto; line-height: 1.0; border-spacing: 0;">
+            <tr>
+              <td style="border: none !important; text-align: right; padding-right: 5px; white-space: nowrap; font-size: 16pt;">ลงชื่อ</td>
+              <td style="border: none !important; text-align: center; white-space: nowrap; font-size: 16pt;">...........................................................</td>
+              <td style="border: none !important; text-align: left; padding-left: 5px; white-space: nowrap; font-size: 16pt;">ผู้ให้ข้อมูล</td>
+            </tr>
+            <tr>
+              <td style="border: none !important;"></td>
+              <td style="border: none !important; text-align: center; font-size: 16pt;">( ${config.teacherName || '.........................................................'} )</td>
+              <td style="border: none !important;"></td>
+            </tr>
+          </table>
+          <div style="margin-top: 5px; font-size: 16pt;">ตำแหน่ง ครู</div>
         </div>
-        <div class="sign-box" style="text-align: center; width: 45%;">
-          <p>(ลงชื่อ)......................................................ผู้รับรองข้อมูล</p>
-          <p>(${config.directorName || '................................................'})</p>
-          <p>ตำแหน่ง ผู้อำนวยการสถานศึกษา</p>
+        
+        <div style="display: flex; flex-direction: column; align-items: center; width: 48%;">
+          <table style="border: none !important; margin: 0 auto; line-height: 1.0; border-spacing: 0;">
+            <tr>
+              <td style="border: none !important; text-align: right; padding-right: 5px; white-space: nowrap; font-size: 16pt;">ลงชื่อ</td>
+              <td style="border: none !important; text-align: center; white-space: nowrap; font-size: 16pt;">...........................................................</td>
+              <td style="border: none !important; text-align: left; padding-left: 5px; white-space: nowrap; font-size: 16pt;">ผู้รับรองข้อมูล</td>
+            </tr>
+            <tr>
+              <td style="border: none !important;"></td>
+              <td style="border: none !important; text-align: center; font-size: 16pt;">( ${config.directorName || '.........................................................'} )</td>
+              <td style="border: none !important;"></td>
+            </tr>
+          </table>
+          <div style="margin-top: 5px; font-size: 16pt;">ตำแหน่ง ผู้อำนวยการสถานศึกษา</div>
         </div>
       </div>
     ` : '';
@@ -157,36 +185,51 @@ export default function CustomStudentPrint() {
         <head>
           <title>${config.reportTitle}</title>
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
-            body { font-family: 'Sarabun', sans-serif; padding: 1.5cm; }
-            .header { text-align: center; margin-bottom: 25px; line-height: 1.3; }
+            @media print {
+              @page { size: A4 ${orientation}; margin: 15mm; }
+              body { background: white; margin: 0; padding: 0; }
+              .no-print-btn { display: none !important; }
+              .page { margin: 0 !important; box-shadow: none !important; width: 100% !important; min-height: 0 !important; padding: 0 !important; }
+            }
+            .sarabun { font-family: 'TH Sarabun New', 'THSarabunNew', sans-serif; color: black; line-height: 1.1; }
+            body { background: #f0f0f0; margin: 0; padding: 0; }
+            .page { 
+              background: white; 
+              width: ${orientation === 'portrait' ? '210mm' : '297mm'}; 
+              min-height: ${orientation === 'portrait' ? '297mm' : '210mm'}; 
+              padding: 1.5cm; margin: 1cm auto; box-sizing: border-box; 
+              box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .header { text-align: center; margin-bottom: 25px; line-height: 1.1; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid black; padding: 8px; text-align: center; font-size: 12pt; }
-            th { background: #f0f0f0; font-weight: bold; }
+            th, td { border: 1px solid black !important; padding: 4px 8px !important; text-align: center; font-size: 16pt; }
+            th { background: #f8fafc; font-weight: bold; }
             .no-print-btn { 
               position: fixed; top: 20px; right: 20px; 
-              background: #16a34a; color: white; border: none; 
+              background: #2563eb; color: white; border: none; 
               padding: 12px 24px; border-radius: 12px; cursor: pointer;
-              font-weight: bold; font-family: 'Sarabun', sans-serif;
+              font-weight: bold; font-family: sans-serif;
               z-index: 9999;
+              box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
             }
-            @media print { .no-print-btn { display: none; } }
           </style>
         </head>
-        <body>
-          <button class="no-print-btn" onclick="window.print()">🖨️ คลิกเพื่อสั่งพิมพ์</button>
-          ${logoHtml}
-          <div class="header">
-            <h2 style="margin:0;">${config.reportTitle}</h2>
-            <p style="margin:5px 0;">โรงเรียนบ้านควนโคกยา ปีการศึกษา ${config.academicYear}</p>
-            ${config.classLevel !== 'ทั้งหมด' ? `<p style="margin:0;">ระดับชั้น ${config.classLevel} ${config.room !== 'ทั้งหมด' ? `ห้อง ${config.room}` : ''}</p>` : ''}
+        <body class="sarabun">
+          <button class="no-print-btn" onclick="window.print()">🖨️ คลิกเพื่อสั่งพิมพ์ (${orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'})</button>
+          <div class="page">
+            ${logoHtml}
+            <div class="header">
+              <h1 style="margin:0; font-size: 20pt; font-weight: bold;">${config.reportTitle}</h1>
+              <p style="margin:5px 0; font-size: 16pt;">โรงเรียนบ้านควนโคกยา ปีการศึกษา ${toThaiDigits(config.academicYear)}</p>
+              ${config.classLevel !== 'ทั้งหมด' ? `<p style="margin:0; font-size: 16pt;">ระดับชั้น ${config.classLevel} ${config.room !== 'ทั้งหมด' ? `ห้อง ${toThaiDigits(config.room)}` : ''}</p>` : ''}
+            </div>
+            <table>
+              <thead>${headers}</thead>
+              <tbody>${htmlRows}</tbody>
+            </table>
+            ${signatureHtml}
           </div>
-          <table>
-            <thead>${headers}</thead>
-            <tbody>${htmlRows}</tbody>
-          </table>
-          ${signatureHtml}
-          <script>window.onload = function() { setTimeout(() => { window.print(); }, 600); }</script>
+          <script>window.onload = function() { setTimeout(() => { window.print(); }, 800); }</script>
         </body>
       </html>
     `;
@@ -245,6 +288,24 @@ export default function CustomStudentPrint() {
                 <div className="space-y-2 pt-4">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">หัวข้อรายงาน</label>
                   <input type="text" className="w-full p-3.5 bg-white border border-slate-200 rounded-2xl font-bold outline-hidden focus:ring-2 ring-brand-primary/20" value={config.reportTitle} onChange={e => setConfig({...config, reportTitle: e.target.value})} />
+                </div>
+
+                <div className="space-y-2 pt-4 border-t border-slate-50">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">การจัดวางหน้ากระดาษ</label>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setOrientation('portrait')}
+                      className={`flex-1 py-2 px-4 rounded-xl text-xs font-bold transition-all ${orientation === 'portrait' ? 'bg-brand-primary text-white shadow-md' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                    >
+                      แนวตั้ง
+                    </button>
+                    <button 
+                      onClick={() => setOrientation('landscape')}
+                      className={`flex-1 py-2 px-4 rounded-xl text-xs font-bold transition-all ${orientation === 'landscape' ? 'bg-brand-primary text-white shadow-md' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                    >
+                      แนวนอน
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-slate-50">
