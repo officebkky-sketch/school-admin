@@ -38,34 +38,49 @@ function createWindow() {
 }
 
 // --- Auto Updater Logic ---
-autoUpdater.autoDownload = false; // ปิดการโหลดอัตโนมัติ เพื่อขออนุญาตผู้ใช้ก่อน
+autoUpdater.autoDownload = true; // ให้โหลดอัตโนมัติแล้วเราค่อยแสดง Progress ใน UI
 
-autoUpdater.on('update-available', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'พบการอัปเดตใหม่',
-    message: 'พบเวอร์ชันใหม่ของระบบบริหารจัดการข้อมูลโรงเรียน คุณต้องการดาวน์โหลดตอนนี้เลยหรือไม่?',
-    buttons: ['ดาวน์โหลด', 'ไว้ทีหลัง']
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.downloadUpdate();
-    }
+autoUpdater.on('checking-for-update', () => {
+  mainWindow?.webContents.send('update-status', { type: 'checking', message: 'กำลังตรวจสอบเวอร์ชันใหม่...' });
+});
+
+autoUpdater.on('update-available', (info) => {
+  mainWindow?.webContents.send('update-status', { 
+    type: 'available', 
+    version: info.version,
+    message: `พบเวอร์ชันใหม่ ${info.version} กำลังเริ่มดาวน์โหลด...` 
   });
 });
 
-autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'ดาวน์โหลดเสร็จสิ้น',
-    message: 'ดาวน์โหลดเวอร์ชันใหม่เรียบร้อยแล้ว ระบบจะทำการติดตั้งและเริ่มแอปใหม่ทันที',
-    buttons: ['ตกลง']
-  }).then(() => {
-    autoUpdater.quitAndInstall();
+autoUpdater.on('update-not-available', () => {
+  mainWindow?.webContents.send('update-status', { type: 'not-available', message: 'คุณใช้เวอร์ชันล่าสุดแล้ว' });
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  mainWindow?.webContents.send('update-progress', {
+    percent: progressObj.percent,
+    bytesPerSecond: progressObj.bytesPerSecond,
+    transferred: progressObj.transferred,
+    total: progressObj.total
   });
 });
 
-autoUpdater.on('error', (error) => {
-  console.error('Update error:', error);
+autoUpdater.on('update-downloaded', (info) => {
+  mainWindow?.webContents.send('update-status', { 
+    type: 'downloaded', 
+    version: info.version,
+    message: 'ดาวน์โหลดเสร็จแล้ว พร้อมติดตั้ง' 
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  mainWindow?.webContents.send('update-status', { type: 'error', message: 'เกิดข้อผิดพลาดในการอัปเดต: ' + err.message });
+});
+
+// รับคำสั่งจาก UI เพื่อสั่ง Restart และติดตั้ง
+import { ipcMain } from 'electron';
+ipcMain.on('restart-app', () => {
+  autoUpdater.quitAndInstall();
 });
 
 app.whenReady().then(() => {
