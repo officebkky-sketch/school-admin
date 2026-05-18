@@ -14,7 +14,9 @@ import {
   Edit2,
   Calendar,
   Phone,
-  ShieldCheck
+  ShieldCheck,
+  BookOpen,
+  Briefcase
 } from 'lucide-react';
 
 type Teacher = {
@@ -24,6 +26,7 @@ type Teacher = {
   last_name: string;
   position: string;
   department: string;
+  subject_group: string;
   phone: string;
   email: string;
   photo_url: string;
@@ -65,8 +68,9 @@ export default function Teachers() {
     prefix: 'นาย',
     first_name: '',
     last_name: '',
-    position: 'ครูผู้ช่วย',
-    department: 'กลุ่มสาระการเรียนรู้...',
+    position: 'ครู',
+    department: '',
+    subject_group: '',
     phone: '',
     email: '',
     status: 'active',
@@ -142,8 +146,9 @@ export default function Teachers() {
       prefix: 'นาย',
       first_name: '',
       last_name: '',
-      position: 'ครูผู้ช่วย',
-      department: 'กลุ่มสาระการเรียนรู้...',
+      position: 'ครู',
+      department: '',
+      subject_group: '',
       phone: '',
       email: '',
       status: 'active',
@@ -187,7 +192,9 @@ export default function Teachers() {
 
   const filteredTeachers = teachers.filter(t => 
     `${t.first_name} ${t.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.position.toLowerCase().includes(searchTerm.toLowerCase())
+    (t.position && t.position.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (t.department && t.department.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (t.subject_group && t.subject_group.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const isAdmin = profile?.role === 'admin';
@@ -230,7 +237,7 @@ export default function Teachers() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
           <input 
             type="text" 
-            placeholder="ค้นหาชื่อครู หรือตำแหน่ง..." 
+            placeholder="ค้นหาชื่อครู, ตำแหน่ง, ฝ่าย หรือกลุ่มสาระ..." 
             className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -269,7 +276,15 @@ export default function Teachers() {
                   )}
                 </div>
                 <h4 className="mt-4 font-black text-slate-800 text-lg">{teacher.prefix}{teacher.first_name} {teacher.last_name}</h4>
-                <p className="text-[10px] font-black text-brand-primary uppercase tracking-widest mt-1 bg-green-50 px-3 py-1 rounded-full inline-block">{teacher.position}</p>
+                <div className="flex flex-wrap justify-center gap-1 mt-1">
+                  <p className="text-[9px] font-black text-brand-primary uppercase tracking-widest bg-green-50 px-2 py-1 rounded-full border border-green-100">{teacher.position}</p>
+                  {teacher.subject_group && (
+                    <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest bg-orange-50 px-2 py-1 rounded-full border border-orange-100">{teacher.subject_group}</p>
+                  )}
+                  {teacher.department && (
+                    <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-1 rounded-full border border-blue-100">{teacher.department}</p>
+                  )}
+                </div>
                 
                 <div className="mt-6 space-y-3">
                    <div className="flex items-center gap-3 text-slate-400 text-xs font-bold bg-slate-50 p-3 rounded-2xl">
@@ -294,7 +309,7 @@ export default function Teachers() {
         onClose={() => setIsModalOpen(false)} 
         title={editingId ? 'แก้ไขข้อมูลครู' : 'เพิ่มข้อมูลครูใหม่'}
       >
-        <form onSubmit={handleSave} className="space-y-6">
+        <form onSubmit={handleSave} className="space-y-6 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
           <div className="flex flex-col items-center gap-4 mb-8">
             <div className="w-32 h-32 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden group relative">
               {previewUrl ? (
@@ -353,7 +368,7 @@ export default function Teachers() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest">ตำแหน่ง</label>
               <input 
@@ -362,15 +377,49 @@ export default function Teachers() {
                 value={formData.position}
                 onChange={e => setFormData({...formData, position: e.target.value})}
               />
+              <div className="flex flex-wrap gap-1 mt-1">
+                {['ผู้อำนวยการ', 'รองผู้อำนวยการ', 'ครู', 'ครูผู้ช่วย', 'เจ้าหน้าที่การเงิน'].map(p => (
+                  <button key={p} type="button" onClick={() => setFormData({...formData, position: p})} className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md hover:bg-brand-primary hover:text-white transition-colors">{p}</button>
+                ))}
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest">กลุ่มสาระ/ฝ่าย</label>
-              <input 
-                type="text" 
-                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
-                value={formData.department}
-                onChange={e => setFormData({...formData, department: e.target.value})}
-              />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest flex items-center gap-1">
+                  <BookOpen size={10} /> กลุ่มสาระการเรียนรู้
+                </label>
+                <input 
+                  type="text" 
+                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                  value={formData.subject_group}
+                  onChange={e => setFormData({...formData, subject_group: e.target.value})}
+                  placeholder="เช่น ภาษาไทย"
+                />
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {['ภาษาไทย', 'คณิตศาสตร์', 'วิทยาศาสตร์และเทคโนโลยี', 'สังคมศึกษา ศาสนา และวัฒนธรรม', 'สุขศึกษาและพลศึกษา', 'ศิลปะ', 'การงานอาชีพ', 'ภาษาต่างประเทศ', 'ปฐมวัย'].map(s => (
+                    <button key={s} type="button" onClick={() => setFormData({...formData, subject_group: s})} className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md hover:bg-orange-500 hover:text-white transition-colors">{s}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest flex items-center gap-1">
+                  <Briefcase size={10} /> ฝ่าย / งานที่รับผิดชอบ
+                </label>
+                <input 
+                  type="text" 
+                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                  value={formData.department}
+                  onChange={e => setFormData({...formData, department: e.target.value})}
+                  placeholder="เช่น หัวหน้าฝ่ายงบประมาณ"
+                />
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {['หัวหน้าฝ่ายวิชาการ', 'หัวหน้าฝ่ายงบประมาณ', 'หัวหน้าฝ่ายบริหารทั่วไป', 'หัวหน้าฝ่ายบุคคล', 'เจ้าหน้าที่การเงิน', 'เจ้าหน้าที่พัสดุ'].map(d => (
+                    <button key={d} type="button" onClick={() => setFormData({...formData, department: d})} className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md hover:bg-blue-500 hover:text-white transition-colors">{d}</button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -404,7 +453,6 @@ export default function Teachers() {
               onChange={e => setFormData({...formData, line_user_id: e.target.value})}
               placeholder="ใส่ LINE User ID (เช่น U123456...)"
             />
-            <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">Messaging API จะส่งข้อความตรงถึงครูรายบุคคลผ่าน User ID</p>
           </div>
 
           <div className="flex gap-4 pt-6">

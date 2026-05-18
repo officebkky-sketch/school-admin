@@ -24,6 +24,7 @@ export default function LECReports() {
     directorName: '',
     reportDate: new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }),
     localGovName: '',
+    schoolLogo: '',
   });
 
   const fetchInitialData = async () => {
@@ -38,14 +39,20 @@ export default function LECReports() {
       }
 
       // 2. Fetch settings
-      const { data: sets } = await supabase.from('settings').select('*').single();
+      const { data: sets } = await supabase
+        .from('settings')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .maybeSingle();
+
       if (sets) {
         setConfig(prev => ({
           ...prev,
           directorName: sets.director_name || prev.directorName,
           localGovName: sets.local_gov_name || prev.localGovName,
-          teacherName: sets.teacher_name || prev.teacherName,
-          teacherPhone: sets.phone_number || prev.teacherPhone
+          teacherName: sets.teacher_name || prev.teacherName || '', // Support teacher_name if added to DB
+          teacherPhone: sets.phone_number || prev.teacherPhone,
+          schoolLogo: sets.school_logo_url || ''
         }));
       }
     } catch (err) {
@@ -126,6 +133,7 @@ export default function LECReports() {
   };
 
   const toThaiDigits = (num: string | number) => {
+    if (num === 0 || num === '0') return '๐';
     if (!num) return '';
     const thaiDigits = ['๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙'];
     return num.toString().split('').map(d => isNaN(parseInt(d)) ? d : thaiDigits[parseInt(d)]).join('');
@@ -176,6 +184,7 @@ export default function LECReports() {
               .page { margin: 0; box-shadow: none; width: 100%; height: auto; }
             }
             .header { text-align: center; line-height: 1.1; margin-bottom: 0.5cm; }
+            .school-logo { width: 80px; height: auto; margin-bottom: 5px; margin-top: -20px; }
             .lec-code { text-align: right; font-weight: bold; font-size: 16pt; margin-bottom: 5px; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; }
             th, td { border: 1px solid black !important; padding: 4px 8px !important; line-height: 1.1 !important; text-align: center; font-size: 16pt; }
@@ -200,6 +209,7 @@ export default function LECReports() {
           <div class="page">
             <div class="lec-code">(แบบ LEC - 1)</div>
             <div class="header">
+              ${config.schoolLogo ? `<img src="${config.schoolLogo}" class="school-logo" alt="School Logo" />` : ''}
               <h3 style="margin:0; font-size: 20pt; font-weight: bold;">แบบบัญชีสรุปข้อมูลจำนวนนักเรียนของสถานศึกษาสังกัดหน่วยงานอื่น</h3>
               <p style="margin:2px 0; font-size: 14pt;">เพื่อใช้ในการตรวจสอบและพิจารณาจัดสรรงบประมาณอุดหนุนด้านการศึกษาขององค์กรปกครองส่วนท้องถิ่น</p>
               <p style="margin:2px 0; font-size: 14pt;">ประจำปีการศึกษา ${toThaiDigits(config.academicYear)} (ครั้งที่ ${toThaiDigits(config.term)})</p>
@@ -231,9 +241,9 @@ export default function LECReports() {
                     <td></td>
                   </tr>
                 </table>
-                <div style="margin-top: 1px;">ตำแหน่ง ครู</div>
-                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}</div>
-                <div style="margin-top: 0px;">เบอร์โทรศัพท์: ${toThaiDigits(config.teacherPhone || '...........................')}</div>
+                <div style="margin-top: 1px;">ตำแหน่ง ครู&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                <div style="margin-top: 0px;">เบอร์โทรศัพท์: ${toThaiDigits(config.teacherPhone || '...........................')}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
               </div>
               
               <div style="display: flex; flex-direction: column; align-items: center; width: 48%;">
@@ -249,8 +259,8 @@ export default function LECReports() {
                     <td></td>
                   </tr>
                 </table>
-                <div style="margin-top: 1px;">ผู้อำนวยการสถานศึกษา</div>
-                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}</div>
+                <div style="margin-top: 1px;">ผู้อำนวยการสถานศึกษา&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
               </div>
             </div>
           </div>
@@ -310,6 +320,7 @@ export default function LECReports() {
         <div class="page">
           <div class="lec-code">(แบบ LEC - 2)</div>
           <div class="header">
+            ${config.schoolLogo ? `<img src="${config.schoolLogo}" class="school-logo" alt="School Logo" />` : ''}
             <h3 style="margin:0; font-size: 18pt; font-weight: bold;">แบบรับรองรายชื่อนักเรียนของสถานศึกษาสังกัดหน่วยงานอื่น</h3>
             <p style="margin:2px 0; font-size: 14pt;">เพื่อใช้ในการตรวจสอบและพิจารณาจัดสรรงบประมาณอุดหนุนด้านการศึกษาขององค์กรปกครองส่วนท้องถิ่น</p>
             <p style="margin:2px 0; font-size: 14pt;">ประจำปีการศึกษา ${toThaiDigits(config.academicYear)} (ครั้งที่ ${toThaiDigits(config.term)})</p>
@@ -346,9 +357,9 @@ export default function LECReports() {
                     <td></td>
                   </tr>
                 </table>
-                <div style="margin-top: 1px;">ตำแหน่ง ครู</div>
-                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}</div>
-                <div style="margin-top: 0px;">เบอร์โทรศัพท์: ${toThaiDigits(config.teacherPhone || '...........................')}</div>
+                <div style="margin-top: 1px;">ตำแหน่ง ครู&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                <div style="margin-top: 0px;">เบอร์โทรศัพท์: ${toThaiDigits(config.teacherPhone || '...........................')}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
               </div>
               
               <div style="display: flex; flex-direction: column; align-items: center; width: 48%;">
@@ -364,8 +375,8 @@ export default function LECReports() {
                     <td></td>
                   </tr>
                 </table>
-                <div style="margin-top: 1px;">ผู้อำนวยการสถานศึกษา</div>
-                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}</div>
+                <div style="margin-top: 1px;">ผู้อำนวยการสถานศึกษา&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+                <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
               </div>
             </div>
         </div>

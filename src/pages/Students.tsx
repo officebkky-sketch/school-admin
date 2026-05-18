@@ -46,11 +46,11 @@ export default function Students() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
 
   // Promotion State
-  const [promoSourceYear, setPromoSourceYear] = useState('2568');
-  const [promoTargetYear, setPromoTargetYear] = useState('2569');
+  const [promoSourceYear, setPromoSourceYear] = useState('');
+  const [promoTargetYear, setPromoTargetYear] = useState('');
 
   // Filter State
-  const [filterYear, setFilterYear] = useState<string>('2568');
+  const [filterYear, setFilterYear] = useState<string>('');
   const [filterClass, setFilterClass] = useState<string>('ทั้งหมด');
   const [filterRoom, setFilterRoom] = useState<string>('ทั้งหมด');
 
@@ -62,7 +62,7 @@ export default function Students() {
     last_name: '',
     class_level: 'ป.1',
     room: '1',
-    academic_year: '2568',
+    academic_year: '',
     national_id: '',
     gender: 'ชาย',
     birth_date: '',
@@ -93,7 +93,7 @@ export default function Students() {
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [importYear, setImportYear] = useState('2568');
+  const [importYear, setImportYear] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -111,7 +111,29 @@ export default function Students() {
         .order('student_id', { ascending: true });
 
       if (error) throw error;
-      setStudents(data || []);
+      const studentData = data || [];
+      setStudents(studentData);
+
+      // Auto-set latest year as default filter
+      if (studentData.length > 0) {
+        const latestYear = Array.from(new Set(studentData.map(s => s.academic_year)))
+          .sort((a, b) => b.localeCompare(a))[0];
+        
+        if (latestYear) {
+          setFilterYear(prev => prev || latestYear);
+          setImportYear(prev => prev || latestYear);
+          setPromoSourceYear(prev => prev || latestYear);
+          setPromoTargetYear(prev => prev || (parseInt(latestYear) + 1).toString());
+          setFormData((prev: any) => ({ ...prev, academic_year: prev.academic_year || latestYear }));
+        }
+      } else {
+        // Fallback to default if no data
+        setFilterYear('2568');
+        setImportYear('2568');
+        setPromoSourceYear('2568');
+        setPromoTargetYear('2569');
+        setFormData((prev: any) => ({ ...prev, academic_year: '2568' }));
+      }
     } catch (err) {
       console.error('Error fetching students:', err);
     } finally {
@@ -145,11 +167,23 @@ export default function Students() {
     const headers = [
       'รหัสโรงเรียน', 'ชื่อโรงเรียน', 'เลขบัตรประชาชน', 'ชั้นเรียน', 'ห้องเรียน', 'เลขประจำตัวนักเรียน', 'เพศ', 
       'คำนำหน้าชื่อ', 'ชื่อ', 'นามสกุล', 'วันเดือนปีเกิด', 'อายุ', 'น้ำหนัก', 'ส่วนสูง', 'กลุ่มเลือด', 'ศาสนา', 
-      'เชื้อชาติ', 'สัญชาติ', 'บ้านเลขที่', 'หมู่', 'ถนนซอย', 'ตำบล', 'อำเภอ', 'จังหวัด', 'ชื่อผู้ปกครอง', 
-      'นามสกุลผู้ปกครอง', 'อาชีพผู้ปกครอง', 'ความเกี่ยวข้อง', 'ชื่อบิดา', 'นามสกุลบิดา', 'อาชีพบิดา', 
-      'ชื่อมารดา', 'นามสกุลมารดา', 'อาชีพมารดา', 'สถานะด้อยโอกาส', 'สถานะจำหน่าย'
+      'เชื้อชาติ', 'สัญชาติ', 'บ้านเลขที่', 'หมู่', 'ถนนซอย', 'ตำบล', 'อำเภอ', 'จังหวัด', 
+      'คำนำหน้าชื่อผู้ปกครอง', 'ชื่อผู้ปกครอง', 'นามสกุลผู้ปกครอง', 'อาชีพผู้ปกครอง', 'ความเกี่ยวข้อง', 
+      'คำนำหน้าชื่อบิดา', 'ชื่อบิดา', 'นามสกุลบิดา', 'อาชีพบิดา', 
+      'คำนำหน้าชื่อมารดา', 'ชื่อมารดา', 'นามสกุลมารดา', 'อาชีพมารดา', 
+      'สถานะด้อยโอกาส', 'สถานะจำหน่าย'
     ];
-    const csv = Papa.unparse([headers]);
+    // Example data based on actual DMC row provided by user
+    const exampleData = [
+      '93010069', 'บ้านควนโคกยา', '1939901113318', 'อ.2', '1', '3865', 'ญ', 
+      'เด็กหญิง', 'ณิรินทร์รดา', 'ไชยบัญดิษฐ์', '30/06/2564', '4', '20', '100', '-', 'อิสลาม', 
+      'ไทย', 'ไทย', '82', '9', '-', 'เขาชัยสน', 'เขาชัยสน', 'พัทลุง', 
+      'นางสาว', 'อรสรา', 'รุ่งวรดีสกุล', 'รับจ้าง', 'มารดา', 
+      'นาย', 'วีรศักดิ์', 'ไชยบัญดิษฐ์', 'ไม่ได้ประกอบอาชีพ', 
+      'นางสาว', 'อรสรา', 'รุ่งวรดีสกุล', 'รับจ้าง', 
+      '-', 'ปกติ'
+    ];
+    const csv = Papa.unparse([headers, exampleData]);
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

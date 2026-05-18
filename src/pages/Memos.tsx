@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification } from '../lib/lineNotify';
+import { generateAIDraft } from '../lib/aiService';
 import Modal from '../components/Modal';
 import { 
   Search, 
@@ -15,7 +16,8 @@ import {
   FileText,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
+  Bot
 } from 'lucide-react';
 import garuda15mm from '../assets/saraban/garuda-1.5cm.png';
 
@@ -37,12 +39,14 @@ export default function Memos() {
     memo_date: new Date().toISOString().split('T')[0],
     to_person: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
     content: '',
-    closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบ',
+    closing_phrase: 'จึงเรียนมาเพื่อทราบ',
     sign_name: '',
     sign_position: '',
-    online_submit: true
+    online_submit: true,
+    ai_key_points: ''
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDrafting, setIsDrafting] = useState(false);
 
   useEffect(() => { 
     fetchDocs(); 
@@ -85,6 +89,25 @@ export default function Memos() {
       alert('ไม่สามารถอัปเดตสถานะได้: ' + err.message);
     }
   }
+
+  const handleAIDraft = async () => {
+    if (!formData.subject) {
+      alert('กรุณาระบุชื่อเรื่องก่อนให้ AI ร่างข้อความครับ');
+      return;
+    }
+    setIsDrafting(true);
+    try {
+      const prompt = `เขียนเนื้อหาบันทึกข้อความราชการ เรื่อง "${formData.subject}" โดยส่งถึง "${formData.to_person}" ${formData.ai_key_points ? `โดยมีใจความสำคัญคือ: "${formData.ai_key_points}"` : ''} ให้เขียนด้วยภาษาทางการ สละสลวย ตามระเบียบงานสารบรรณไทย เน้นเนื้อหาที่กระชับ ชัดเจน และเป็นมืออาชีพ ไม่ต้องใส่คำลงท้าย`;
+      const draft = await generateAIDraft(prompt);
+      if (draft) {
+        setFormData(prev => ({ ...prev, content: draft }));
+      }
+    } catch (err: any) {
+      alert('AI Draft Error: ' + err.message);
+    } finally {
+      setIsDrafting(false);
+    }
+  };
 
   const printMemo = (doc: any) => {
     let extraData: any = {};
@@ -316,12 +339,14 @@ export default function Memos() {
       memo_date: new Date().toISOString().split('T')[0],
       to_person: `ผู้อำนวยการ${settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}`,
       content: '',
-      closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบ',
+      closing_phrase: 'จึงเรียนมาเพื่อทราบ',
       sign_name: '',
       sign_position: 'ครูโรงเรียนบ้านควนโคกยา',
-      online_submit: true
+      online_submit: true,
+      ai_key_points: ''
     });
     setSelectedFile(null);
+    setIsDrafting(false);
   }
 
   return (
@@ -438,9 +463,33 @@ export default function Memos() {
             </div>
           </div>
 
+          <div className="bg-blue-50/30 p-4 rounded-2xl border border-blue-100/50 space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                <Bot size={14} /> รายละเอียดใจความสำคัญสำหรับ AI
+              </label>
+              <button 
+                type="button" 
+                onClick={handleAIDraft}
+                disabled={isDrafting}
+                className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 px-4 py-2 rounded-xl shadow-sm transition-all ${isDrafting ? 'bg-slate-100 text-slate-400' : 'bg-brand-primary text-white hover:bg-green-700 active:scale-95'}`}
+              >
+                {isDrafting ? <Loader2 size={12} className="animate-spin" /> : <Bot size={12} />}
+                {isDrafting ? 'กำลังร่าง...' : 'สั่ง AI ร่างข้อความ'}
+              </button>
+            </div>
+            <input 
+              type="text" 
+              placeholder="ระบุสิ่งที่ต้องการให้ AI เขียนเพิ่ม (เช่น แจ้งผลการแข่งขันทักษะวิชาการ ได้รับรางวัลระดับเหรียญทอง)" 
+              className="w-full p-3 bg-white border border-blue-100 rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-200 outline-hidden transition-all placeholder:text-slate-300"
+              value={formData.ai_key_points}
+              onChange={e => setFormData({...formData, ai_key_points: e.target.value})}
+            />
+          </div>
+
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 ml-1">เนื้อหาข้อความ</label>
-            <textarea placeholder="พิมพ์เนื้อหาบันทึกข้อความที่นี่..." className="w-full p-4 bg-white border border-slate-200 rounded-xl font-medium" rows={8} value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} />
+            <label className="text-[10px] font-bold text-slate-500 ml-1 tracking-widest uppercase">เนื้อหาข้อความจริง</label>
+            <textarea placeholder="เนื้อหาที่ AI ร่างจะปรากฏที่นี่..." className="w-full p-4 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-brand-primary/10 outline-hidden transition-all" rows={8} value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} />
           </div>
 
           <div className="bg-slate-50 p-4 rounded-2xl space-y-4 border border-slate-100">

@@ -29,6 +29,7 @@ export default function CustomStudentPrint() {
     showSignatures: true,
     teacherName: '',
     directorName: '',
+    schoolLogo: '',
   });
 
   const [selectedColumns, setSelectedColumns] = useState({
@@ -51,9 +52,19 @@ export default function CustomStudentPrint() {
     }
 
     // Fetch Current Year from Settings
-    const { data: settings } = await supabase.from('settings').select('current_academic_year').single();
-    if (settings?.current_academic_year) {
-      setConfig(prev => ({ ...prev, academicYear: settings.current_academic_year }));
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('current_academic_year, school_logo_url, director_name')
+      .order('updated_at', { ascending: false })
+      .maybeSingle();
+
+    if (settings) {
+      setConfig(prev => ({ 
+        ...prev, 
+        academicYear: settings.current_academic_year || prev.academicYear,
+        schoolLogo: settings.school_logo_url || '',
+        directorName: settings.director_name || prev.directorName
+      }));
     }
   };
 
@@ -125,22 +136,22 @@ export default function CustomStudentPrint() {
 
     const headers = `
       <tr>
-        <th style="width:50px;">ที่</th>
-        ${selectedColumns.student_id ? '<th>เลขประจำตัว</th>' : ''}
-        ${selectedColumns.prefix_name ? '<th>ชื่อ - นามสกุล</th>' : ''}
-        ${selectedColumns.national_id ? '<th>เลขประชาชน</th>' : ''}
-        ${selectedColumns.class_room ? '<th>ชั้น/ห้อง</th>' : ''}
-        ${selectedColumns.birth_date ? '<th>วันเกิด</th>' : ''}
-        ${selectedColumns.parent_name ? '<th>ผู้ปกครอง</th>' : ''}
-        ${selectedColumns.address ? '<th>ที่อยู่</th>' : ''}
-        ${selectedColumns.status ? '<th>สถานะ</th>' : ''}
-        ${customColumns.map(col => `<th>${col}</th>`).join('')}
+        <th style="width:40px;">ที่</th>
+        ${selectedColumns.student_id ? '<th style="width:90px;">เลขประจำตัว</th>' : ''}
+        ${selectedColumns.prefix_name ? '<th style="text-align:left;">ชื่อ - นามสกุล</th>' : ''}
+        ${selectedColumns.national_id ? '<th style="width:130px;">เลขประชาชน</th>' : ''}
+        ${selectedColumns.class_room ? '<th style="width:70px;">ชั้น/ห้อง</th>' : ''}
+        ${selectedColumns.birth_date ? '<th style="width:100px;">วันเกิด</th>' : ''}
+        ${selectedColumns.parent_name ? '<th style="text-align:left;">ผู้ปกครอง</th>' : ''}
+        ${selectedColumns.address ? '<th style="text-align:left; width:200px;">ที่อยู่</th>' : ''}
+        ${selectedColumns.status ? '<th style="width:80px;">สถานะ</th>' : ''}
+        ${customColumns.map(col => `<th style="min-width:100px;">${col}</th>`).join('')}
       </tr>
     `;
 
-    const logoHtml = config.showLogo ? `
-      <div style="text-align:center; margin-bottom: 20px;">
-        <img src="/src/assets/logo.png" style="width: 80px; height: auto;" />
+    const logoHtml = (config.showLogo && config.schoolLogo) ? `
+      <div style="text-align:center; margin-bottom: 20px; margin-top: -10px;">
+        <img src="${config.schoolLogo}" style="width: 80px; height: auto;" />
       </div>
     ` : '';
 

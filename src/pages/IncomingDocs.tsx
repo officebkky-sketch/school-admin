@@ -37,7 +37,8 @@ export default function IncomingDocs() {
   // Assignment Form State
   const [assignForm, setAssignForm] = useState({
     teacher_id: '',
-    instruction: ''
+    instruction: '',
+    stamp_page: 1
   });
 
   const [formData, setFormData] = useState({
@@ -49,6 +50,7 @@ export default function IncomingDocs() {
     sender_doc_date: '',
     urgency: 'ปกติ',
     remark: '',
+    stamp_page: 1
   });
 
   const [proposalData, setProposalData] = useState({
@@ -92,7 +94,7 @@ export default function IncomingDocs() {
     try {
       console.log('--- START FINAL RETIREMENT PROCESS ---');
       
-          // 1. Re-stamp PDF with Director's Order (Fetching from Supabase or GDrive)
+      // 1. Re-stamp PDF with Director's Order
       if (assignForm.instruction && selectedDoc.file_url) {
         try {
           console.log('Fetching PDF for final stamping:', selectedDoc.file_url);
@@ -101,42 +103,25 @@ export default function IncomingDocs() {
           if (!response.ok) throw new Error(`ไม่สามารถดาวน์โหลดไฟล์ได้ (Status: ${response.status})`);
           
           const pdfBuffer = await response.arrayBuffer();
-          const timeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
           const { data: setts } = await supabase.from('settings').select('director_name, director_signature_url').single();
-          
-          // ดึงข้อมูลผู้ลงรับ (Proposer) เพื่อรักษาลายเซ็นเดิม
-          const { data: creator } = await supabase.from('profiles').select('display_name, signature_url').eq('id', selectedDoc.created_by).single();
-
-          // Parse remark safely to get summary string
-          let displaySummary = selectedDoc.remark || '';
-          try {
-            if (selectedDoc.remark && selectedDoc.remark.startsWith('{')) {
-              const extra = JSON.parse(selectedDoc.remark);
-              displaySummary = extra.proposal_summary || '-';
-            }
-          } catch (e) {}
 
           console.log('Applying Director Stamp...');
           const stampedBytes = await applyDigitalStamps(
             pdfBuffer,
-            { docNumber: selectedDoc.doc_number, date: selectedDoc.doc_date, time: timeStr },
-            { 
-              summary: displaySummary, 
-              proposal: 'เพื่อพิจารณา', 
-              signer: creator?.display_name || 'เจ้าหน้าที่ธุรการ', 
-              date: selectedDoc.doc_date,
-              signatureUrl: creator?.signature_url
-            },
+            undefined, // Do NOT re-stamp receipt info
+            undefined, // Do NOT re-stamp proposal info
             {
               order: assignForm.instruction,
               signer: setts?.director_name || 'ผู้อำนวยการโรงเรียน',
               position: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
               date: new Date().toISOString().split('T')[0],
-              signatureUrl: setts?.director_signature_url
+              signatureUrl: setts?.director_signature_url,
+              pageNumber: assignForm.stamp_page // User selected page
             }
           );
 
-          const finalFileName = `เกษียณ_${selectedDoc.doc_number}_${Date.now()}.pdf`;
+          const sanitizedSubject = selectedDoc.subject.replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 50);
+          const finalFileName = `${selectedDoc.doc_number}_เรื่อง_${sanitizedSubject}.pdf`;
           const finalFile = new File([stampedBytes as any], finalFileName, { type: 'application/pdf' });
           
           console.log('Uploading FINAL document to Google Drive...');
@@ -160,12 +145,10 @@ export default function IncomingDocs() {
           console.log('FINAL ARCHIVING SUCCESS');
         } catch (pdfErr: any) {
           console.error('FINAL STAMP FAILED:', pdfErr);
-          // If stamping failed but we have information, still mark as assigned
           await supabase.from('incoming_docs').update({ status: 'assigned' }).eq('id', selectedDoc.id);
           alert('แจ้งเตือน: ไม่สามารถประทับตรา ผอ. ได้ (สาเหตุ: ' + pdfErr.message + ') ระบบจะบันทึกเฉพาะข้อมูลการมอบหมาย');
         }
       } else {
-        // No file to stamp, just update status
         await supabase.from('incoming_docs').update({ status: 'assigned' }).eq('id', selectedDoc.id);
       }
 
@@ -179,27 +162,22 @@ export default function IncomingDocs() {
 
       if (error) throw error;
 
-      // Notify Teacher via LINE with Buttons
+      // Notify Teacher via LINE
       const teacher = teachers.find(t => t.id === assignForm.teacher_id);
       if (teacher?.line_user_id) {
         const msg = `คุณครูมีงานมอบหมายใหม่\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
-        
-        const lineAttachments = [
-          { label: '📄 ดูเอกสารสั่งการ', url: selectedDoc.file_url }
-        ];
-
+        const lineAttachments = [{ label: '📄 ดูเอกสารสั่งการ', url: selectedDoc.file_url }];
         if (Array.isArray(selectedDoc.attachment_urls)) {
           selectedDoc.attachment_urls.forEach((url: string, i: number) => {
             lineAttachments.push({ label: `📎 ไฟล์แนบ ${i + 1}`, url: url });
           });
         }
-        
         await sendLineNotification(msg, teacher.line_user_id, lineAttachments);
       }
 
       alert('เกษียณหนังสือและมอบหมายงานเรียบร้อยแล้ว');
       setIsAssignModalOpen(false);
-      setAssignForm({ teacher_id: '', instruction: '' });
+      resetForm();
       fetchDocs();
     } catch (err: any) {
       alert('ดำเนินการไม่สำเร็จ: ' + err.message);
@@ -241,27 +219,30 @@ export default function IncomingDocs() {
       if (mainFile) {
         let fileToStaging = mainFile;
         
-        // Apply Initial Stamps (Receipt + Proposal)
         if (mainFile.type === 'application/pdf') {
           try {
             const buf = await mainFile.arrayBuffer();
             const timeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
             const stamped = await applyDigitalStamps(
               buf,
-              { docNumber: formData.doc_number, date: formData.doc_date, time: timeStr },
+              { 
+                docNumber: formData.doc_number, 
+                date: formData.doc_date, 
+                time: timeStr,
+                pageNumber: formData.stamp_page 
+              },
               { 
                 summary: proposalData.summary || 'โปรดดูรายละเอียดตามหนังสือ', 
                 proposal: proposalData.proposal, 
                 signer: profile?.display_name || 'เจ้าหน้าที่ธุรการ', 
                 date: formData.doc_date,
-                signatureUrl: profile?.signature_url // ใช้ลายเซ็นจากโปรไฟล์
+                signatureUrl: profile?.signature_url 
               }
             );
             fileToStaging = new File([stamped as any], mainFile.name, { type: 'application/pdf' });
           } catch (se) { console.error('Initial stamping failed:', se); }
         }
 
-        // Upload to Supabase Storage (Temporary Staging)
         console.log('Uploading to Supabase Staging...');
         const tempPath = `temp_${Date.now()}_${mainFile.name}`;
         file_url = await uploadToSupabase(fileToStaging, 'temp_docs', tempPath);
@@ -273,7 +254,6 @@ export default function IncomingDocs() {
         att_urls.push(url);
       }
 
-      // 3. Save Record to Database
       const extraData = {
         sender_doc_number: formData.sender_doc_number,
         sender_doc_date: formData.sender_doc_date,
@@ -296,7 +276,6 @@ export default function IncomingDocs() {
 
       if (error) throw error;
 
-      // 3. Send LINE Notification with Buttons
       const regMsg = `ลงรับหนังสือใหม่ (รอเกษียณ)\nเรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่: ${formData.doc_number}`;
       const regAttachments = [{ label: '📄 ดูต้นฉบับหนังสือ', url: file_url }];
       await sendLineNotification(regMsg, undefined, regAttachments);
@@ -304,7 +283,7 @@ export default function IncomingDocs() {
       setIsModalOpen(false);
       resetForm();
       fetchDocs();
-      alert('ลงรับหนังสือและพักไฟล์ชั่วคราวเรียบร้อยแล้ว (รอ ผอ. เกษียณเพื่อส่งเข้า Google Drive)');
+      alert('ลงรับหนังสือเรียบร้อยแล้ว');
     } catch (err: any) {
       alert(`บันทึกไม่สำเร็จ: ${err.message}`);
     } finally { setIsSaving(false); }
@@ -319,11 +298,13 @@ export default function IncomingDocs() {
       sender_doc_number: '',
       sender_doc_date: '',
       urgency: 'ปกติ', 
-      remark: '' 
+      remark: '',
+      stamp_page: 1
     });
     setProposalData({ summary: '', proposal: 'เพื่อโปรดพิจารณา' });
     setMainFile(null);
     setAttachments([]);
+    setAssignForm({ teacher_id: '', instruction: '', stamp_page: 1 });
   }
 
   const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -355,12 +336,8 @@ export default function IncomingDocs() {
       const apiKey = sets?.gemini_api_key;
       if (!apiKey) throw new Error('ยังไม่ได้ระบุ Gemini API Key');
       const buffer = await mainFile.arrayBuffer();
-      
       const info = await summarizeDocument(buffer, apiKey);
-      
       setProposalData(prev => ({ ...prev, summary: info.summary }));
-      
-      // Auto-fill form from AI
       setFormData(prev => ({
         ...prev,
         sender_doc_number: info.doc_number || prev.sender_doc_number,
@@ -368,7 +345,6 @@ export default function IncomingDocs() {
         from_agency: info.from_agency || prev.from_agency,
         subject: info.subject || prev.subject
       }));
-
     } catch (err: any) { alert('AI ทำงานไม่สำเร็จ: ' + err.message); }
     finally { setIsSaving(false); }
   }
@@ -408,66 +384,75 @@ export default function IncomingDocs() {
           <tbody className="divide-y divide-slate-50">
             {loading ? (
               <tr><td colSpan={4} className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-brand-primary" /></td></tr>
-            ) : docs.filter(d => d.subject?.includes(searchTerm)).map(doc => (
-              <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
-                <td className="px-6 py-4">
-                  <div className="font-bold text-slate-800 text-sm">{doc.doc_number}</div>
-                  <div className="text-[10px] text-slate-400">{doc.doc_date}</div>
-                </td>
-                <td className="px-6 py-4">
-                  <p className="text-sm font-medium text-slate-700">{doc.subject}</p>
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">{doc.from_agency}</p>
-                    {doc.status === 'pending' && (
-                      <span className="flex items-center gap-1 text-[9px] font-medium text-red-500 bg-red-50/50 px-1.5 py-0.5 rounded-sm">
-                        <div className="w-1 h-1 bg-red-400 rounded-full"></div>
-                        รอ ผอ. เกษียณ
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-center">
-                  <div className="flex justify-center gap-1.5">
-                    {doc.file_url && (
-                      <a href={doc.file_url} target="_blank" className="w-8 h-8 rounded-lg bg-green-50 text-brand-primary flex items-center justify-center hover:bg-green-100 transition-colors">
-                        <FileText size={16} />
-                      </a>
-                    )}
-                    {Array.isArray(doc.attachment_urls) && doc.attachment_urls.map((url: string, idx: number) => (
-                      <a key={idx} href={url} target="_blank" className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center hover:bg-blue-100 transition-colors">
-                        <Paperclip size={14} />
-                      </a>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {isDirector && (
-                      <button onClick={() => { setSelectedDoc(doc); setIsAssignModalOpen(true); }} className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-lg transition-colors flex items-center gap-1.5 font-bold text-xs" title="เกษียณสั่งการ/มอบหมาย">
-                        <UserCheck size={18} /> เกษียณ
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => handleDelete(doc.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors" title="ลบข้อมูล">
-                        <Trash2 size={18} />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+            ) : docs.length === 0 ? (
+              <tr><td colSpan={4} className="py-20 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</td></tr>
+            ) : (
+              docs.filter(d => d.subject?.includes(searchTerm)).map(doc => (
+                <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
+                  <td className="px-6 py-4">
+                    <div className="font-bold text-slate-800 text-sm">{doc.doc_number}</div>
+                    <div className="text-[10px] text-slate-400">{doc.doc_date}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm font-medium text-slate-700">{doc.subject}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">{doc.from_agency}</p>
+                      {doc.status === 'pending' && (
+                        <span className="flex items-center gap-1 text-[9px] font-medium text-red-500 bg-red-50/50 px-1.5 py-0.5 rounded-sm">
+                          <div className="w-1 h-1 bg-red-400 rounded-full"></div>
+                          รอ ผอ. เกษียณ
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex justify-center gap-1.5">
+                      {doc.file_url && (
+                        <a href={doc.file_url} target="_blank" className="w-8 h-8 rounded-lg bg-green-50 text-brand-primary flex items-center justify-center hover:bg-green-100 transition-colors">
+                          <FileText size={16} />
+                        </a>
+                      )}
+                      {Array.isArray(doc.attachment_urls) && doc.attachment_urls.map((url: string, idx: number) => (
+                        <a key={idx} href={url} target="_blank" className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center hover:bg-blue-100 transition-colors">
+                          <Paperclip size={14} />
+                        </a>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {isDirector && (
+                        <button onClick={() => { setSelectedDoc(doc); setIsAssignModalOpen(true); }} className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-lg transition-colors flex items-center gap-1.5 font-bold text-xs" title="เกษียณสั่งการ/มอบหมาย">
+                          <UserCheck size={18} /> เกษียณ
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => handleDelete(doc.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors" title="ลบข้อมูล">
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="ลงรับหนังสือใหม่">
         <form onSubmit={handleSave} className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-1.5 col-span-1">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เลขที่รับ</label>
               <input type="text" className="w-full p-3 bg-slate-50 border rounded-xl font-bold" required value={formData.doc_number} onChange={e => setFormData({...formData, doc_number: e.target.value})} />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 col-span-1">
+              <label className="text-[10px] font-black text-brand-primary uppercase ml-1">เกษียณเสนอที่หน้า</label>
+              <input type="number" min="1" className="w-full p-3 bg-white border-2 border-brand-primary/20 rounded-xl font-black text-brand-primary text-center" required value={formData.stamp_page} onChange={e => setFormData({...formData, stamp_page: parseInt(e.target.value) || 1})} />
+              <p className="text-[8px] text-slate-400 font-bold text-center mt-0.5">*เลขรับอยู่หน้า ๑ เสมอ</p>
+            </div>
+            <div className="space-y-1.5 col-span-1">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">วันที่ลงรับ</label>
               <input type="date" className="w-full p-3 bg-slate-50 border rounded-xl font-bold" required value={formData.doc_date} onChange={e => setFormData({...formData, doc_date: e.target.value})} />
             </div>
@@ -543,9 +528,15 @@ export default function IncomingDocs() {
 
       <Modal isOpen={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} title="เกษียณหนังสือและมอบหมายงาน">
         <form onSubmit={handleAssign} className="space-y-6">
-          <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-             <h4 className="text-sm font-black text-blue-800 mb-1">{selectedDoc?.subject}</h4>
-             <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">เลขที่รับ: {selectedDoc?.doc_number}</p>
+          <div className="grid grid-cols-2 gap-4 bg-blue-50 p-4 rounded-2xl border border-blue-100">
+             <div>
+               <h4 className="text-sm font-black text-blue-800 mb-1">{selectedDoc?.subject}</h4>
+               <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">เลขที่รับ: {selectedDoc?.doc_number}</p>
+             </div>
+             <div className="space-y-1">
+               <label className="text-[10px] font-black text-brand-primary uppercase ml-1">ประทับตรา ผอ. ที่หน้า</label>
+               <input type="number" min="1" className="w-full p-2 bg-white border-2 border-brand-primary/20 rounded-xl font-black text-brand-primary text-center" required value={assignForm.stamp_page} onChange={e => setAssignForm({...assignForm, stamp_page: parseInt(e.target.value) || 1})} />
+             </div>
           </div>
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-1">คำสั่งการผู้อำนวยการ (จะประทับตราลงใน PDF)</label>

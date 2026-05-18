@@ -50,13 +50,14 @@ export async function applyDigitalStamps(
     docNumber: string;
     date: string;
     time: string;
+    pageNumber?: number; // ระบุหน้าที่จะประทับเลขรับ/เสนอ
   },
   proposalData?: {
     summary: string;
     proposal: string;
     signer: string;
     date: string;
-    signatureUrl?: string; // เพิ่มลายเซ็นผู้เสนอ
+    signatureUrl?: string;
   },
   directorData?: {
     order: string;
@@ -64,6 +65,7 @@ export async function applyDigitalStamps(
     date: string;
     position?: string;
     signatureUrl?: string;
+    pageNumber?: number; // ระบุหน้าที่จะประทับคำสั่ง ผอ.
   }
 ) {
   try {
@@ -82,8 +84,14 @@ export async function applyDigitalStamps(
     const customFont = await pdfDoc.embedFont(fontBytes);
 
     const pages = pdfDoc.getPages();
-    const firstPage = pages[0];
-    const { width, height } = firstPage.getSize();
+    const pageCount = pages.length;
+
+    // Helper function to get target page safely
+    const getTargetPage = (requestedPage?: number) => {
+      if (!requestedPage || requestedPage < 1) return pages[0];
+      const index = Math.min(requestedPage - 1, pageCount - 1);
+      return pages[index];
+    };
 
     // Color: Official Blue
     const stampColor = rgb(0.1, 0.2, 0.7);
@@ -92,12 +100,14 @@ export async function applyDigitalStamps(
 
     // --- 1. Receipt Stamp (Top Right) ---
     if (receiptData) {
+      const targetPage = pages[0]; // เลขรับต้องอยู่หน้า 1 เสมอ
+      const { width, height } = targetPage.getSize();
       const receiptBoxWidth = 140;
       const receiptBoxHeight = 60;
       const receiptX = width - receiptBoxWidth - 30;
       const receiptY = height - receiptBoxHeight - 30;
 
-      firstPage.drawRectangle({
+      targetPage.drawRectangle({
         x: receiptX,
         y: receiptY,
         width: receiptBoxWidth,
@@ -106,21 +116,21 @@ export async function applyDigitalStamps(
         borderWidth: 1,
       });
 
-      firstPage.drawText(`เลขรับ: ${toThaiNumerals(receiptData.docNumber)}`, {
+      targetPage.drawText(`เลขรับ: ${toThaiNumerals(receiptData.docNumber)}`, {
         x: receiptX + 10,
         y: receiptY + receiptBoxHeight - 18,
         size: fontSize,
         font: customFont,
         color: stampColor,
       });
-      firstPage.drawText(`วันที่: ${toThaiNumerals(formatThaiDate(receiptData.date))}`, {
+      targetPage.drawText(`วันที่: ${toThaiNumerals(formatThaiDate(receiptData.date))}`, {
         x: receiptX + 10,
         y: receiptY + receiptBoxHeight - 18 - lineSpacing,
         size: fontSize,
         font: customFont,
         color: stampColor,
       });
-      firstPage.drawText(`เวลา: ${toThaiNumerals(receiptData.time)}`, {
+      targetPage.drawText(`เวลา: ${toThaiNumerals(receiptData.time)}`, {
         x: receiptX + 10,
         y: receiptY + receiptBoxHeight - 18 - lineSpacing * 2,
         size: fontSize,
@@ -131,11 +141,13 @@ export async function applyDigitalStamps(
 
     // --- 2. Retirement Stamp (Bottom Left) ---
     if (proposalData) {
+      const targetPage = getTargetPage(receiptData?.pageNumber); // เกษียณเสนอเลือกหน้าได้
+      const { width } = targetPage.getSize();
       const propX = 50;
-      const propY = 140; // ขยับขึ้นจาก 120 เพื่อเพิ่มพื้นที่ด้านล่าง
+      const propY = 140; 
       const maxRetirementWidth = width / 2.3;
 
-      firstPage.drawText(`เรียน ผู้อำนวยการโรงเรียนบ้านควนโคกยา`, {
+      targetPage.drawText(`เรียน ผู้อำนวยการโรงเรียนบ้านควนโคกยา`, {
         x: propX,
         y: propY + 115,
         size: fontSize + 1,
@@ -146,13 +158,12 @@ export async function applyDigitalStamps(
       const summaryLines = wrapThaiText(proposalData.summary, maxRetirementWidth, customFont, fontSize);
       let currentY = propY + 98;
       for (const line of summaryLines) {
-        firstPage.drawText(line, { x: propX + 10, y: currentY, size: fontSize, font: customFont, color: stampColor });
-        currentY -= 18; // เพิ่มระยะห่างบรรทัดจาก 16 เป็น 18
+        targetPage.drawText(line, { x: propX + 10, y: currentY, size: fontSize, font: customFont, color: stampColor });
+        currentY -= 18; 
       }
 
-      // ขยับข้อเสนอลงมาตามจำนวนบรรทัดของสรุป
       const proposalY = currentY - 5;
-      firstPage.drawText(proposalData.proposal, {
+      targetPage.drawText(proposalData.proposal, {
         x: propX + 10,
         y: proposalY,
         size: fontSize,
@@ -160,11 +171,10 @@ export async function applyDigitalStamps(
         color: stampColor,
       });
 
-      const signerY = proposalY - 35; // ตำแหน่งเซ็นชื่ออ้างอิงจากบรรทัดข้อเสนอ
+      const signerY = proposalY - 35; 
 
-      firstPage.drawText(`(ลงชื่อ) ........................................`, { x: propX + 30, y: signerY, size: fontSize, font: customFont, color: stampColor });
+      targetPage.drawText(`(ลงชื่อ) ........................................`, { x: propX + 30, y: signerY, size: fontSize, font: customFont, color: stampColor });
 
-      // --- EMBED PROPOSER SIGNATURE (Draw after text to be on top) ---
       if (proposalData.signatureUrl) {
         try {
           const sigRes = await fetch(proposalData.signatureUrl);
@@ -172,9 +182,9 @@ export async function applyDigitalStamps(
             const sigBytes = await sigRes.arrayBuffer();
             const isPng = proposalData.signatureUrl.toLowerCase().includes('.png');
             const sigImage = isPng ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
-            const sigDims = sigImage.scale(0.45); // เพิ่มขนาดจาก 0.30 เป็น 0.45
-            firstPage.drawImage(sigImage, {
-              x: propX + 85, // ขยับซ้ายลงเล็กน้อยจาก 100 เป็น 85 (ประมาณ 3 สเปซบาร์)
+            const sigDims = sigImage.scale(0.45); 
+            targetPage.drawImage(sigImage, {
+              x: propX + 85, 
               y: signerY + 12, 
               width: sigDims.width,
               height: sigDims.height,
@@ -183,22 +193,21 @@ export async function applyDigitalStamps(
         } catch (e) { console.error('Proposer sig error:', e); }
       }
 
-      firstPage.drawText(`(${proposalData.signer})`, { x: propX + 55, y: signerY - 17, size: fontSize, font: customFont, color: stampColor });
-      firstPage.drawText(`วันที่: ${toThaiNumerals(formatThaiDate(proposalData.date))}`, { x: propX + 60, y: signerY - 34, size: fontSize, font: customFont, color: stampColor });
+      targetPage.drawText(`(${proposalData.signer})`, { x: propX + 55, y: signerY - 17, size: fontSize, font: customFont, color: stampColor });
+      targetPage.drawText(`วันที่: ${toThaiNumerals(formatThaiDate(proposalData.date))}`, { x: propX + 60, y: signerY - 34, size: fontSize, font: customFont, color: stampColor });
     }
 
-    // --- 3. Director's Order Stamp (Bottom Right - Restored & Aligned) ---
+    // --- 3. Director's Order Stamp (Bottom Right) ---
     if (directorData) {
-      // ปรับตำแหน่ง X ให้ตรงกับ stamp เลขรับด้านบน (width - receiptBoxWidth - 30)
+      const targetPage = getTargetPage(directorData.pageNumber);
+      const { width } = targetPage.getSize();
       const receiptBoxWidth = 140;
       const rightMargin = 30;
       const startX = width - receiptBoxWidth - rightMargin;
       const effectiveWidth = receiptBoxWidth; 
-
-      // ใช้ตำแหน่งความสูงเดียวกับฝั่งซ้าย (ขอบล่าง)
       const dirY = 140; 
 
-      firstPage.drawText(`คำสั่ง / การปฏิบัติ`, {
+      targetPage.drawText(`คำสั่ง / การปฏิบัติ`, {
         x: startX, 
         y: dirY + 115,
         size: fontSize + 1,
@@ -209,13 +218,12 @@ export async function applyDigitalStamps(
       const orderLines = wrapThaiText(directorData.order, effectiveWidth, customFont, fontSize);
       let dCurrentY = dirY + 98;
       for (const line of orderLines) {
-        firstPage.drawText(line, { x: startX, y: dCurrentY, size: fontSize, font: customFont, color: stampColor });
+        targetPage.drawText(line, { x: startX, y: dCurrentY, size: fontSize, font: customFont, color: stampColor });
         dCurrentY -= 18; 
       }
 
       const dirSignerY = dCurrentY - 35;
 
-      // --- EMBED DIRECTOR SIGNATURE IMAGE ---
       if (directorData.signatureUrl) {
         try {
           const sigRes = await fetch(directorData.signatureUrl);
@@ -223,28 +231,25 @@ export async function applyDigitalStamps(
             const sigBytes = await sigRes.arrayBuffer();
             const isPng = directorData.signatureUrl.toLowerCase().includes('.png') || directorData.signatureUrl.toLowerCase().includes('image/png');
             const sigImage = isPng ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
-            
-            const sigDims = sigImage.scale(0.50); // เพิ่มขนาดจาก 0.35 เป็น 0.50
-            firstPage.drawImage(sigImage, {
-              x: startX + 60, // ขยับไปทางขวาให้พ้นคำว่า (ลงชื่อ)
-              y: dirSignerY + 10, // ขยับขึ้นให้พ้นเส้นประและตัวหนังสือ
+            const sigDims = sigImage.scale(0.50); 
+            targetPage.drawImage(sigImage, {
+              x: startX + 60, 
+              y: dirSignerY + 10, 
               width: sigDims.width,
               height: sigDims.height,
             });
           }
-        } catch (imgErr) {
-          console.error('Signature image embed error:', imgErr);
-        }
+        } catch (imgErr) { console.error('Signature image embed error:', imgErr); }
       }
 
-      firstPage.drawText(`(ลงชื่อ) ........................................`, { x: startX - 10, y: dirSignerY, size: fontSize, font: customFont, color: stampColor });
-      firstPage.drawText(`(${directorData.signer})`, { x: startX + 15, y: dirSignerY - 17, size: fontSize, font: customFont, color: stampColor });
+      targetPage.drawText(`(ลงชื่อ) ........................................`, { x: startX - 10, y: dirSignerY, size: fontSize, font: customFont, color: stampColor });
+      targetPage.drawText(`(${directorData.signer})`, { x: startX + 15, y: dirSignerY - 17, size: fontSize, font: customFont, color: stampColor });
 
       if (directorData.position) {
-        firstPage.drawText(`${directorData.position}`, { x: startX - 5, y: dirSignerY - 34, size: fontSize, font: customFont, color: stampColor });
+        targetPage.drawText(`${directorData.position}`, { x: startX - 5, y: dirSignerY - 34, size: fontSize, font: customFont, color: stampColor });
       }
 
-      firstPage.drawText(`วันที่: ${toThaiNumerals(formatThaiDate(directorData.date))}`, {
+      targetPage.drawText(`วันที่: ${toThaiNumerals(formatThaiDate(directorData.date))}`, {
         x: startX + 20,
         y: dirSignerY - (directorData.position ? 51 : 34),
         size: fontSize,

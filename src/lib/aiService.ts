@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import { supabase } from './supabase';
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -142,3 +143,52 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
 
   return { summary: 'ไม่สามารถสรุปเนื้อหาได้' };
 }
+
+export async function generateAIDraft(prompt: string, apiKey?: string): Promise<string> {
+  if (!apiKey) {
+    // Try to fetch from settings if not provided
+    const { data } = await supabase.from('settings').select('gemini_api_key').maybeSingle();
+    apiKey = data?.gemini_api_key;
+  }
+
+  if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key ในหน้าตั้งค่าระบบก่อนใช้งาน AI');
+
+  let modelsToTry = await getAvailableModels(apiKey);
+  if (modelsToTry.length === 0) {
+    modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+  }
+
+  const apiVersions = ["v1beta", "v1"];
+
+  for (const modelName of modelsToTry) {
+    for (const version of apiVersions) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`;
+        
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        }
+      } catch (err) {
+        // Silent fail to try next model/version
+      }
+    }
+  }
+
+  throw new Error('AI ไม่สามารถร่างข้อความได้ในขณะนี้ กรุณาลองใหม่ภายหลัง');
+}
+
