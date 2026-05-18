@@ -51,9 +51,14 @@ import {
   User,
   Bot,
   Coins,
-  Droplets
+  Droplets,
+  Download,
+  CheckCircle2,
+  XCircle,
+  RefreshCw
 } from 'lucide-react';
 
+const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
 type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities';
 
@@ -61,6 +66,34 @@ function App() {
   const { user, profile, loading, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
+  
+  // Update State
+  const [updateStatus, setUpdateStatus] = useState<{ type: string; message: string; version?: string } | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
+
+  useEffect(() => {
+    if (!ipcRenderer) return;
+
+    ipcRenderer.on('update-status', (_event: any, status: any) => {
+      setUpdateStatus(status);
+      if (status.type === 'not-available' || status.type === 'error') {
+        setTimeout(() => setUpdateStatus(null), 5000);
+      }
+    });
+
+    ipcRenderer.on('update-progress', (_event: any, progress: any) => {
+      setDownloadProgress(Math.floor(progress.percent));
+    });
+
+    return () => {
+      ipcRenderer.removeAllListeners('update-status');
+      ipcRenderer.removeAllListeners('update-progress');
+    };
+  }, []);
+
+  const handleRestart = () => {
+    if (ipcRenderer) ipcRenderer.send('restart-app');
+  };
 
   useEffect(() => {
     async function fetchSchoolName() {
@@ -234,6 +267,66 @@ function App() {
             {activeTab === 'ai_cowork' && <AICowork />}
           </div>
         </div>
+
+        {/* Update Notification Overlay */}
+        {updateStatus && (
+          <div className="fixed bottom-6 right-6 z-[9999] animate-in slide-in-from-bottom-10 duration-500">
+            <div className="bg-white rounded-[32px] shadow-2xl border border-slate-100 p-6 w-[380px] overflow-hidden relative">
+              <div className="flex items-start gap-4">
+                <div className={`p-3 rounded-2xl shrink-0 ${
+                  updateStatus.type === 'downloaded' ? 'bg-green-50 text-green-600' :
+                  updateStatus.type === 'error' ? 'bg-red-50 text-red-600' :
+                  'bg-blue-50 text-blue-600'
+                }`}>
+                  {updateStatus.type === 'available' && <Download size={24} className="animate-bounce" />}
+                  {updateStatus.type === 'checking' && <RefreshCw size={24} className="animate-spin" />}
+                  {updateStatus.type === 'downloaded' && <CheckCircle2 size={24} />}
+                  {updateStatus.type === 'error' && <XCircle size={24} />}
+                  {updateStatus.type === 'not-available' && <CheckCircle2 size={24} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+                    {updateStatus.type === 'available' ? 'พบเวอร์ชันใหม่!' :
+                     updateStatus.type === 'downloaded' ? 'ดาวน์โหลดเสร็จแล้ว' :
+                     updateStatus.type === 'error' ? 'เกิดข้อผิดพลาด' :
+                     'ระบบอัปเดตอัตโนมัติ'}
+                    {updateStatus.version && <span className="bg-slate-100 px-2 py-0.5 rounded-lg text-[10px] text-slate-500">v{updateStatus.version}</span>}
+                  </h4>
+                  <p className="text-slate-500 text-xs mt-1 font-medium leading-relaxed truncate">{updateStatus.message}</p>
+                  
+                  {updateStatus.type === 'available' && (
+                    <div className="mt-4 space-y-2">
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-brand-primary transition-all duration-300 ease-out"
+                          style={{ width: `${downloadProgress}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        <span>กำลังดาวน์โหลด...</span>
+                        <span>{downloadProgress}%</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {updateStatus.type === 'downloaded' && (
+                    <button 
+                      onClick={handleRestart}
+                      className="mt-4 w-full bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
+                    >
+                      <RefreshCw size={14} /> เริ่มระบบใหม่เพื่อติดตั้ง
+                    </button>
+                  )}
+                </div>
+                {updateStatus.type === 'not-available' && (
+                  <button onClick={() => setUpdateStatus(null)} className="text-slate-300 hover:text-slate-500 transition-colors">
+                    <XCircle size={20} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
