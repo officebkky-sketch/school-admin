@@ -1,8 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { Bot, Send, Loader2, Trash2, FolderOpen, FileText, ChevronRight, Database, Search, Sparkles, RefreshCw, Plus, ArrowRight } from 'lucide-react';
-import { extractTextFromPdf, getAvailableModels } from '../lib/aiService';
+import { 
+  Bot, 
+  Send, 
+  Loader2, 
+  Trash2, 
+  FolderOpen, 
+  FileText, 
+  ChevronRight, 
+  Database, 
+  Search, 
+  Sparkles, 
+  RefreshCw, 
+  Plus, 
+  ArrowRight,
+  BrainCircuit,
+  UploadCloud,
+  CheckCircle2,
+  FileSearch
+} from 'lucide-react';
+import { extractTextFromPdf, getAvailableModels, processDocumentToKnowledge, searchKnowledge } from '../lib/aiService';
 
 // Standard Folders for Knowledge Base (Thai School Admin Standard)
 const KNOWLEDGE_FOLDERS = [
@@ -19,12 +37,17 @@ const KNOWLEDGE_FOLDERS = [
 
 export default function AICowork() {
   const { user } = useAuth();
-  const [activeView, setActiveTab] = useState<'chat' | 'drive'>('chat');
+  const [activeView, setActiveTab] = useState<'chat' | 'drive' | 'intelligence'>('chat');
   const [loading, setLoading] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [searchQuery, setSearchTerm] = useState('');
+
+  // Intelligence Hub States
+  const [knowledgeFiles, setKnowledgeFiles] = useState<any[]>([]);
+  const [processingStatus, setProcessingStatus] = useState<{ current: number, total: number, fileName: string } | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Chat States
   const [messages, setMessages] = useState<any[]>([
@@ -36,6 +59,7 @@ export default function AICowork() {
 
   useEffect(() => {
     if (activeView === 'drive') fetchFiles();
+    if (activeView === 'intelligence') fetchKnowledgeFiles();
   }, [activeView, selectedFolder]);
 
   useEffect(() => {
@@ -53,6 +77,74 @@ export default function AICowork() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchKnowledgeFiles() {
+    setLoading(true);
+    try {
+      // ดึงชื่อไฟล์ที่ไม่ซ้ำกันจากคลังปัญญา
+      const { data, error } = await supabase
+        .from('school_knowledge')
+        .select('document_name, created_at')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      // Filter unique filenames
+      const uniqueFiles = data.reduce((acc: any[], current) => {
+        const x = acc.find(item => item.document_name === current.document_name);
+        if (!x) return acc.concat([current]);
+        return acc;
+      }, []);
+
+      setKnowledgeFiles(uniqueFiles);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleKnowledgeUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files?.length) return;
+    const file = e.target.files[0];
+    if (file.type !== 'application/pdf') {
+      alert('กรุณาเลือกไฟล์ PDF เท่านั้นครับ');
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingStatus({ current: 0, total: 0, fileName: file.name });
+
+    try {
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key').single();
+      const apiKey = settings?.gemini_api_key;
+      if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key ก่อนครับ');
+
+      const buffer = await file.arrayBuffer();
+      await processDocumentToKnowledge(buffer, file.name, apiKey, (current, total) => {
+        setProcessingStatus({ current, total, fileName: file.name });
+      });
+
+      alert('AI ย่อยข้อมูลและจดจำลงสมองเรียบร้อยแล้วครับ!');
+      fetchKnowledgeFiles();
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus(null);
+    }
+  }
+
+  async function handleDeleteKnowledge(fileName: string) {
+    if (!confirm(`ยืนยันการลบความรู้จากไฟล์ "${fileName}" ออกจากสมอง AI?`)) return;
+    try {
+      const { error } = await supabase.from('school_knowledge').delete().eq('document_name', fileName);
+      if (error) throw error;
+      fetchKnowledgeFiles();
+    } catch (err: any) {
+      alert(err.message);
     }
   }
 
@@ -120,26 +212,26 @@ export default function AICowork() {
       
       if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ก่อนใช้งาน');
 
-      // 1. Semantic Search (Simple keywords for now)
-      const { data: kbFiles } = await supabase.from('ai_knowledge_base')
-        .select('content_text, file_name')
-        .eq('teacher_id', user?.id)
-        .limit(5);
+      // 1. ค้นหาข้อมูลจาก "สมองอัจฉริยะ" (Vector Search)
+      const matches = await searchKnowledge(userMsg, apiKey, 5);
       
-      const context = kbFiles?.map(f => `[จากไฟล์: ${f.file_name}]\n${f.content_text?.substring(0, 1000)}`).join('\n\n') || "ไม่มีข้อมูลในคลัง";
+      // 2. จัดรูปแบบบริบทจากคลังปัญญา
+      const context = matches.length > 0 
+        ? matches.map((m: any) => `[อ้างอิง: ${m.document_name} หน้า ${m.page_number}]\n${m.chunk_text}`).join('\n\n')
+        : "ไม่พบข้อมูลที่ตรงกันโดยตรงในคลังปัญญาโรงเรียน";
 
-      // 2. Call Gemini with Robust Logic
+      // 3. สร้าง Prompt สำหรับ Gemini
       const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา 
-      ข้อมูลบริบทจากคลังเอกสารส่วนตัวของคุณครู:
+      ข้อมูลที่ค้นพบจากคลังปัญญาโรงเรียน:
       ${context}
 
       คำถามของคุณครู: ${userMsg}
 
       คำแนะนำในการตอบ:
-      1. ตอบคำถามโดยอ้างอิงจากข้อมูลในบริบท (ถ้ามีข้อมูลที่เกี่ยวข้อง) 
-      2. หากไม่มีข้อมูลในบริบท ให้ตอบตามความรู้ของคุณในฐานะผู้ช่วยครูที่เป็นมืออาชีพ
-      3. ใช้ภาษาไทยที่สุภาพ เป็นกันเอง และให้เกียรติเพื่อนร่วมวิชาชีพ
-      4. หากเป็นเรื่องเกี่ยวกับระเบียบหรือนโยบาย ให้พยายามอ้างอิงแหล่งที่มาที่น่าเชื่อถือ`;
+      1. ตอบคำถามโดยอ้างอิงจากข้อมูลที่ค้นพบข้างต้น (ถ้ามี)
+      2. หากข้อมูลในคลังระบุไว้ชัดเจน ให้ตอบตามนั้นและระบุ [อ้างอิงไฟล์/หน้า] ด้วยเสมอ
+      3. หากในคลังไม่มีข้อมูล ให้ตอบตามความรู้พื้นฐานและแจ้งว่า "ข้อมูลนี้ไม่อยู่ในคลังปัญญาโรงเรียน"
+      4. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่เป็นกันเอง`;
 
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
@@ -201,11 +293,17 @@ export default function AICowork() {
           onClick={() => setActiveTab('drive')} 
           className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeView === 'drive' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
         >
-          <Database size={18} /> Virtual Drive (คลังครู)
+          <Database size={18} /> Virtual Drive
+        </button>
+        <button 
+          onClick={() => setActiveTab('intelligence')} 
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeView === 'intelligence' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+        >
+          <BrainCircuit size={18} /> Intelligence Hub
         </button>
       </div>
 
-      {activeView === 'chat' ? (
+      {activeView === 'chat' && (
         <div className="flex-1 flex flex-col bg-white rounded-[40px] border border-slate-100 shadow-xl overflow-hidden relative">
           <div className="p-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
              <div className="flex items-center gap-3">
@@ -248,17 +346,19 @@ export default function AICowork() {
                   type="text" 
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder="พิมพ์คำถามของคุณครูที่นี่ (เช่น ช่วยสรุปแผนการสอนในคลังให้หน่อย)..." 
+                  placeholder="พิมพ์คำถามของคุณครูที่นี่ (เช่น ช่วยสรุประเบียบพัสดุในคลังให้หน่อย)..." 
                   className="w-full pl-6 pr-14 py-4 bg-white border border-slate-200 rounded-[24px] font-bold text-slate-700 outline-hidden focus:ring-4 focus:ring-brand-primary/5 focus:border-brand-primary transition-all shadow-sm"
                 />
                 <button type="submit" className="absolute right-2 top-2 w-10 h-10 bg-brand-primary text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all">
                    <Send size={18} />
                 </button>
              </div>
-             <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest mt-3">ขับเคลื่อนด้วย Google Gemini AI • ข้อมูลของคุณจะถูกเก็บเป็นความลับ</p>
+             <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest mt-3">ขับเคลื่อนด้วย Google Gemini AI • ระบบวิเคราะห์จากคลังปัญญาโรงเรียน</p>
           </form>
         </div>
-      ) : (
+      )}
+
+      {activeView === 'drive' && (
         <div className="flex-1 flex gap-6 overflow-hidden">
           {/* Folders Sidebar */}
           <div className="w-72 bg-white rounded-[40px] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
@@ -342,6 +442,79 @@ export default function AICowork() {
                   </div>
                 )}
              </div>
+          </div>
+        </div>
+      )}
+
+      {activeView === 'intelligence' && (
+        <div className="flex-1 flex flex-col bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-10 border-b border-slate-50 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 flex justify-between items-center">
+            <div>
+              <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3 tracking-tight">
+                <BrainCircuit size={32} className="text-brand-primary" /> Intelligence Hub
+              </h3>
+              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">คลังปัญญาโรงเรียน (ระบบอ่านและจดจำเนื้อหาอัตโนมัติ)</p>
+            </div>
+            <div className="flex gap-3">
+              <label className={`bg-brand-primary text-white px-8 py-4 rounded-2xl font-black text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-green-100 transition-all active:scale-95 ${isProcessing ? 'opacity-50 pointer-events-none' : 'hover:bg-green-700'}`}>
+                <input type="file" className="hidden" accept="application/pdf" onChange={handleKnowledgeUpload} />
+                <UploadCloud size={20} /> สอนงาน AI (ป้อน PDF)
+              </label>
+            </div>
+          </div>
+
+          {isProcessing && processingStatus && (
+            <div className="p-8 bg-blue-600 text-white animate-in slide-in-from-top duration-500">
+               <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center gap-3">
+                     <Loader2 className="animate-spin" size={24} />
+                     <div>
+                        <p className="font-black text-lg">AI กำลังอ่านและจดจำเนื้อหา...</p>
+                        <p className="text-blue-100 text-xs font-bold uppercase tracking-widest">ไฟล์: {processingStatus.fileName}</p>
+                     </div>
+                  </div>
+                  <div className="text-right">
+                     <p className="text-3xl font-black">{Math.round((processingStatus.current / processingStatus.total) * 100)}%</p>
+                     <p className="text-[10px] font-black uppercase opacity-60">หน้า {processingStatus.current} จาก {processingStatus.total}</p>
+                  </div>
+               </div>
+               <div className="h-3 bg-white/20 rounded-full overflow-hidden shadow-inner">
+                  <div className="h-full bg-white transition-all duration-300" style={{ width: `${(processingStatus.current / processingStatus.total) * 100}%` }}></div>
+               </div>
+               <p className="text-[10px] font-black uppercase mt-4 tracking-widest text-center opacity-80">* กรุณาอย่าปิดหน้านี้จนกว่าการประมวลผลจะเสร็จสิ้น *</p>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto p-10 custom-scrollbar">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {knowledgeFiles.map((file, idx) => (
+                <div key={idx} className="bg-slate-50 border border-slate-100 p-6 rounded-[32px] group hover:bg-white hover:border-brand-primary/20 hover:shadow-xl transition-all">
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="p-4 bg-white rounded-2xl text-brand-primary shadow-sm group-hover:bg-brand-primary group-hover:text-white transition-colors">
+                      <FileSearch size={28} />
+                    </div>
+                    <button onClick={() => handleDeleteKnowledge(file.document_name)} className="p-2 text-slate-300 hover:text-red-500 transition-colors">
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
+                  <h4 className="font-black text-slate-800 text-lg line-clamp-2 mb-2" title={file.document_name}>{file.document_name}</h4>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <CheckCircle2 size={14} className="text-green-500" /> จดจำเข้าระบบแล้ว
+                  </p>
+                  <div className="mt-6 pt-6 border-t border-slate-100 flex justify-between items-center text-[10px] font-black text-slate-400 uppercase">
+                    <span>วันที่จดจำ: {new Date(file.created_at).toLocaleDateString('th-TH')}</span>
+                  </div>
+                </div>
+              ))}
+
+              {knowledgeFiles.length === 0 && !loading && (
+                <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-300 border-4 border-dashed border-slate-50 rounded-[40px]">
+                   <BrainCircuit size={80} className="mb-6 opacity-10" />
+                   <p className="text-xl font-black uppercase tracking-[0.2em]">สมอง AI ยังว่างเปล่า</p>
+                   <p className="text-sm font-bold mt-2 text-slate-400 max-w-sm text-center">เริ่มสอนงาน AI โดยการอัปโหลดระเบียบหรือคู่มือการทำงานของโรงเรียน เพื่อให้ AI ช่วยตอบคำถามและร่างเอกสารได้แม่นยำขึ้น</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

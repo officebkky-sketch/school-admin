@@ -43,14 +43,13 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     if (response.ok) {
       const data = await response.json();
-      // Filter for gemini models and sort by version (flash first)
       return data.models
         ?.map((m: any) => m.name.replace('models/', ''))
         .filter((name: string) => name.includes('gemini'))
         .sort((a: string, b: string) => {
           if (a.includes('flash') && !b.includes('flash')) return -1;
           if (!a.includes('flash') && b.includes('flash')) return 1;
-          return b.localeCompare(a); // Sort descending to get newer versions first
+          return b.localeCompare(a);
         }) || [];
     }
   } catch (e) {
@@ -130,7 +129,7 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
             }
           }
         } catch (err: any) {
-          // Silent fail to try next version/model
+          // Silent fail
         }
       }
     }
@@ -146,7 +145,6 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
 
 export async function generateAIDraft(prompt: string, apiKey?: string): Promise<string> {
   if (!apiKey) {
-    // Try to fetch from settings if not provided
     const { data } = await supabase.from('settings').select('gemini_api_key').maybeSingle();
     apiKey = data?.gemini_api_key;
   }
@@ -184,7 +182,7 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
           return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         }
       } catch (err) {
-        // Silent fail to try next model/version
+        // Silent fail
       }
     }
   }
@@ -192,3 +190,101 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
   throw new Error('AI ไม่สามารถร่างข้อความได้ในขณะนี้ กรุณาลองใหม่ภายหลัง');
 }
 
+export async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: "models/text-embedding-004",
+        content: { parts: [{ text }] }
+      })
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+      return data.embedding?.values || [];
+    }
+    throw new Error(data.error?.message || 'Embedding failed');
+  } catch (err) {
+    console.error('Embedding error:', err);
+    throw err;
+  }
+}
+
+export async function processDocumentToKnowledge(
+  pdfBuffer: ArrayBuffer, 
+  fileName: string, 
+  apiKey: string,
+  onProgress?: (current: number, total: number) => void
+) {
+  const bufferCopy = pdfBuffer.slice(0);
+  const loadingTask = pdfjsLib.getDocument({ data: bufferCopy });
+  const pdf = await loadingTask.promise;
+  const totalPages = pdf.numPages;
+
+  const chunks = [];
+  const chunkSize = 1000;
+  const chunkOverlap = 200;
+
+  for (let i = 1; i <= totalPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items.map((item: any) => item.str).join(' ');
+    
+    let start = 0;
+    while (start < pageText.length) {
+      const end = start + chunkSize;
+      const text = pageText.substring(start, end).trim();
+      if (text.length > 50) {
+        chunks.push({ text, page_number: i });
+      }
+      start += (chunkSize - chunkOverlap);
+    }
+    if (onProgress) onProgress(i, totalPages);
+  }
+
+  const batchSize = 5;
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    const batch = chunks.slice(i, i + batchSize);
+    const promises = batch.map(async (chunk) => {
+      try {
+        const embedding = await generateEmbedding(chunk.text, apiKey);
+        const { data: { user } } = await supabase.auth.getUser();
+        await supabase.from('school_knowledge').insert([{
+          document_name: fileName,
+          page_number: chunk.page_number,
+          chunk_text: chunk.text,
+          embedding: embedding,
+          created_by: user?.id
+        }]);
+      } catch (err) {
+        console.error('Batch item error:', err);
+      }
+    });
+
+    await Promise.all(promises);
+    if (i + batchSize < chunks.length) await new Promise(r => setTimeout(r, 500));
+  }
+
+  return chunks.length;
+}
+
+export async function searchKnowledge(query: string, apiKey: string, limit: number = 8) {
+  try {
+    const queryEmbedding = await generateEmbedding(query, apiKey);
+
+    const { data, error } = await supabase.rpc('match_knowledge', {
+      query_embedding: queryEmbedding,
+      match_threshold: 0.3,
+      match_count: limit
+    });
+
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Knowledge search error:', err);
+    return [];
+  }
+}
