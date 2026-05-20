@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { extractProjectsFromKnowledge } from '../lib/aiService';
@@ -6,24 +6,17 @@ import {
   Package, 
   ShoppingCart, 
   Store, 
-  Plus, 
-  Search,
+  Plus,
   FileText,
   CheckCircle2,
-  Clock,
   AlertCircle,
-  MoreVertical,
   Edit2,
   Trash2,
-  Filter,
   ArrowRight,
   TrendingUp,
   Wallet,
   Loader2,
-  History,
-  Info,
   ArrowLeftRight,
-  ChevronRight,
   Calendar,
   FileBadge,
   Sparkles,
@@ -47,11 +40,9 @@ export default function Procurement() {
 
   const [projects, setProjects] = useState<any[]>([]);
   const [procurements, setProcurements] = useState<any[]>([]);
-  const [vendors, setVendors] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
 
   // Form States
   const [isAddingProject, setIsAddingProject] = useState(false);
@@ -61,6 +52,21 @@ export default function Procurement() {
   const [isAddingBudgetSource, setIsAddingBudgetSource] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isAddingProcurement, setIsAddingProcurement] = useState(false);
+  const [isEditingProcurement, setIsEditingProcurement] = useState(false);
+  const [selectedProcurementId, setSelectedProcurementId] = useState<string | null>(null);
+  const [isDocumentCenterOpen, setIsDocumentCenterOpen] = useState(false);
+  const [selectedProcurement, setSelectedProcurement] = useState<any>(null);
+  const [activeDocId, setActiveDocId] = useState<string>('request');
+
+  const PROCUREMENT_DOCS = [
+    { id: 'request', name: 'รายงานขอซื้อขอจ้าง', icon: <FileText size={18} />, description: 'เอกสารเริ่มต้นขออนุมัติจัดซื้อจัดจ้าง' },
+    { id: 'appointment', name: 'คำสั่งแต่งตั้งคณะกรรมการ', icon: <Users size={18} />, description: 'แต่งตั้งผู้ตรวจรับ/คณะกรรมการ' },
+    { id: 'notice_winner', name: 'ประกาศผู้ชนะการเสนอราคา', icon: <CheckCircle2 size={18} />, description: 'แจ้งผลการคัดเลือกผู้ขาย/ผู้รับจ้าง' },
+    { id: 'po', name: 'ใบสั่งซื้อ/ใบสั่งจ้าง (PO)', icon: <Package size={18} />, description: 'เอกสารยืนยันการสั่งซื้อกับร้านค้า' },
+    { id: 'delivery', name: 'ใบส่งมอบพัสดุ', icon: <ArrowRight size={18} />, description: 'แบบฟอร์มสำหรับร้านค้าส่งของ' },
+    { id: 'inspection', name: 'ใบตรวจรับพัสดุ', icon: <CheckCircle2 size={18} />, description: 'หลักฐานการตรวจรับพัสดุ' },
+    { id: 'report_inspection', name: 'บันทึกรายงานผลการตรวจรับ', icon: <FileText size={18} />, description: 'รายงานผลให้ผู้บริหารทราบ' }
+  ];
 
   // New Project Data
   const [newProject, setNewProject] = useState({
@@ -79,10 +85,15 @@ export default function Procurement() {
     method: 'เฉพาะเจาะจง',
     procurement_type: 'ซื้อ',
     order_date: new Date().toISOString().split('T')[0],
+    delivery_days: 15,
+    necessity_reason: '',
+    evaluation_criteria: 'เกณฑ์ราคา',
+    budget_source_detail: '',
     officer_id: '',
     head_officer_id: '',
-    inspector_id: '', // ประธาน
-    committee_ids: ['', ''] as string[], // กรรมการอีก 2 คน
+    committees: [
+      { teacher_id: '', role: 'ประธานกรรมการ' }
+    ] as { teacher_id: string, role: string }[],
     document_set_id: 'material_egp',
     vendor_info: {
       name: '',
@@ -100,58 +111,105 @@ export default function Procurement() {
   const [newBudgetSource, setNewBudgetSource] = useState({ academic_year: '2569', budget_type: 'งบอุดหนุน', category_name: '', amount: 0 });
 
   useEffect(() => {
-    fetchData();
+    fetchInitialData();
+  }, []);
+
+  useEffect(() => {
+    fetchTabData();
   }, [activeTab]);
 
-  async function fetchData() {
+  function addItemRow() {
+    setProcurementItems([...procurementItems, { item_name: '', quantity: 1, unit: 'รายการ', price_per_unit: 0, total_price: 0 }]);
+  }
+
+  function updateItem(index: number, field: string, value: any) {
+    const newItems = [...procurementItems];
+    newItems[index][field] = value;
+    if (field === 'quantity' || field === 'price_per_unit') {
+      newItems[index].total_price = Number(newItems[index].quantity) * Number(newItems[index].price_per_unit);
+    }
+    setProcurementItems(newItems);
+  }
+
+  function addCommitteeMember() {
+    setNewProcurement({
+      ...newProcurement,
+      committees: [...newProcurement.committees, { teacher_id: '', role: 'กรรมการ' }]
+    });
+  }
+
+  function updateCommitteeMember(index: number, field: string, value: string) {
+    const next = [...newProcurement.committees];
+    next[index] = { ...next[index], [field]: value as any };
+    setNewProcurement({ ...newProcurement, committees: next });
+  }
+
+  function removeCommitteeMember(index: number) {
+    const next = [...newProcurement.committees];
+    next.splice(index, 1);
+    setNewProcurement({ ...newProcurement, committees: next });
+  }
+
+  async function fetchInitialData() {
+    try {
+      // ดึงข้อมูลพื้นฐานที่ต้องใช้ในหลายส่วนเพียงครั้งเดียว
+      const [budRes, teachRes] = await Promise.all([
+        supabase.from('budget_allocations').select('*'),
+        supabase.from('teachers').select('*').order('first_name')
+      ]);
+
+      if (budRes.data) setBudgets(budRes.data);
+      if (teachRes.data) setTeachers(teachRes.data);
+    } catch (err) {
+      console.error('Initial Fetch Error:', err);
+    }
+  }
+
+  async function fetchTabData() {
     setLoading(true);
     setFetchError(null);
     try {
-      // 1. แหล่งงบประมาณ
-      const { data: budData, error: budErr } = await supabase.from('budget_allocations').select('*');
-      if (budErr) throw budErr;
-      setBudgets(budData || []);
-
-      // 2. โครงการ
-      const { data: projData, error: projErr } = await supabase
-        .from('school_projects')
-        .select(`*, budget_allocations(category_name)`)
-        .order('created_at', { descending: true });
-      if (projErr) throw projErr;
-      setProjects(projData || []);
+      if (activeTab === 'overview') {
+        const { data, error } = await supabase
+          .from('procurement_projects')
+          .select(`*, vendors(vendor_name), school_projects(project_name)`)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (error) throw error;
+        setProcurements(data || []);
+      } 
       
-      // 3. ร้านค้า
-      const { data: venData, error: venErr } = await supabase.from('vendors').select('*').order('vendor_name');
-      if (venErr) throw venErr;
-      setVendors(venData || []);
-
-      // 4. ครู/บุคลากร
-      const { data: teachData, error: teachErr } = await supabase.from('teachers').select('*').order('first_name');
-      if (teachErr) throw teachErr;
-      setTeachers(teachData || []);
-
-      // 5. การจัดซื้อ
-      const { data: procData, error: procErr } = await supabase
-        .from('procurement_projects')
-        .select(`*, vendors(vendor_name), school_projects(project_name)`)
-        .order('created_at', { descending: true });
-      if (procErr) throw procErr;
-      setProcurements(procData || []);
-
-      // 6. การถัวจ่าย
-      const { data: transData, error: transErr } = await supabase
-        .from('budget_transfers')
-        .select('*')
-        .order('created_at', { descending: true });
-      if (transErr) throw transErr;
-      setTransfers(transData || []);
-
+      else if (activeTab === 'projects') {
+        const { data, error } = await supabase
+          .from('school_projects')
+          .select(`*, budget_allocations(category_name)`)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        setProjects(data || []);
+      } 
+      
+      else if (activeTab === 'transfers') {
+        const { data, error } = await supabase
+          .from('budget_transfers')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        setTransfers(data || []);
+      }
+      
+      // ข้อมูลอื่นๆ จะถูกโหลดเมื่อมีการใช้งานจริง
     } catch (err: any) {
-      console.error('Fetch Error:', err);
+      console.error('Tab Fetch Error:', err);
       setFetchError(err.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  // แผนสำรองสำหรับการดึงข้อมูลทั้งหมดเมื่อจำเป็น
+  async function fetchData() {
+    await fetchInitialData();
+    await fetchTabData();
   }
 
   async function handleAIFillProjects() {
@@ -210,10 +268,16 @@ export default function Procurement() {
   }
 
   async function handleAddProject() {
+    if (!user) {
+      alert('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ครับ');
+      return;
+    }
+
     if (!newProject.project_name || !newProject.budget_id) {
       alert('กรุณากรอกข้อมูลให้ครบถ้วนครับ');
       return;
     }
+
     try {
       if (isEditingProject && selectedProjectId) {
         await supabase.from('school_projects').update({
@@ -239,9 +303,18 @@ export default function Procurement() {
   }
 
   async function handleDeleteProject(id: string, name: string) {
-    if (!confirm(`ยืนยันการลบโครงการ "${name}"?`)) return;
+    if (!confirm(`ยืนยันการลบโครงการ "${name}"? ข้อมูลการจัดซื้อที่เกี่ยวข้องจะถูกลบออกทั้งหมด`)) return;
     try {
       await supabase.from('school_projects').delete().eq('id', id);
+      fetchData();
+    } catch (err: any) { alert(err.message); }
+  }
+
+  async function handleDeleteProcurement(id: string, name: string) {
+    if (!confirm(`ยืนยันการลบรายการจัดซื้อ "${name}"?`)) return;
+    try {
+      const { error } = await supabase.from('procurement_projects').delete().eq('id', id);
+      if (error) throw error;
       fetchData();
     } catch (err: any) { alert(err.message); }
   }
@@ -259,49 +332,142 @@ export default function Procurement() {
   }
 
   async function handleTransfer() {
+    if (!user) {
+      alert('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ครับ');
+      return;
+    }
+
+    if (!newTransfer.from_project_id || !newTransfer.to_project_id || newTransfer.amount <= 0) {
+      alert('กรุณากรอกข้อมูลการโอนให้ครบถ้วนและถูกต้องครับ');
+      return;
+    }
+
+    if (newTransfer.from_project_id === newTransfer.to_project_id) {
+      alert('ไม่สามารถโอนเงินในโครงการเดียวกันได้ครับ');
+      return;
+    }
+
+    setLoading(true);
     try {
-      const fromProj = projects.find(p => p.id === newTransfer.from_project_id);
-      if (Number(fromProj.current_amount) < newTransfer.amount) throw new Error('ยอดเงินไม่เพียงพอ');
-      await supabase.from('budget_transfers').insert([{ ...newTransfer, created_by: user?.id }]);
-      await supabase.from('school_projects').update({ current_amount: Number(fromProj.current_amount) - Number(newTransfer.amount) }).eq('id', newTransfer.from_project_id);
-      const toProj = projects.find(p => p.id === newTransfer.to_project_id);
-      await supabase.from('school_projects').update({ current_amount: Number(toProj.current_amount) + Number(newTransfer.amount) }).eq('id', newTransfer.to_project_id);
+      // ใช้ RPC (Stored Procedure) เพื่อให้ทำงานแบบ Transaction (Atomic)
+      // ป้องกันยอดเงินไม่สมดุลหากเกิดข้อผิดพลาดระหว่างทาง
+      const { error } = await supabase.rpc('transfer_budget', {
+        p_from_project_id: newTransfer.from_project_id,
+        p_to_project_id: newTransfer.to_project_id,
+        p_amount: Number(newTransfer.amount),
+        p_reason: newTransfer.reason || 'ถัวจ่ายงบประมาณ',
+        p_user_id: user.id
+      });
+
+      if (error) throw error;
+
+      alert('โอนงบประมาณสำเร็จเรียบร้อยแล้วครับ');
       setIsTransferring(false);
-      fetchData();
-    } catch (err: any) { alert(err.message); }
+      setNewTransfer({ from_project_id: '', to_project_id: '', amount: 0, reason: '' });
+      await fetchData();
+    } catch (err: any) { 
+      console.error('Transfer Error:', err);
+      alert(err.message || 'เกิดข้อผิดพลาดในการโอนงบประมาณ'); 
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openEditProcurementModal(procurement: any) {
+    setSelectedProcurementId(procurement.id);
+    
+    // แปลงข้อมูลกรรมการจาก JSON ใน DB มาลง State
+    const savedCommittees = procurement.committee_json || [];
+    const initialCommittees = savedCommittees.length > 0 
+      ? savedCommittees 
+      : [{ teacher_id: '', role: 'ผู้ตรวจรับพัสดุ' }];
+
+    setNewProcurement({
+      project_id: procurement.project_id,
+      vendor_id: procurement.vendor_id || '',
+      project_name: procurement.project_name,
+      academic_year: procurement.academic_year,
+      method: procurement.method,
+      procurement_type: procurement.procurement_type,
+      order_date: procurement.order_date,
+      delivery_days: procurement.delivery_days || 15,
+      necessity_reason: procurement.necessity_reason || '',
+      evaluation_criteria: procurement.evaluation_criteria || 'เกณฑ์ราคา',
+      budget_source_detail: procurement.budget_source_detail || '',
+      officer_id: procurement.officer_id || '',
+      head_officer_id: procurement.head_officer_id || '',
+      committees: initialCommittees,
+      document_set_id: procurement.document_set_id || 'material_egp',
+      vendor_info: procurement.vendor_info || { name: '', address: '', tax_id: '' }
+    });
+
+    // ดึงรายการสินค้าเดิม
+    const { data: items } = await supabase.from('procurement_items').select('*').eq('procurement_id', procurement.id);
+    setProcurementItems(items && items.length > 0 ? items : [{ item_name: '', quantity: 1, unit: 'รายการ', price_per_unit: 0, total_price: 0 }]);
+    
+    setIsEditingProcurement(true);
+    setIsAddingProcurement(true);
   }
 
   async function handleAddProcurement() {
-    if (!newProcurement.project_id || !newProcurement.project_name || !newProcurement.officer_id || !newProcurement.inspector_id) {
-      alert('กรุณากรอกข้อมูลโครงการและระบุเจ้าหน้าที่/ผู้ตรวจรับให้ครบถ้วนครับ');
+    if (!user) {
+      alert('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ครับ');
       return;
     }
+
+    if (!newProcurement.project_id || !newProcurement.project_name || !newProcurement.officer_id) {
+      alert('กรุณากรอกข้อมูลโครงการและระบุเจ้าหน้าที่ให้ครบถ้วนครับ');
+      return;
+    }
+
+    const validCommittees = newProcurement.committees.filter(c => c.teacher_id !== '');
+    if (validCommittees.length === 0) {
+      alert('กรุณาระบุรายชื่อผู้ตรวจรับหรือคณะกรรมการอย่างน้อย 1 ท่านครับ');
+      return;
+    }
+
+    setLoading(true);
     try {
-      const { data: mainData, error: mainErr } = await supabase
-        .from('procurement_projects')
-        .insert([{
-          project_id: newProcurement.project_id,
-          vendor_id: newProcurement.vendor_id || null,
-          project_name: newProcurement.project_name,
-          academic_year: newProcurement.academic_year,
-          method: newProcurement.method,
-          procurement_type: newProcurement.procurement_type,
-          order_date: newProcurement.order_date,
-          officer_id: newProcurement.officer_id,
-          head_officer_id: newProcurement.head_officer_id,
-          inspector_id: newProcurement.inspector_id,
-          committee_json: newProcurement.committee_ids.filter(id => id !== ''),
-          vendor_info: newProcurement.vendor_info,
-          total_amount: procurementItems.reduce((sum, item) => sum + (Number(item.total_price) || 0), 0),
-          status: 'draft',
-          created_by: user?.id
-        }])
-        .select().single();
-      
-      if (mainErr) throw mainErr;
+      const procurementData = {
+        project_id: newProcurement.project_id,
+        vendor_id: newProcurement.vendor_id || null,
+        project_name: newProcurement.project_name,
+        academic_year: newProcurement.academic_year,
+        method: newProcurement.method,
+        procurement_type: newProcurement.procurement_type,
+        order_date: newProcurement.order_date,
+        delivery_days: newProcurement.delivery_days,
+        necessity_reason: newProcurement.necessity_reason,
+        evaluation_criteria: newProcurement.evaluation_criteria,
+        budget_source_detail: newProcurement.budget_source_detail,
+        officer_id: newProcurement.officer_id,
+        head_officer_id: newProcurement.head_officer_id,
+        committee_json: validCommittees,
+        vendor_info: newProcurement.vendor_info,
+        total_amount: procurementItems.reduce((sum, item) => sum + (Number(item.total_price) || 0), 0),
+        status: 'draft',
+        created_by: user.id
+      };
+
+      let mainId = selectedProcurementId;
+
+      if (isEditingProcurement && selectedProcurementId) {
+        const { error } = await supabase.from('procurement_projects').update(procurementData).eq('id', selectedProcurementId);
+        if (error) throw error;
+        
+        // ลบรายการเดิมทิ้งแล้วใส่ใหม่ (วิธีที่ง่ายและปลอดภัยที่สุดสำหรับชุดข้อมูลเล็ก)
+        await supabase.from('procurement_items').delete().eq('procurement_id', selectedProcurementId);
+      } else {
+        const { data: mainData, error: mainErr } = await supabase
+          .from('procurement_projects')
+          .insert([procurementData])
+          .select().single();
+        if (mainErr) throw mainErr;
+        mainId = mainData.id;
+      }
 
       const itemsToInsert = procurementItems.map(item => ({
-        procurement_id: mainData.id,
+        procurement_id: mainId,
         item_name: item.item_name,
         quantity: item.quantity,
         unit: item.unit,
@@ -310,23 +476,114 @@ export default function Procurement() {
       }));
 
       await supabase.from('procurement_items').insert(itemsToInsert);
-      alert('บันทึกข้อมูลจัดซื้อเรียบร้อยแล้วครับ');
+      
+      alert(isEditingProcurement ? 'อัปเดตข้อมูลเรียบร้อยแล้วครับ' : 'บันทึกข้อมูลจัดซื้อเรียบร้อยแล้วครับ');
       setIsAddingProcurement(false);
+      setIsEditingProcurement(false);
+      setSelectedProcurementId(null);
       fetchData();
-    } catch (err: any) { alert(err.message); }
-  }
-
-  function addItemRow() {
-    setProcurementItems([...procurementItems, { item_name: '', quantity: 1, unit: 'รายการ', price_per_unit: 0, total_price: 0 }]);
-  }
-
-  function updateItem(index: number, field: string, value: any) {
-    const newItems = [...procurementItems];
-    newItems[index][field] = value;
-    if (field === 'quantity' || field === 'price_per_unit') {
-      newItems[index].total_price = Number(newItems[index].quantity) * Number(newItems[index].price_per_unit);
+    } catch (err: any) { 
+      console.error('Procurement Error:', err);
+      alert(err.message); 
+    } finally {
+      setLoading(false);
     }
-    setProcurementItems(newItems);
+  }
+
+  async function handleOpenDocumentCenter(procurement: any) {
+    // ดึงข้อมูลรายการสินค้ามาด้วยเพื่อให้ AI มีข้อมูลครบ
+    const { data: items } = await supabase.from('procurement_items').select('*').eq('procurement_id', procurement.id);
+    setSelectedProcurement({ ...procurement, items: items || [] });
+    setIsDocumentCenterOpen(true);
+  }
+
+  async function handleAIDraftDocument(docType: string) {
+    if (!selectedProcurement) return;
+    setIsExtracting(true);
+    try {
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+      const { generateAIDraft } = await import('../lib/aiService');
+      
+      const itemsList = selectedProcurement.items.map((i: any) => `- ${i.item_name} จำนวน ${i.quantity} ${i.unit} ราคาหน่วยละ ${i.price_per_unit} บาท`).join('\n');
+      
+      const prompt = `เขียน "เนื้อหาภายใน" สำหรับเอกสารประเภท "${docType}" ของงานพัสดุโรงเรียน
+      โดยใช้ข้อมูลดังนี้:
+      - ชื่อรายการ/โครงการ: ${selectedProcurement.project_name}
+      - รายการพัสดุ: ${itemsList}
+      - งบประมาณรวม: ${selectedProcurement.total_amount} บาท
+      - เหตุผลความจำเป็น: ${selectedProcurement.necessity_reason}
+      
+      กฎเหล็ก:
+      1. ร่างเฉพาะ "เนื้อความส่วนเนื้อหา" เท่านั้น ห้ามใส่ส่วนหัว (เช่น บันทึกข้อความ, ส่วนราชการ, ที่, วันที่, เรื่อง, เรียน) เพราะระบบมีส่วนหัวอยู่แล้ว
+      2. ห้ามใช้สัญลักษณ์ Markdown เช่น ** หรือ # 
+      3. ห้ามมีคำนำหน้าหรือคำลงท้ายที่คุยกับผู้ใช้ (เช่น นี่คือร่างเนื้อหา...)
+      4. ใช้ภาษาราชการที่เป็นทางการที่สุด
+      5. แบ่งเป็นหัวข้อ 1. ความเป็นมา 2. รายละเอียด 3. งบประมาณ 4. ข้อเสนอพิจารณา ให้ชัดเจน`;
+      
+      const draft = await generateAIDraft(prompt, apiKey);
+      
+      // บันทึกร่างที่ AI สร้างไว้ในสถานะของโครงการ
+      const updatedDrafts = { ...(selectedProcurement.ai_draft_content || {}), [docType]: draft };
+      await supabase.from('procurement_projects').update({ ai_draft_content: updatedDrafts }).eq('id', selectedProcurement.id);
+      
+      setSelectedProcurement({ ...selectedProcurement, ai_draft_content: updatedDrafts });
+      alert(`ร่างเนื้อหา ${docType} สำเร็จแล้วครับ`);
+    } catch (err: any) { alert(err.message); }
+    finally { setIsExtracting(false); }
+  }
+
+  async function handleDownloadPDF(docId: string) {
+    if (!selectedProcurement) return;
+    
+    // บางใบอาจจะใช้ร่าง AI บางใบอาจใช้แบบฟอร์มตายตัว
+    const draftContent = selectedProcurement.ai_draft_content?.[docId] || '';
+    
+    setLoading(true);
+    try {
+      const { generateProcurementDoc } = await import('../lib/ProcurementDocGenerator');
+      
+      const { data: settings } = await supabase.from('settings').select('director_name').single();
+      
+      const officer = teachers.find(t => t.id === selectedProcurement.officer_id);
+      const officerName = officer ? `${officer.prefix}${officer.first_name} ${officer.last_name}` : '';
+      
+      const headOfficer = teachers.find(t => t.id === selectedProcurement.head_officer_id);
+      const headOfficerName = headOfficer ? `${headOfficer.prefix}${headOfficer.first_name} ${headOfficer.last_name}` : '';
+
+      // ดึงรายชื่อกรรมการพร้อมตำแหน่ง (แบบใหม่)
+      const resolvedCommittees = (selectedProcurement.committee_json || []).map((c: any) => {
+        const t = teachers.find(teach => teach.id === c.teacher_id);
+        return {
+          name: t ? `${t.prefix}${t.first_name} ${t.last_name}` : '................................................',
+          role: c.role
+        };
+      });
+      
+      const blob = await generateProcurementDoc(
+        docId,
+        { 
+          ...selectedProcurement, 
+          officerName, 
+          headOfficerName, 
+          committees: resolvedCommittees,
+          directorName: settings?.director_name || '................................................' 
+        },
+        draftContent
+      );
+      
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${docId}_${selectedProcurement.project_name}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการสร้าง PDF: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const stats = {
@@ -407,7 +664,30 @@ export default function Procurement() {
               <div className="md:col-span-3 bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden min-h-[400px]">
                 <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
                   <h3 className="text-lg font-black text-slate-800 tracking-tight">รายการจัดซื้อจัดจ้างล่าสุด</h3>
-                  <button onClick={() => setIsAddingProcurement(true)} className="bg-brand-primary text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-green-700 transition-all">+ เริ่มจัดซื้อใหม่</button>
+                  <button onClick={() => {
+                    setIsEditingProcurement(false);
+                    setSelectedProcurementId(null);
+                    setNewProcurement({
+                      project_id: '',
+                      vendor_id: '',
+                      project_name: '',
+                      academic_year: '2569',
+                      method: 'เฉพาะเจาะจง',
+                      procurement_type: 'ซื้อ',
+                      order_date: new Date().toISOString().split('T')[0],
+                      delivery_days: 15,
+                      necessity_reason: '',
+                      evaluation_criteria: 'เกณฑ์ราคา',
+                      budget_source_detail: '',
+                      officer_id: '',
+                      head_officer_id: '',
+                      committees: [{ teacher_id: '', role: 'ประธานกรรมการ' }],
+                      document_set_id: 'material_egp',
+                      vendor_info: { name: '', address: '', tax_id: '' }
+                    });
+                    setProcurementItems([{ item_name: '', quantity: 1, unit: 'รายการ', price_per_unit: 0, total_price: 0 }]);
+                    setIsAddingProcurement(true);
+                  }} className="bg-brand-primary text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-green-700 transition-all">+ เริ่มจัดซื้อใหม่</button>
                 </div>
                 <div className="overflow-x-auto">
                    <table className="w-full text-left">
@@ -423,7 +703,11 @@ export default function Procurement() {
                                </td>
                                <td className="px-8 py-5 text-right font-black text-slate-800">{Number(p.total_amount).toLocaleString()} ฿</td>
                                <td className="px-8 py-5 text-center"><span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[9px] font-black uppercase tracking-widest">ฉบับร่าง</span></td>
-                               <td className="px-8 py-5 text-right"><button className="p-2 text-brand-primary hover:bg-green-50 rounded-lg"><FileText size={16} /></button></td>
+                               <td className="px-8 py-5 text-right flex justify-end gap-2">
+                                 <button onClick={() => handleOpenDocumentCenter(p)} className="p-2 text-brand-primary hover:bg-green-50 rounded-lg transition-all active:scale-90" title="จัดการเอกสาร"><FileText size={18} /></button>
+                                 <button onClick={() => openEditProcurementModal(p)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all active:scale-90" title="แก้ไขข้อมูล"><Edit2 size={16} /></button>
+                                 <button onClick={() => handleDeleteProcurement(p.id, p.project_name)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                               </td>
                             </tr>
                          ))}
                          {procurements.length === 0 && <tr><td colSpan={4} className="px-8 py-20 text-center text-slate-300 italic text-sm">ยังไม่มีรายการจัดซื้อ</td></tr>}
@@ -552,8 +836,8 @@ export default function Procurement() {
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-4xl my-8 overflow-hidden flex flex-col">
             <div className="p-8 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
               <div>
-                <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3"><Sparkles className="text-brand-primary" size={28} /> เริ่มการจัดซื้ออัจฉริยะ</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">กรอกข้อมูลเพื่อสร้างชุดเอกสาร 17 รายการอัตโนมัติ</p>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3"><Sparkles className="text-brand-primary" size={28} /> {isEditingProcurement ? 'แก้ไขการจัดซื้ออัจฉริยะ' : 'เริ่มการจัดซื้ออัจฉริยะ'}</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{isEditingProcurement ? 'ปรับปรุงข้อมูลเพื่อออกชุดเอกสารใหม่' : 'กรอกข้อมูลเพื่อสร้างชุดเอกสาร 17 รายการอัตโนมัติ'}</p>
               </div>
               <button onClick={() => setIsAddingProcurement(false)} className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition-all">✕</button>
             </div>
@@ -567,36 +851,121 @@ export default function Procurement() {
                     {projects.map(p => <option key={p.id} value={p.id}>{p.project_name} (คงเหลือ {Number(p.current_amount).toLocaleString()} ฿)</option>)}
                   </select>
                   <input type="text" placeholder="ชื่อรายการที่จัดซื้อ (เช่น ซื้อวัสดุสำนักงาน 5 รายการ)..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.project_name} onChange={e => setNewProcurement({...newProcurement, project_name: e.target.value})} />
-                  <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.document_set_id} onChange={e => setNewProcurement({...newProcurement, document_set_id: e.target.value})}>
-                    {DOCUMENT_SETS.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
-                  </select>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.document_set_id} onChange={e => setNewProcurement({...newProcurement, document_set_id: e.target.value})}>
+                      {DOCUMENT_SETS.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
+                    </select>
+                    <input type="text" placeholder="แหล่งเงิน (เช่น เงินอุดหนุนรายหัว)..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.budget_source_detail} onChange={e => setNewProcurement({...newProcurement, budget_source_detail: e.target.value})} />
+                  </div>
                 </div>
+
                 <div className="space-y-4">
-                   <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest ml-2">2. เจ้าหน้าที่และผู้อนุมัติ</label>
-                   <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.officer_id} onChange={e => setNewProcurement({...newProcurement, officer_id: e.target.value})}>
-                     <option value="">เลือกเจ้าหน้าที่พัสดุ...</option>
-                     {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name}</option>)}
-                   </select>
-                   <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.head_officer_id} onChange={e => setNewProcurement({...newProcurement, head_officer_id: e.target.value})}>
-                     <option value="">เลือกหัวหน้าเจ้าหน้าที่...</option>
-                     {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name}</option>)}
-                   </select>
-                   <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.inspector_id} onChange={e => setNewProcurement({...newProcurement, inspector_id: e.target.value})}>
-                     <option value="">เลือกผู้ตรวจรับ/ประธานกรรมการ...</option>
-                     {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name}</option>)}
-                   </select>
-                   <div className="flex gap-4">
-                     <div className="flex-1">
-                        <label className="text-[9px] font-bold text-slate-400 ml-2">วันที่ขออนุมัติ</label>
+                   <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest ml-2">2. เจ้าหน้าที่และคณะกรรมการ</label>
+                   <div className="grid grid-cols-2 gap-4">
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">เจ้าหน้าที่พัสดุ</label>
+                        <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.officer_id} onChange={e => setNewProcurement({...newProcurement, officer_id: e.target.value})}>
+                          <option value="">เลือกเจ้าหน้าที่...</option>
+                          {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name}</option>)}
+                        </select>
+                     </div>
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">หัวหน้าเจ้าหน้าที่</label>
+                        <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.head_officer_id} onChange={e => setNewProcurement({...newProcurement, head_officer_id: e.target.value})}>
+                          <option value="">เลือกหัวหน้าเจ้าหน้าที่...</option>
+                          {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name}</option>)}
+                        </select>
+                     </div>
+                   </div>
+
+                   <div className="space-y-3">
+                      <div className="flex items-center justify-between px-2">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">ผู้ตรวจรับ / คณะกรรมการ</label>
+                        <button onClick={addCommitteeMember} className="text-[9px] font-black text-brand-primary hover:text-green-700 bg-green-50 px-3 py-1 rounded-full">+ เพิ่มกรรมการ</button>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {newProcurement.committees.map((c, idx) => (
+                          <div key={idx} className="flex gap-2 items-center animate-in slide-in-from-right-2">
+                            <select 
+                              className="flex-[2] px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold text-xs outline-none" 
+                              value={c.teacher_id} 
+                              onChange={e => updateCommitteeMember(idx, 'teacher_id', e.target.value)}
+                            >
+                              <option value="">เลือกรายชื่อ...</option>
+                              {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name}</option>)}
+                            </select>
+                            <select 
+                              className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-black text-[10px] uppercase outline-none"
+                              value={c.role}
+                              onChange={e => updateCommitteeMember(idx, 'role', e.target.value)}
+                            >
+                              <option>ผู้ตรวจรับพัสดุ</option>
+                              <option>ประธานกรรมการ</option>
+                              <option>กรรมการ</option>
+                            </select>
+                            {newProcurement.committees.length > 1 && (
+                              <button onClick={() => removeCommitteeMember(idx)} className="p-2 text-red-300 hover:text-red-500"><Trash2 size={14} /></button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-4 pt-2">
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">วันที่ขออนุมัติ</label>
                         <input type="date" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.order_date} onChange={e => setNewProcurement({...newProcurement, order_date: e.target.value})} />
                      </div>
+                     <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">ระยะเวลาส่งมอบ (วัน)</label>
+                        <input type="number" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.delivery_days} onChange={e => setNewProcurement({...newProcurement, delivery_days: Number(e.target.value)})} />
+                     </div>
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">เกณฑ์การพิจารณา</label>
+                      <select className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.evaluation_criteria} onChange={e => setNewProcurement({...newProcurement, evaluation_criteria: e.target.value})}>
+                        <option>เกณฑ์ราคา</option>
+                        <option>เกณฑ์ราคาประกอบประสิทธิภาพต่อประสิทธิภาพและคุณภาพ</option>
+                      </select>
                    </div>
                 </div>
               </div>
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-2">
-                  <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest">3. รายการพัสดุที่ต้องการซื้อ/จ้าง</label>
+                  <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest">3. เหตุผลความจำเป็นและความต้องการ</label>
+                  <button 
+                    onClick={async () => {
+                      if (!newProcurement.project_name) return alert('กรุณาระบุชื่อรายการจัดซื้อก่อนครับ');
+                      setIsExtracting(true);
+                      try {
+                        const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+                        const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+                        const { generateAIDraft } = await import('../lib/aiService');
+                        const prompt = `เขียน "เหตุผลความจำเป็น" ในการจัดซื้อจัดจ้างสำหรับรายการ "${newProcurement.project_name}" เพื่อใช้ในโรงเรียนบ้านควนโคกยา ให้มีความยาวประมาณ 2-3 บรรทัด สำนวนราชการไทย`;
+                        const draft = await generateAIDraft(prompt, apiKey);
+                        setNewProcurement({...newProcurement, necessity_reason: draft});
+                      } catch (err: any) { alert(err.message); }
+                      finally { setIsExtracting(false); }
+                    }}
+                    className="text-[10px] font-black text-brand-primary hover:text-green-700 flex items-center gap-1 bg-green-50 px-3 py-1 rounded-full transition-all"
+                  >
+                    {isExtracting ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} 🤖 ให้ AI ช่วยเขียนเหตุผล
+                  </button>
+                </div>
+                <textarea 
+                  placeholder="ระบุเหตุผลความจำเป็นในการจัดซื้อครั้งนี้..." 
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-[32px] font-bold text-sm outline-none focus:bg-white min-h-[100px] transition-all"
+                  value={newProcurement.necessity_reason}
+                  onChange={e => setNewProcurement({...newProcurement, necessity_reason: e.target.value})}
+                />
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-2">
+                  <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest">4. รายการพัสดุที่ต้องการซื้อ/จ้าง</label>
                   <button onClick={addItemRow} className="text-[10px] font-black text-blue-500 hover:text-blue-700 flex items-center gap-1">+ เพิ่มรายการ</button>
                 </div>
                 <div className="bg-slate-50/50 p-6 rounded-[32px] border border-slate-100 space-y-3">
@@ -636,20 +1005,107 @@ export default function Procurement() {
         </div>
       )}
 
-      {/* Identity Footer */}
-      <div className="mt-12 flex flex-col items-center justify-center gap-4 py-8 border-t border-slate-100">    
-         <div className="flex items-center gap-4 opacity-50 grayscale hover:opacity-100 hover:grayscale-0 transition-all">
-            <img src="logo.png" alt="School Logo" className="w-10 h-10" />
-            <div className="h-8 w-px bg-slate-200"></div>
-            <div className="text-left">
-               <p className="text-[10px] font-black text-slate-800 uppercase tracking-tighter">โรงเรียนบ้านควนโคกยา</p>
-               <p className="text-[8px] font-bold text-brand-primary uppercase tracking-widest">Office of Primary Education</p>
+      {/* AI Document Center Modal */}
+      {isDocumentCenterOpen && selectedProcurement && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-8 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                  <FileText className="text-brand-primary" size={28} /> ศูนย์จัดการเอกสารอัจฉริยะ
+                </h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                  โครงการ: {selectedProcurement.project_name} | งบประมาณ: {Number(selectedProcurement.total_amount).toLocaleString()} ฿
+                </p>
+              </div>
+              <button onClick={() => setIsDocumentCenterOpen(false)} className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition-all">✕</button>
             </div>
-         </div>
-         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">
-            Smart School Admin © 2026 | <span className="text-slate-600">Phairot Makkaew & Gemini AI</span>     
-         </p>
-      </div>
+
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              {/* Left: Document List */}
+              <div className="w-full md:w-80 border-r border-slate-50 overflow-y-auto p-4 space-y-2 bg-slate-50/20">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block">รายการเอกสารในชุด</label>
+                {PROCUREMENT_DOCS.map(doc => (
+                  <button 
+                    key={doc.id}
+                    onClick={() => {
+                      setActiveDocId(doc.id);
+                      handleAIDraftDocument(doc.id); // ใช้ id แทนชื่อเพื่อความแม่นยำ
+                    }}
+                    className={`w-full text-left p-4 rounded-[24px] hover:bg-white hover:shadow-md transition-all group border ${activeDocId === doc.id ? 'bg-white shadow-md border-slate-100' : 'border-transparent hover:border-slate-50'}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center transition-colors ${activeDocId === doc.id ? 'text-brand-primary' : 'text-slate-400 group-hover:text-brand-primary'}`}>
+                        {doc.icon}
+                      </div>
+                      <div>
+                        <div className="text-xs font-black text-slate-700">{doc.name}</div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 line-clamp-1">{doc.description}</div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Right: Preview Area */}
+              <div className="flex-1 bg-slate-50/30 overflow-y-auto p-8 relative">
+                 {isExtracting ? (
+                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm z-10">
+                      <Loader2 className="animate-spin text-brand-primary mb-4" size={48} />
+                      <p className="font-black text-[10px] text-slate-400 uppercase tracking-[0.2em]">AI กำลังร่างเนื้อหาเอกสารราชการ...</p>
+                   </div>
+                 ) : null}
+                 
+                 <div className="max-w-2xl mx-auto space-y-6">
+                    <div className="bg-white p-12 rounded-[40px] shadow-xl border border-slate-100 min-h-[600px] relative">
+                       <div className="absolute top-8 right-8 opacity-10">
+                          <img src="logo.png" alt="Watermark" className="w-20 h-20" />
+                       </div>
+                       <h4 className="text-center font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-4 mb-8">ตัวอย่างเนื้อหาที่ AI ร่าง</h4>
+                       
+                       <div className="prose prose-slate max-w-none">
+                          {selectedProcurement.ai_draft_content?.[activeDocId] ? (
+                            <div className="whitespace-pre-wrap font-serif text-slate-700 leading-relaxed">
+                               {selectedProcurement.ai_draft_content[activeDocId]}
+                            </div>
+                          ) : (
+                            <div className="h-96 flex flex-col items-center justify-center text-slate-300 text-center">
+                               <Sparkles size={64} className="mb-4 opacity-20" />
+                               <p className="font-bold uppercase tracking-widest text-xs">เลือกเอกสารทางด้านซ้าย<br/>เพื่อให้ AI เริ่มร่างเนื้อหาให้คุณ</p>
+                            </div>
+                          )}
+                       </div>
+                    </div>
+                 </div>
+              </div>
+            </div>
+
+            <div className="p-8 border-t border-slate-50 bg-slate-50/50 flex justify-between items-center">
+              <p className="text-[10px] font-bold text-slate-400 italic">หมายเหตุ: เนื้อหาที่ AI ร่างควรได้รับการตรวจสอบความถูกต้องอีกครั้งตามระเบียบพัสดุ</p>
+              <div className="flex gap-3">
+                 <button 
+                  onClick={() => {
+                    const text = selectedProcurement.ai_draft_content?.[activeDocId];
+                    if (text) {
+                      navigator.clipboard.writeText(text);
+                      alert('คัดลอกเนื้อหาเรียบร้อยแล้วครับ');
+                    }
+                  }}
+                  className="px-8 py-3 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                 >
+                  คัดลอกข้อความ
+                 </button>
+                 <button 
+                  onClick={() => handleDownloadPDF(activeDocId)}
+                  className="px-8 py-3 bg-brand-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-green-700 transition-all flex items-center gap-2"
+                 >
+                    <FileText size={16} /> พิมพ์เข้าแบบฟอร์ม PDF
+                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

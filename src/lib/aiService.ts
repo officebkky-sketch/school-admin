@@ -1,7 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { supabase } from './supabase';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -9,19 +8,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 export async function extractProjectsFromKnowledge(apiKey: string, academicYear: string = '2569') {
   try {
     // 1. ใช้ Hybrid Search (Vector + Text) เพื่อดึงข้อมูลโครงการให้ครอบคลุมที่สุด
-    // ใช้คำค้นหาเดียวกับที่คุณครูใช้ถามในแชทแล้วได้ผล
-    const vectorQuery = `โครงการตามแผน ${academicYear} มีกี่โครงการอะไรบ้าง และใช้งบประมาณเท่าไหร่`;
-    const vectorMatches = await searchKnowledge(vectorQuery, apiKey, 20);
+    const vectorQuery = `รายการโครงการและงบประมาณของปีการศึกษา ${academicYear}`;
+    const vectorMatches = await searchKnowledge(vectorQuery, apiKey, 25); // เพิ่ม limit
     
-    // ค้นหาแบบ Text Search (ILIKE) เพื่อเป็นแผนสำรองในส่วนที่ Vector อาจจะข้ามไป
     const thaiYear = academicYear.replace(/0/g, '๐').replace(/1/g, '๑').replace(/2/g, '๒').replace(/3/g, '๓').replace(/4/g, '๔').replace(/5/g, '๕').replace(/6/g, '๖').replace(/7/g, '๗').replace(/8/g, '๘').replace(/9/g, '๙');
     const { data: textMatches } = await supabase
       .from('school_knowledge')
       .select('document_name, chunk_text')
       .or(`chunk_text.ilike.%โครงการ%,chunk_text.ilike.%งบประมาณ%,chunk_text.ilike.%${academicYear}%,chunk_text.ilike.%${thaiYear}%`)
-      .limit(50);
+      .limit(60);
 
-    // รวมข้อมูลและลบส่วนที่ซ้ำกันออก
     const allMatches = [...(vectorMatches || []), ...(textMatches || [])];
     const uniqueChunks = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
     
@@ -29,59 +25,62 @@ export async function extractProjectsFromKnowledge(apiKey: string, academicYear:
 
     const context = uniqueChunks.map(m => `[ไฟล์: ${m.document_name}]\n${m.chunk_text}`).join('\n---\n');
 
-    // 2. ส่งข้อมูลให้ AI ประมวลผลและสกัดออกมาเป็น JSON
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: `ภารกิจ: คุณเป็นผู้เชี่ยวชาญด้านงานพัสดุโรงเรียน หน้าที่ของคุณคือสกัด "รายชื่อโครงการ" และ "วงเงินงบประมาณ" จากข้อมูลที่ให้มา โดยเน้นข้อมูลของปีการศึกษา ${academicYear}
+    // 2. ระบบหมุนเวียน Model และ API Version เพื่อความเสถียร
+    let modelsToTry = await getAvailableModels(apiKey);
+    if (modelsToTry.length === 0) {
+      modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    }
+    const apiVersions = ["v1beta", "v1"];
+
+    const prompt = `ภารกิจ: คุณเป็นผู้เชี่ยวชาญด้านงานพัสดุและงบประมาณโรงเรียน หน้าที่ของคุณคือสกัด "รายชื่อโครงการ" และ "วงเงินงบประมาณที่ได้รับ" จากข้อมูลที่พบในคลังความรู้ โดยเน้นเฉพาะปีการศึกษา ${academicYear}
             
-            ข้อมูลที่พบในคลังความรู้:
-            ${context}
-            
-            กฎเหล็กในการทำงาน:
-            1. สกัดชื่อโครงการและวงเงินงบประมาณ (planned_amount) ทั้งหมดที่ระบุไว้ชัดเจน
-            2. ข้อมูลต้นฉบับอาจใช้ "ตัวเลขไทย" ให้คุณแปลงเป็น "เลขอารบิก" ทั้งหมด 100%
-            3. planned_amount ต้องเป็นตัวเลขเท่านั้น (ห้ามมีคอมม่า, ห้ามมีหน่วยบาท)
-            4. หากพบโครงการแต่ไม่พบวงเงิน ให้ใส่ 0
-            5. ห้ามประดิษฐ์ชื่อโครงการเองเด็ดขาด
-            
-            ตอบกลับเป็น JSON array เท่านั้น ห้ามมีคำอธิบายอื่น:
-            [{"project_name": "ชื่อโครงการ", "planned_amount": 5000, "budget_type": "งบอุดหนุน"}]`
-          }]
-        }],
-        generationConfig: { 
-          response_mime_type: "application/json",
-          temperature: 0.1
+    ข้อมูลจากคลังความรู้:
+    ${context}
+    
+    กฎเหล็ก:
+    1. ตอบกลับเป็น JSON Array ของ Object เท่านั้น ห้ามมีคำอธิบายอื่น
+    2. ฟิลด์ที่ต้องมี: project_name (ชื่อโครงการ), planned_amount (จำนวนเงินเป็นตัวเลข), budget_type (แหล่งเงิน เช่น งบอุดหนุน, งบรายได้)
+    3. หากเป็นตัวเลขไทย ให้แปลงเป็นเลขอารบิก
+    4. ห้ามใส่หน่วย "บาท" หรือเครื่องหมายคอมม่าใน planned_amount
+    5. สกัดเฉพาะโครงการที่มีการระบุวงเงินชัดเจนเท่านั้น
+    
+    รูปแบบคำตอบ:
+    [{"project_name": "...", "planned_amount": 0, "budget_type": "..."}]`;
+
+    for (const modelName of modelsToTry) {
+      for (const version of apiVersions) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { 
+                response_mime_type: "application/json",
+                temperature: 0.1
+              }
+            })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (!aiText) continue;
+
+            aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(aiText);
+            return Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (err) {
+          console.warn(`Extraction failed with ${modelName} ${version}:`, err);
         }
-      })
-    });
-
-    const data = await response.json();
-    if (response.ok) {
-      let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (!aiText) return [];
-
-      // Clean AI Text: ลบ Markdown blocks (หากมี) เพื่อป้องกัน Error ในการ Parse
-      aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
-      
-      try {
-        const parsed = JSON.parse(aiText);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (parseErr) {
-        console.error('JSON Parse Error:', parseErr, aiText);
-        // Fallback: พยายามหาโครงสร้าง Array ในข้อความ
-        const match = aiText.match(/\[[\s\S]*\]/);
-        if (match) return JSON.parse(match[0]);
-        return [];
       }
     }
+    
     return [];
   } catch (err) {
-    console.error('Project extraction error:', err);
+    console.error('Project extraction overall error:', err);
     return [];
   }
 }
@@ -377,9 +376,6 @@ export async function processDocumentToKnowledge(
         console.warn("OCR: Failed to list models, using default...");
       }
 
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: visionModel });
-      
       // 2. ประมวลผลทีละ 1 หน้า เพื่อความเสถียรสูงสุด (รองรับโควตา 15 RPM)
       const apiVersions = ["v1beta", "v1"];
       
@@ -400,7 +396,7 @@ export async function processDocumentToKnowledge(
             canvas.height = viewport.height;
             canvas.width = viewport.width;
             
-            await page.render({ canvasContext: context!, viewport }).promise;
+            await page.render({ canvasContext: context!, viewport, canvas }).promise;
             const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
             
             let pageResponseText = "";

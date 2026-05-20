@@ -21,11 +21,11 @@ import UsersManagement from './pages/Users';
 import ProfilePage from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import Academic from './pages/Academic';
-import Finance from './pages/Finance';
 import Procurement from './pages/Procurement';
 import FreeEducation from './pages/FreeEducation';
 import Utilities from './pages/Utilities';
 import AICowork from './pages/AICowork';
+import IdentityFooter from './components/IdentityFooter';
 
 import { 
   Loader2, 
@@ -274,6 +274,8 @@ function App() {
             {activeTab === 'utilities' && <Utilities />}
             {activeTab === 'free_education' && <FreeEducation />}
             {activeTab === 'ai_cowork' && <AICowork />}
+            
+            <IdentityFooter />
           </div>
         </div>
 

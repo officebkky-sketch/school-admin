@@ -222,7 +222,7 @@ export default function AICowork() {
         .eq('graduation_status', 'ปกติ');
 
       const { count: teacherCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
-      const { data: utilityStats } = await supabase.from('utilities').select('amount').order('created_at', { descending: true }).limit(5);
+      const { data: utilityStats } = await supabase.from('utilities').select('amount').order('created_at', { ascending: false }).limit(5);
 
       // จัดรูปแบบสถิตินักเรียนและรายชื่อ
       const studentSummary = studentStats?.reduce((acc: any, curr: any) => {
