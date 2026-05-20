@@ -304,7 +304,7 @@ const FreeEducation = () => {
               body { background: white; }
               .no-print-btn { display: none !important; }
             }
-            .sarabun { font-family: 'TH Sarabun New', sans-serif; color: black; line-height: 1.0; }
+            .sarabun { font-family: 'TH Sarabun New', sans-serif; color: black; line-height: 1.2; }
             body { margin: 0; padding: 0; background: #f0f0f0; }
             .page { 
               background: white; width: 210mm; min-height: 297mm; 
@@ -313,7 +313,7 @@ const FreeEducation = () => {
             }
             .header { text-align: center; margin-bottom: 10px; }
             table { width: 100%; border-collapse: collapse; margin-top: 5px; }
-            th, td { border: 1px solid black !important; padding: 2px 4px !important; font-size: 15pt; }
+            th, td { border: 1px solid black !important; padding: 3px 5px !important; font-size: 15pt; }
             th { background: #f8fafc; font-weight: bold; text-align: center; }
             .footer-area { margin-top: 15px; font-size: 16pt; }
             .sign-table { border: none !important; margin-top: 20px; width: 100%; }

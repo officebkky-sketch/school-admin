@@ -21,6 +21,7 @@ import {
   FileSearch
 } from 'lucide-react';
 import { extractTextFromPdf, getAvailableModels, processDocumentToKnowledge, searchKnowledge } from '../lib/aiService';
+import { uploadFileToDrive, deleteFileFromDrive } from '../lib/storage';
 
 // Standard Folders for Knowledge Base (Thai School Admin Standard)
 const KNOWLEDGE_FOLDERS = [
@@ -35,8 +36,72 @@ const KNOWLEDGE_FOLDERS = [
   { id: '08', name: '08-อื่นๆ' },
 ];
 
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+interface PersonalDoc {
+  file_name: string;
+  content_text: string;
+}
+
+function searchPersonalDocs(query: string, docs: PersonalDoc[]) {
+  if (!docs || docs.length === 0) return [];
+  
+  const keywords = query.toLowerCase().split(/[\s,，.、?？!！]+/g).filter(w => w.length > 1);
+  if (keywords.length === 0) return [];
+
+  const results: { file_name: string; snippet: string; score: number }[] = [];
+
+  for (const doc of docs) {
+    if (!doc.content_text) continue;
+    
+    const text = doc.content_text.toLowerCase();
+    let score = 0;
+    
+    for (const keyword of keywords) {
+      try {
+        const regex = new RegExp(escapeRegExp(keyword), 'g');
+        const matches = text.match(regex);
+        if (matches) {
+          score += matches.length;
+        }
+      } catch (e) {
+        let pos = 0;
+        while ((pos = text.indexOf(keyword, pos)) !== -1) {
+          score++;
+          pos += keyword.length;
+        }
+      }
+    }
+
+    if (score > 0) {
+      let bestIndex = 0;
+      for (const keyword of keywords) {
+        const idx = text.indexOf(keyword);
+        if (idx !== -1) {
+          bestIndex = idx;
+          break;
+        }
+      }
+      
+      const snippetStart = Math.max(0, bestIndex - 100);
+      const snippetEnd = Math.min(doc.content_text.length, bestIndex + 300);
+      const snippet = doc.content_text.substring(snippetStart, snippetEnd).trim();
+
+      results.push({
+        file_name: doc.file_name,
+        snippet: `... ${snippet} ...`,
+        score: score
+      });
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
 export default function AICowork() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activeView, setActiveTab] = useState<'chat' | 'drive' | 'intelligence'>('chat');
   const [loading, setLoading] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -55,6 +120,7 @@ export default function AICowork() {
   ]);
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [searchSource, setSearchSource] = useState<'all' | 'global' | 'private'>('all');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -107,6 +173,10 @@ export default function AICowork() {
   }
 
   async function handleKnowledgeUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (profile?.role !== 'admin' && profile?.role !== 'director') {
+      alert('ขออภัยครับ เฉพาะผู้ดูแลระบบหรือผู้อำนวยการเท่านั้นที่มีสิทธิ์เพิ่มข้อมูลคลังสมองส่วนกลาง');
+      return;
+    }
     if (!e.target.files?.length) return;
     const file = e.target.files[0];
     if (file.type !== 'application/pdf') {
@@ -138,6 +208,10 @@ export default function AICowork() {
   }
 
   async function handleDeleteKnowledge(fileName: string) {
+    if (profile?.role !== 'admin' && profile?.role !== 'director') {
+      alert('ขออภัยครับ เฉพาะผู้ดูแลระบบหรือผู้อำนวยการเท่านั้นที่มีสิทธิ์ลบข้อมูลคลังสมองส่วนกลาง');
+      return;
+    }
     if (!confirm(`ยืนยันการลบความรู้จากไฟล์ "${fileName}" ออกจากสมอง AI?`)) return;
     try {
       const { error } = await supabase.from('school_knowledge').delete().eq('document_name', fileName);
@@ -153,12 +227,11 @@ export default function AICowork() {
     setIsUploading(true);
     const file = e.target.files[0];
     try {
-      // 1. Upload to Storage
-      const path = `kb/${user?.id}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage.from('documents').upload(path, file);
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(path);
+      const folderName = KNOWLEDGE_FOLDERS.find(f => f.id === selectedFolder)?.name || 'อื่นๆ';
+      
+      // 1. Upload to Google Drive Storage via GAS
+      const customName = `${Date.now()}_${file.name.split('.')[0]}`;
+      const publicUrl = await uploadFileToDrive(file, `kb_${user?.id}_${selectedFolder}`, customName);
 
       // 2. Extract Text (if PDF)
       let extractedText = "";
@@ -168,7 +241,6 @@ export default function AICowork() {
       }
 
       // 3. Save to DB
-      const folderName = KNOWLEDGE_FOLDERS.find(f => f.id === selectedFolder)?.name || 'อื่นๆ';
       await supabase.from('ai_knowledge_base').insert([{
         teacher_id: user?.id,
         folder_id: selectedFolder,
@@ -190,8 +262,7 @@ export default function AICowork() {
   async function handleDeleteFile(id: string, url: string) {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบเอกสารนี้?')) return;
     try {
-      const path = url.split('/').pop()?.split('?')[0];
-      if (path) await supabase.storage.from('documents').remove([`kb/${user?.id}/${path}`]);
+      await deleteFileFromDrive(url);
       await supabase.from('ai_knowledge_base').delete().eq('id', id);
       fetchFiles();
     } catch (err: any) { alert(err.message); }
@@ -258,31 +329,131 @@ export default function AICowork() {
       - ข้อมูลค่าสาธารณูปโภคล่าสุด: ${utilityStats?.map(u => `${u.amount} บาท`).join(', ')}
       `;
 
-      // 2. ค้นหาข้อมูลจาก "สมองอัจฉริยะ" (Vector Search จากไฟล์ PDF)
-      const matches = await searchKnowledge(userMsg, apiKey, 5);
-      
-      // 3. จัดรูปแบบบริบททั้งหมด
-      const knowledgeContext = matches.length > 0 
-        ? matches.map((m: any) => `[อ้างอิง: ${m.document_name} หน้า ${m.page_number}]\n${m.chunk_text}`).join('\n\n')
-        : "ไม่พบข้อมูลที่ตรงกันโดยตรงในคลังปัญญาโรงเรียน";
+      // 2. ค้นหาข้อมูลจาก "สมองอัจฉริยะ" (Vector Search จากไฟล์ PDF ของคลังกลาง)
+      let matches: any[] = [];
+      let globalKeywordMatches: any[] = [];
 
-      // 4. สร้าง Prompt สำหรับ Gemini
+      if (searchSource === 'all' || searchSource === 'global') {
+        // --- 2.1 Vector Search (semantic) ---
+        try {
+          matches = await searchKnowledge(userMsg, apiKey, 5);
+        } catch (searchErr) {
+          console.error('Error searching global knowledge (vector):', searchErr);
+        }
+
+        // --- 2.2 Keyword Search (fallback/hybrid) ---
+        // ช่วยให้ทำงานได้แม้โควตา API เต็ม หรือต้องการคำที่ตรงกันเป๊ะ
+        try {
+          const keywords = userMsg.toLowerCase().split(/[\s,，.、?？!！]+/g).filter(w => w.length > 1);
+          if (keywords.length > 0) {
+            let kwQuery = supabase
+              .from('school_knowledge')
+              .select('document_name, page_number, chunk_text');
+            
+            // สร้าง OR filter สำหรับ keywords (สูงสุด 3 คำแรกเพื่อความเร็ว)
+            const filters = keywords.slice(0, 3).map(kw => `chunk_text.ilike.%${kw}%`).join(',');
+            const { data: kwData } = await kwQuery.or(filters).limit(5);
+            
+            if (kwData) {
+              globalKeywordMatches = kwData.map(d => ({
+                document_name: d.document_name,
+                page_number: d.page_number,
+                chunk_text: d.chunk_text,
+                is_keyword_match: true
+              }));
+            }
+          }
+        } catch (kwErr) {
+          console.error('Error searching global knowledge (keywords):', kwErr);
+        }
+      }
+      
+      // 3. ค้นหาและดึงรายการข้อมูลจาก "เอกสารส่วนตัว" (Virtual Drive)
+      let privateMatches: any[] = [];
+      let personalDocsList = "ไม่มีเอกสารอัปโหลดในห้องส่วนตัว";
+      
+      try {
+        const { data: personalDocs } = await supabase
+          .from('ai_knowledge_base')
+          .select('file_name, folder_name, created_at, content_text')
+          .eq('teacher_id', user?.id)
+          .order('created_at', { ascending: false });
+
+        if (personalDocs && personalDocs.length > 0) {
+          personalDocsList = personalDocs.map((doc, idx) => 
+            `- [ลำดับที่ ${idx + 1}] ชื่อไฟล์: ${doc.file_name} (อัปโหลดเมื่อ: ${new Date(doc.created_at).toLocaleString('th-TH')}, โฟลเดอร์: ${doc.folder_name})`
+          ).join('\n');
+
+          if (searchSource === 'all' || searchSource === 'private') {
+            // ค้นหาแบบ Keyword
+            privateMatches = searchPersonalDocs(userMsg, personalDocs);
+
+            // เงื่อนไขช่วยเหลือเพิ่มเติม:
+            const isAskingForLatest = userMsg.includes('ล่าสุด') || userMsg.includes('เพิ่ง') || userMsg.includes('พึ่ง') || userMsg.includes('อันใหม่') || userMsg.includes('ใหม่สุด');
+            const isAskingForSummaryOrInfo = userMsg.includes('สรุป') || userMsg.includes('วิเคราะห์') || userMsg.includes('อ่าน') || userMsg.includes('คืออะไร') || userMsg.includes('ข้อมูล');
+            const hasOnlyOneDoc = personalDocs.length === 1;
+
+            if (privateMatches.length === 0 && (isAskingForLatest || isAskingForSummaryOrInfo || hasOnlyOneDoc)) {
+              const latestDoc = personalDocs[0];
+              const snippet = latestDoc.content_text 
+                ? latestDoc.content_text.substring(0, 1500) 
+                : "(ไฟล์นี้ไม่มีเนื้อหาข้อความหรือไม่ได้เป็น PDF)";
+              
+              privateMatches.push({
+                file_name: latestDoc.file_name,
+                snippet: snippet,
+                score: 100
+              });
+            }
+          }
+        }
+      } catch (privateSearchErr) {
+        console.error('Error searching personal documents:', privateSearchErr);
+      }
+
+      // 4. จัดรูปแบบบริบททั้งหมด
+      // รวมผลลัพธ์จาก Vector และ Keyword (ตัดที่ซ้ำออก)
+      const combinedGlobalMatches = [...matches];
+      globalKeywordMatches.forEach(kwm => {
+        if (!combinedGlobalMatches.find(m => m.chunk_text === kwm.chunk_text)) {
+          combinedGlobalMatches.push(kwm);
+        }
+      });
+
+      const knowledgeContext = combinedGlobalMatches.length > 0 
+        ? combinedGlobalMatches.map((m: any) => `[อ้างอิงคลังกลาง: ${m.document_name} หน้า ${m.page_number}${m.is_keyword_match ? ' - ค้นหาพบจากคำสำคัญ' : ''}]\n${m.chunk_text}`).join('\n\n')
+        : "ไม่พบข้อมูลที่ตรงกันโดยตรงในคลังปัญญาโรงเรียน (ส่วนกลาง)";
+
+      const privateContext = privateMatches.length > 0
+        ? privateMatches.map((m: any) => `[อ้างอิงเอกสารส่วนตัวของคุณครู: ${m.file_name}]\n${m.snippet}`).join('\n\n')
+        : "ไม่พบข้อมูลที่ตรงกันในเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)";
+
+      // 5. สร้าง Prompt สำหรับ Gemini
       const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา
       
       [ส่วนที่ 1: ข้อมูลจริงจากระบบฐานข้อมูล]
       ${dbContext}
 
-      [ส่วนที่ 2: ข้อมูลจากคลังปัญญา (ไฟล์ระเบียบ/PDF)]
+      [ส่วนที่ 2: ข้อมูลจากคลังปัญญาโรงเรียน (ส่วนกลาง)]
       ${knowledgeContext}
+
+      [ส่วนที่ 3: ข้อมูลจากเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)]
+      * รายชื่อไฟล์ทั้งหมดใน Virtual Drive ของครูผู้นี้ (เรียงจากใหม่สุดไปเก่าสุด):
+      ${personalDocsList}
+      
+      * เนื้อหาจากไฟล์ที่เกี่ยวข้องหรือค้นพบ (Snippet):
+      ${privateContext}
 
       คำถามของคุณครู: ${userMsg}
 
       คำแนะนำในการตอบ:
-      1. หากคำถามเกี่ยวกับ "จำนวน" หรือ "สถิติ" ให้ใช้ข้อมูลจาก [ส่วนที่ 1] ในการตอบทันที
-      2. หากคำถามเกี่ยวกับ "ระเบียบ" หรือ "วิธีปฏิบัติ" ให้ใช้ข้อมูลจาก [ส่วนที่ 2] ในการตอบ
-      3. จัดรูปแบบคำตอบให้ "อ่านง่ายที่สุด" โดยใช้ Markdown (## หัวข้อ, **ตัวหนา**, รายการข้อ)
-      4. หากข้อมูลใดไม่มีทั้งในฐานข้อมูลและคลังปัญญา ให้ตอบตามความรู้พื้นฐานและแจ้งว่า "ข้อมูลนี้ไม่อยู่ในฐานข้อมูลโรงเรียน"
-      5. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่เป็นกันเอง`;
+      1. หากคำถามเกี่ยวกับ "จำนวน" หรือ "สถิติ" ของโรงเรียน ให้ใช้ข้อมูลจาก [ส่วนที่ 1] ในการตอบ
+      2. หากคำถามเกี่ยวกับ "ระเบียบ" หรือ "วิธีปฏิบัติ" ส่วนกลาง ให้ใช้ข้อมูลจาก [ส่วนที่ 2] ในการตอบ
+      3. หากคำถามเกี่ยวกับ "เอกสารหรือไฟล์ส่วนตัว" ให้ใช้ข้อมูลและรายชื่อจาก [ส่วนที่ 3] ในการตอบ
+      4. หากคุณครูถามถึง "เอกสารล่าสุด" หรือต้องการให้สรุป/อ้างอิงไฟล์ล่าสุด ให้วิเคราะห์จากรายชื่อไฟล์และหยิบยกเนื้อหาของไฟล์ล่าสุดจาก [ส่วนที่ 3] มาอธิบายให้ครบถ้วน
+      5. จัดรูปแบบคำตอบให้ "อ่านง่ายที่สุด" โดยใช้ Markdown (## หัวข้อ, **ตัวหนา**, รายการข้อ)
+      6. หากไม่มีข้อมูลในฐานข้อมูล คลังกลาง หรือเอกสารส่วนตัว ให้วิเคราะห์ตามหลักการและระบุด้วยว่า "ไม่พบข้อมูลนี้ในระบบของโรงเรียน"
+      7. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่เป็นกันเอง`;
 
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
@@ -358,14 +529,15 @@ export default function AICowork() {
         >
           <Database size={18} /> Virtual Drive
         </button>
-        <button 
-          onClick={() => setActiveTab('intelligence')} 
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeView === 'intelligence' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
-        >
-          <BrainCircuit size={18} /> Intelligence Hub
-        </button>
+        {(profile?.role === 'admin' || profile?.role === 'director') && (
+          <button 
+            onClick={() => setActiveTab('intelligence')} 
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeView === 'intelligence' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+          >
+            <BrainCircuit size={18} /> Intelligence Hub
+          </button>
+        )}
       </div>
-
       {activeView === 'chat' && (
         <div className="flex-1 flex flex-col bg-white rounded-[40px] border border-slate-100 shadow-xl overflow-hidden relative">
           <div className="p-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
@@ -431,6 +603,43 @@ export default function AICowork() {
           </div>
 
           <form onSubmit={handleSendMessage} className="p-6 bg-slate-50/50 border-t border-slate-100">
+             {/* ขอบเขตการค้นหาความรู้ */}
+             <div className="flex flex-wrap gap-2 mb-4 justify-center items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">ขอบเขตสืบค้น:</span>
+                <button
+                   type="button"
+                   onClick={() => setSearchSource('all')}
+                   className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-wide transition-all active:scale-95 ${
+                      searchSource === 'all' 
+                        ? 'bg-brand-primary text-white shadow-sm' 
+                        : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-100'
+                   }`}
+                >
+                   ทั้งหมด (สถิติ + คลังกลาง + ส่วนตัว)
+                </button>
+                <button
+                   type="button"
+                   onClick={() => setSearchSource('global')}
+                   className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-wide transition-all active:scale-95 ${
+                      searchSource === 'global' 
+                        ? 'bg-blue-600 text-white shadow-sm' 
+                        : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-100'
+                   }`}
+                >
+                   คลังปัญญาส่วนกลาง
+                </button>
+                <button
+                   type="button"
+                   onClick={() => setSearchSource('private')}
+                   className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-wide transition-all active:scale-95 ${
+                      searchSource === 'private' 
+                        ? 'bg-indigo-600 text-white shadow-sm' 
+                        : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-100'
+                   }`}
+                >
+                   เอกสารส่วนตัวของคุณครู
+                </button>
+             </div>
              <div className="relative">
                 <input 
                   type="text" 
@@ -536,7 +745,7 @@ export default function AICowork() {
         </div>
       )}
 
-      {activeView === 'intelligence' && (
+      {activeView === 'intelligence' && (profile?.role === 'admin' || profile?.role === 'director') && (
         <div className="flex-1 flex flex-col bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
           <div className="p-10 border-b border-slate-50 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 flex justify-between items-center">
             <div>

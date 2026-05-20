@@ -243,14 +243,14 @@ export default function LECReports() {
       const roomA = parseInt(a.room) || 0; const roomB = parseInt(b.room) || 0;
       return roomA !== roomB ? roomA - roomB : (a.student_id || '').localeCompare(b.student_id || '');
     });
-    const pageSize = 25; const pages = [];
+    const pageSize = 32; const pages = [];
     for (let i = 0; i < sorted.length; i += pageSize) pages.push(sorted.slice(i, i + pageSize));
 
     const htmlPages = pages.map((pageDocs, pageIdx) => {
       const tableRows = pageDocs.map((s, i) => `
         <tr><td>${toThaiDigits((pageIdx * pageSize) + i + 1)}</td><td>${toThaiDigits(s.student_id || '-')}</td><td style="text-align:left; padding-left: 10px;">${s.prefix || ''}${s.first_name} ${s.last_name}</td><td>${toThaiDigits(s.national_id || '-')}</td><td>${s.class_level.startsWith('อ') ? 'อ.' : 'ป.'}${toThaiDigits(s.class_level.split('.')[1] || '')}/${toThaiDigits(s.room || '1')}</td></tr>
       `).join('');
-      const emptyRows = Array(pageSize - pageDocs.length).fill(0).map(() => `<tr><td style="height: 32px;">&nbsp;</td><td></td><td></td><td></td><td></td></tr>`).join('');
+      
       return `
         <div class="page">
           <div class="lec-code">(แบบ LEC - ${toThaiDigits(2)})</div>
@@ -261,12 +261,14 @@ export default function LECReports() {
             <p style="margin:2px 0; font-size: 14pt;">โรงเรียนบ้านควนโคกยา สังกัด สำนักงานเขตพื้นที่การศึกษาประถมศึกษาพัทลุง เขต ๒</p>
             <p style="margin:2px 0; font-size: 14pt;">เพื่อจัดส่งให้ ${config.localGovName || '................................................'}</p>
           </div>
-          <table><thead><tr><th>ลำดับ</th><th>เลขประจำตัว</th><th>คำนำหน้าชื่อ ชื่อ - สกุล</th><th>เลขประชาชน</th><th>ระดับชั้น</th></tr></thead><tbody>${tableRows}${emptyRows}</tbody></table>
-          <div class="footer">
+          <table><thead><tr><th>ลำดับ</th><th>เลขประจำตัว</th><th>คำนำหน้าชื่อ ชื่อ - สกุล</th><th>เลขประชาชน</th><th>ระดับชั้น</th></tr></thead><tbody>${tableRows}</tbody></table>
+          
+          ${pageIdx === pages.length - 1 ? `
+          <div class="footer" style="margin-top: 30px;">
               <div style="display: flex; flex-direction: column; align-items: center; width: 48%;">
                 <table class="sign-box-table">
-                  <tr><td style="text-align: right; padding-right: 5px;">ลงชื่อ</td><td style="text-align: center;">...........................................................</td><td style="text-align: left;">ผู้ให้ข้อมูล</td></tr>
-                  <tr><td></td><td style="text-align: center;">( ${config.teacherName || '.........................................................'} )</td><td></td></tr>
+                  <tr><td style="text-align: right; padding-right: 5px;">ลงชื่อ</td><td style="text-align: center; border-bottom: 1px dotted black !important; width: 200px;"></td><td style="text-align: left;">ผู้ให้ข้อมูล</td></tr>
+                  <tr><td></td><td style="text-align: center; padding-top: 8px;">( ${config.teacherName || '.........................................................'} )</td><td></td></tr>
                 </table>
                 <div style="margin-top: 1px;">ตำแหน่ง ครู&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
                 <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
@@ -274,13 +276,14 @@ export default function LECReports() {
               </div>
               <div style="display: flex; flex-direction: column; align-items: center; width: 48%;">
                 <table class="sign-box-table">
-                  <tr><td style="text-align: right; padding-right: 5px;">ลงชื่อ</td><td style="text-align: center;">...........................................................</td><td style="text-align: left;">ผู้รับรองข้อมูล</td></tr>
-                  <tr><td></td><td style="text-align: center;">( ${config.directorName || '.........................................................'} )</td><td></td></tr>
+                  <tr><td style="text-align: right; padding-right: 5px;">ลงชื่อ</td><td style="text-align: center; border-bottom: 1px dotted black !important; width: 200px;"></td><td style="text-align: left;">ผู้รับรองข้อมูล</td></tr>
+                  <tr><td></td><td style="text-align: center; padding-top: 8px;">( ${config.directorName || '.........................................................'} )</td><td></td></tr>
                 </table>
                 <div style="margin-top: 1px;">ผู้อำนวยการสถานศึกษา&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
                 <div style="margin-top: 0px;">วันที่ ${toThaiDigits(config.reportDate)}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
               </div>
           </div>
+          ` : ''}
         </div>
       `;
     }).join('');
@@ -305,17 +308,17 @@ export default function LECReports() {
               body { background: white; }
               .no-print-btn { display: none !important; }
             }
-            .sarabun { font-family: 'TH Sarabun New', sans-serif; color: black; line-height: 1.1; }
+            .sarabun { font-family: 'TH Sarabun New', sans-serif; color: black; line-height: 1.2; }
             body { background: #f0f0f0; margin: 0; padding: 0; }
-            .page { background: white; width: 210mm; min-height: 297mm; padding: 1.2cm 1.5cm; margin: 1cm auto; box-sizing: border-box; page-break-after: always; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .page { background: white; width: 210mm; min-height: 297mm; padding: 1.2cm 1.5cm; margin: 1cm auto; box-sizing: border-box; page-break-after: always; position: relative; }
             .lec-code { text-align: right; font-weight: bold; font-size: 16pt; margin-bottom: 5px; }
-            table { width: 100%; border-collapse: collapse; font-size: 16pt; margin-top: 10px; }
-            th, td { border: 1px solid black !important; padding: 4px 8px !important; text-align: center; }
+            table { width: 100%; border-collapse: collapse; font-size: 15pt; margin-top: 10px; }
+            th, td { border: 1px solid black !important; padding: 3px 6px !important; text-align: center; }
             th { background: #f8fafc; font-weight: bold; }
-            .footer { margin-top: 1.2cm; display: flex; justify-content: space-between; width: 100%; font-size: 16pt; }
-            .sign-box-table { border: none !important; margin: 0 auto; line-height: 1.1; border-spacing: 0; }
+            .footer { display: flex; justify-content: space-between; width: 100%; font-size: 15pt; }
+            .sign-box-table { border: none !important; margin: 0 0 0 auto; line-height: 1.2; border-spacing: 0; width: auto !important; }
             .sign-box-table td { border: none !important; padding: 1px 2px !important; }
-            .no-print-btn { position: fixed; top: 20px; right: 20px; background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-weight: bold; z-index: 9999; }
+            .no-print-btn { position: fixed; top: 20px; right: 20px; background: #22c55e; color: white; border: none; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-weight: bold; z-index: 9999; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
           </style>
         </head>
         <body class="sarabun">
