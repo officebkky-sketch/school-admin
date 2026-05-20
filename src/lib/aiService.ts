@@ -272,8 +272,8 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
 
 export async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
   try {
-    // ใช้ embedding-001 เป็นค่ามาตรฐานเพื่อความเข้ากันได้ของข้อมูลเดิม (768 dim)
-    const targetModel = "models/embedding-001"; 
+    // ใช้ gemini-embedding-2 เป็นค่ามาตรฐานเพื่อความเข้ากันได้ของข้อมูลเดิม (3072 dim)
+    const targetModel = "models/gemini-embedding-2"; 
     const versions = ['v1beta', 'v1'];
     let lastError = "";
 

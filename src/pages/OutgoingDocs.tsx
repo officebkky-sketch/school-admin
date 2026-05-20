@@ -18,7 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import garuda3cm from '../assets/saraban/garuda-3cm.png';
-import { getAvailableModels } from '../lib/aiService';
+import { generateAIDraft } from '../lib/aiService';
 
 export default function OutgoingDocs() {
   const { user } = useAuth();
@@ -103,7 +103,6 @@ export default function OutgoingDocs() {
   const [aiPurpose, setAiPurpose] = useState('');
 
   const handleAiDraft = async (incoming: any = null) => {
-    // แก้ไข: ถ้าอิงจากหนังสือรับ ไม่จำเป็นต้องระบุรายละเอียดเพิ่มก็ได้ แต่ถ้าหนังสือใหม่โดยตรงต้องระบุ
     if (!incoming && !aiPurpose.trim()) {
       alert('กรุณาระบุรายละเอียดหรือความต้องการในการร่างหนังสือ');
       return;
@@ -111,17 +110,14 @@ export default function OutgoingDocs() {
     
     setIsSaving(true);
     try {
-      // 1. Fetch API Key
-      const { data: sets } = await supabase.from('settings').select('gemini_api_key').single();
-      const apiKey = sets?.gemini_api_key;
+      const { data: sets } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key;
 
       if (!apiKey) {
         throw new Error('ไม่พบ API Key ของ Gemini ในหน้าตั้งค่าระบบ');
       }
 
-      // 2. Draft content using AI
       let draftedContent = '';
-      
       const referenceContext = incoming ? `
 หนังสือรับอ้างถึง:
 - เรื่อง: ${incoming.subject}
@@ -146,62 +142,14 @@ ${userDetail}
 
 ร่างเฉพาะข้อความเนื้อหา:`;
 
-      let modelsToTry = await getAvailableModels(apiKey);
-      if (modelsToTry.length === 0) {
-        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
-      }
+      draftedContent = await generateAIDraft(prompt, apiKey);
 
-      const apiVersions = ["v1beta", "v1"];
-      let aiDrafted = false;
-
-      for (const modelName of modelsToTry) {
-        if (aiDrafted) break;
-        for (const version of apiVersions) {
-          if (aiDrafted) break;
-          try {
-            const response = await fetch(`https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-              })
-            });
-            
-            const result = await response.json();
-            if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
-              draftedContent = result.candidates[0].content.parts[0].text.trim();
-              aiDrafted = true;
-            } else if (result.error) {
-              console.warn(`Model ${modelName} (${version}) failed:`, result.error.message);
-            }
-          } catch (aiErr: any) {
-            console.error(`AI Drafting error with ${modelName} (${version}):`, aiErr);
-          }
-        }
-      }
-
-      if (!aiDrafted) {
-        throw new Error('ไม่สามารถรับข้อมูลจาก AI ได้ในขณะนี้ โปรดตรวจสอบว่า API Key ของคุณเปิดใช้งานโปรโตคอลที่จำเป็นหรือยัง หรือลองใหม่อีกครั้ง');
-      }
-
-      // 3. Prepare Form Data
-      let extra: any = {};
       if (incoming) {
-        try {
-          if (incoming.remark && incoming.remark.startsWith('{')) {
-            extra = JSON.parse(incoming.remark);
-          }
-        } catch (e) {}
-
-        const originalDocNum = extra.sender_doc_number || incoming.doc_number;
-        const originalDocDate = extra.sender_doc_date || incoming.doc_date;
-        const formattedDate = formatThaiFullDate(originalDocDate);
-
         setFormData({
           ...formData,
           to_agency: incoming.from_agency,
           subject: `แจ้งผลการดำเนินงานเรื่อง ${incoming.subject}`,
-          reference: `หนังสือ${incoming.from_agency} ที่ ${originalDocNum}\nลงวันที่ ${formattedDate}`,
+          reference: `หนังสือ${incoming.from_agency} ที่ ${incoming.doc_number}\nลงวันที่ ${formatThaiFullDate(incoming.doc_date)}`,
           closing_phrase: 'จึงเรียนมาเพื่อโปรดพิจารณา'
         });
       } else {
@@ -214,7 +162,7 @@ ${userDetail}
       }
 
       setContent(draftedContent);
-      setAiPurpose(''); // Reset purpose
+      setAiPurpose(''); 
       setIsAiModalOpen(false);
       setIsModalOpen(true);
     } catch (err: any) {
@@ -245,9 +193,8 @@ ${userDetail}
 
     const paragraphs = (data.content || '').split('\n').filter((p: string) => p.trim() !== '');
     const attachments = Array.isArray(data.attachments) ? data.attachments : (data.attachment ? [data.attachment] : []);
-    const referenceLines = (data.reference || '').split('\n'); // รองรับการแยกบรรทัดในอ้างถึง
+    const referenceLines = (data.reference || '').split('\n'); 
     
-    // Address Formatting (Line 1: School+Moo, Line 2: Tambon+Amphoe, Line 3: Province+Zip)
     const rawAddress = settings?.school_address || '';
     const addressLines = rawAddress.split('\n').map((l: string) => l.trim());
     
@@ -354,7 +301,7 @@ ${userDetail}
               margin-top: 1.5cm;
               text-align: center;
               line-height: 1.5;
-              margin-left: -4.8cm; /* ขยับกลับไปทางขวาเล็กน้อยประมาณ 1 สเปซบาร์ */
+              margin-left: -4.8cm; 
             }
             .contact-info {
               position: absolute;
