@@ -1,9 +1,90 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { supabase } from './supabase';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Set worker source for pdfjs
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+
+export async function extractProjectsFromKnowledge(apiKey: string, academicYear: string = '2569') {
+  try {
+    // 1. ใช้ Hybrid Search (Vector + Text) เพื่อดึงข้อมูลโครงการให้ครอบคลุมที่สุด
+    // ใช้คำค้นหาเดียวกับที่คุณครูใช้ถามในแชทแล้วได้ผล
+    const vectorQuery = `โครงการตามแผน ${academicYear} มีกี่โครงการอะไรบ้าง และใช้งบประมาณเท่าไหร่`;
+    const vectorMatches = await searchKnowledge(vectorQuery, apiKey, 20);
+    
+    // ค้นหาแบบ Text Search (ILIKE) เพื่อเป็นแผนสำรองในส่วนที่ Vector อาจจะข้ามไป
+    const thaiYear = academicYear.replace(/0/g, '๐').replace(/1/g, '๑').replace(/2/g, '๒').replace(/3/g, '๓').replace(/4/g, '๔').replace(/5/g, '๕').replace(/6/g, '๖').replace(/7/g, '๗').replace(/8/g, '๘').replace(/9/g, '๙');
+    const { data: textMatches } = await supabase
+      .from('school_knowledge')
+      .select('document_name, chunk_text')
+      .or(`chunk_text.ilike.%โครงการ%,chunk_text.ilike.%งบประมาณ%,chunk_text.ilike.%${academicYear}%,chunk_text.ilike.%${thaiYear}%`)
+      .limit(50);
+
+    // รวมข้อมูลและลบส่วนที่ซ้ำกันออก
+    const allMatches = [...(vectorMatches || []), ...(textMatches || [])];
+    const uniqueChunks = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
+    
+    if (uniqueChunks.length === 0) return [];
+
+    const context = uniqueChunks.map(m => `[ไฟล์: ${m.document_name}]\n${m.chunk_text}`).join('\n---\n');
+
+    // 2. ส่งข้อมูลให้ AI ประมวลผลและสกัดออกมาเป็น JSON
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `ภารกิจ: คุณเป็นผู้เชี่ยวชาญด้านงานพัสดุโรงเรียน หน้าที่ของคุณคือสกัด "รายชื่อโครงการ" และ "วงเงินงบประมาณ" จากข้อมูลที่ให้มา โดยเน้นข้อมูลของปีการศึกษา ${academicYear}
+            
+            ข้อมูลที่พบในคลังความรู้:
+            ${context}
+            
+            กฎเหล็กในการทำงาน:
+            1. สกัดชื่อโครงการและวงเงินงบประมาณ (planned_amount) ทั้งหมดที่ระบุไว้ชัดเจน
+            2. ข้อมูลต้นฉบับอาจใช้ "ตัวเลขไทย" ให้คุณแปลงเป็น "เลขอารบิก" ทั้งหมด 100%
+            3. planned_amount ต้องเป็นตัวเลขเท่านั้น (ห้ามมีคอมม่า, ห้ามมีหน่วยบาท)
+            4. หากพบโครงการแต่ไม่พบวงเงิน ให้ใส่ 0
+            5. ห้ามประดิษฐ์ชื่อโครงการเองเด็ดขาด
+            
+            ตอบกลับเป็น JSON array เท่านั้น ห้ามมีคำอธิบายอื่น:
+            [{"project_name": "ชื่อโครงการ", "planned_amount": 5000, "budget_type": "งบอุดหนุน"}]`
+          }]
+        }],
+        generationConfig: { 
+          response_mime_type: "application/json",
+          temperature: 0.1
+        }
+      })
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+      let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!aiText) return [];
+
+      // Clean AI Text: ลบ Markdown blocks (หากมี) เพื่อป้องกัน Error ในการ Parse
+      aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+      
+      try {
+        const parsed = JSON.parse(aiText);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (parseErr) {
+        console.error('JSON Parse Error:', parseErr, aiText);
+        // Fallback: พยายามหาโครงสร้าง Array ในข้อความ
+        const match = aiText.match(/\[[\s\S]*\]/);
+        if (match) return JSON.parse(match[0]);
+        return [];
+      }
+    }
+    return [];
+  } catch (err) {
+    console.error('Project extraction error:', err);
+    return [];
+  }
+}
 
 export async function extractTextFromPdf(pdfBuffer: ArrayBuffer): Promise<string> {
   try {
@@ -192,24 +273,51 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
 
 export async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: "models/text-embedding-004",
-        content: { parts: [{ text }] }
-      })
-    });
-
-    const data = await response.json();
-    if (response.ok) {
-      return data.embedding?.values || [];
+    // 1. ลองดึงรายชื่อโมเดลที่รองรับการทำ embedContent (ปรับปรุงให้รองรับโมเดลตระกูล gemini-embedding)
+    let targetModel = "models/gemini-embedding-2"; // ค่าเริ่มต้นใหม่ (3072 dim)
+    try {
+      const listResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      if (listResponse.ok) {
+        const listData = await listResponse.json();
+        const embedModel = listData.models?.find((m: any) => 
+          m.supportedGenerationMethods?.includes('embedContent') && 
+          (m.name.includes('gemini-embedding-2') || m.name.includes('gemini-embedding-001'))
+        );
+        if (embedModel) targetModel = embedModel.name;
+      }
+    } catch (e) {
+      console.warn("Failed to list models, using default...");
     }
-    throw new Error(data.error?.message || 'Embedding failed');
-  } catch (err) {
+
+    const versions = ['v1beta', 'v1'];
+    let lastError = "";
+
+    for (const version of versions) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/${version}/${targetModel}:embedContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: targetModel,
+            content: { parts: [{ text }] }
+          })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          return data.embedding?.values || [];
+        }
+        lastError = data.error?.message || 'Unknown error';
+      } catch (err: any) {
+        lastError = err.message;
+      }
+    }
+
+    throw new Error(lastError);
+  } catch (err: any) {
     console.error('Embedding error:', err);
-    throw err;
+    throw new Error(`ไม่พบโมเดลสร้างความรู้ที่รองรับ: ${err.message}`);
   }
 }
 
@@ -228,47 +336,171 @@ export async function processDocumentToKnowledge(
   const chunkSize = 1000;
   const chunkOverlap = 200;
 
+  // 1. สกัดข้อความและแบ่ง Chunk
   for (let i = 1; i <= totalPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items.map((item: any) => item.str).join(' ');
-    
-    let start = 0;
-    while (start < pageText.length) {
-      const end = start + chunkSize;
-      const text = pageText.substring(start, end).trim();
-      if (text.length > 50) {
-        chunks.push({ text, page_number: i });
+    try {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      
+      let start = 0;
+      while (start < pageText.length) {
+        const end = start + chunkSize;
+        const text = pageText.substring(start, end).trim();
+        if (text.length > 50) {
+          chunks.push({ text, page_number: i });
+        }
+        start += (chunkSize - chunkOverlap);
       }
-      start += (chunkSize - chunkOverlap);
+      if (onProgress) onProgress(i, totalPages);
+    } catch (e) {
+      console.warn(`Error reading page ${i}:`, e);
     }
-    if (onProgress) onProgress(i, totalPages);
   }
 
-  const batchSize = 5;
+  // Fallback: หากไม่พบข้อความ (อาจเป็นไฟล์สแกน) ให้ใช้ Gemini OCR แบบทีละหน้า
+  if (chunks.length === 0) {
+    try {
+      // 1. ค้นหาโมเดล Vision ที่รองรับจริง (อัปเดตให้รองรับรุ่นใหม่)
+      let visionModel = "gemini-2.0-flash"; 
+      try {
+        const listResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        if (listResponse.ok) {
+          const listData = await listResponse.json();
+          const found = listData.models?.find((m: any) => 
+            m.supportedGenerationMethods?.includes('generateContent') && 
+            (m.name.includes('gemini-2.0-flash') || m.name.includes('gemini-1.5-flash'))
+          );
+          if (found) visionModel = found.name.replace('models/', '');
+        }
+      } catch (e) {
+        console.warn("OCR: Failed to list models, using default...");
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: visionModel });
+      
+      // 2. ประมวลผลทีละ 1 หน้า เพื่อความเสถียรสูงสุด (รองรับโควตา 15 RPM)
+      const apiVersions = ["v1beta", "v1"];
+      
+      for (let p = 1; p <= totalPages; p++) {
+        let successPage = false;
+        let retryCount = 0;
+        const maxRetries = 3;
+
+        // หน่วงเวลา 5 วินาที
+        if (p > 1) await new Promise(r => setTimeout(r, 5000));
+
+        while (!successPage && retryCount < maxRetries) {
+          try {
+            const page = await pdf.getPage(p);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            await page.render({ canvasContext: context!, viewport }).promise;
+            const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            
+            let pageResponseText = "";
+            let pageSuccess = false;
+
+            for (const version of apiVersions) {
+              if (pageSuccess) break;
+              try {
+                const url = `https://generativelanguage.googleapis.com/${version}/models/${visionModel}:generateContent?key=${apiKey}`;
+                const response = await fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{
+                      parts: [
+                        { inline_data: { mime_type: "image/jpeg", data: base64Image } },
+                        { text: `จงสกัดข้อความภาษาไทยทั้งหมดจากรูปภาพหน้านี้ (หน้า ${p}) ออกมาเป็น Plain Text ห้ามสรุปความ` }
+                      ]
+                    }]
+                  })
+                });
+
+                const resData = await response.json();
+                if (response.ok) {
+                  pageResponseText = resData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+                  pageSuccess = true;
+                } else if (response.status === 429) {
+                  throw new Error('429');
+                }
+              } catch (e: any) {
+                if (e.message === '429') throw e;
+              }
+            }
+
+            if (pageSuccess && pageResponseText.length > 5) {
+              let start = 0;
+              while (start < pageResponseText.length) {
+                const end = start + chunkSize;
+                const chunk = pageResponseText.substring(start, end).trim();
+                if (chunk.length > 5) {
+                  chunks.push({ text: chunk, page_number: p });
+                }
+                start += (chunkSize - chunkOverlap);
+              }
+              successPage = true;
+            } else {
+              retryCount++;
+            }
+          } catch (err: any) {
+            if (err.message === '429') {
+              retryCount++;
+              await new Promise(r => setTimeout(r, 60000));
+            } else {
+              retryCount++;
+              if (retryCount >= maxRetries) throw err;
+              await new Promise(r => setTimeout(r, 5000));
+            }
+          }
+        }
+        if (onProgress) onProgress(p, totalPages);
+      }
+    } catch (ocrErr: any) {
+      console.error('OCR Fallback failed:', ocrErr);
+      throw new Error(`ระบบ OCR ขัดข้อง: ${ocrErr.message}`);
+    }
+  }
+
+  if (chunks.length === 0) throw new Error('ไม่พบเนื้อหาที่เป็นข้อความในไฟล์นี้');
+
+  // 2. ดึง User ครั้งเดียว
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('กรุณาเข้าสู่ระบบก่อนดำเนินการ');
+
+  // 3. บันทึก
+  const batchSize = 3;
+  let successCount = 0;
+  let lastError = "";
+
   for (let i = 0; i < chunks.length; i += batchSize) {
     const batch = chunks.slice(i, i + batchSize);
     const promises = batch.map(async (chunk) => {
       try {
         const embedding = await generateEmbedding(chunk.text, apiKey);
-        const { data: { user } } = await supabase.auth.getUser();
-        await supabase.from('school_knowledge').insert([{
+        const { error } = await supabase.from('school_knowledge').insert([{
           document_name: fileName,
           page_number: chunk.page_number,
           chunk_text: chunk.text,
           embedding: embedding,
-          created_by: user?.id
+          created_by: user.id
         }]);
-      } catch (err) {
-        console.error('Batch item error:', err);
-      }
+        if (!error) successCount++;
+        else lastError = error.message;
+      } catch (err: any) { lastError = err.message; }
     });
-
     await Promise.all(promises);
-    if (i + batchSize < chunks.length) await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 1000));
   }
 
-  return chunks.length;
+  if (successCount === 0) throw new Error(`ไม่สามารถจดจำข้อมูลได้: ${lastError}`);
+  return successCount;
 }
 
 export async function searchKnowledge(query: string, apiKey: string, limit: number = 8) {
@@ -277,7 +509,7 @@ export async function searchKnowledge(query: string, apiKey: string, limit: numb
 
     const { data, error } = await supabase.rpc('match_knowledge', {
       query_embedding: queryEmbedding,
-      match_threshold: 0.3,
+      match_threshold: 0.2, // ปรับลดจาก 0.3 เพื่อเพิ่มโอกาสในการค้นพบ
       match_count: limit
     });
 
@@ -286,5 +518,34 @@ export async function searchKnowledge(query: string, apiKey: string, limit: numb
   } catch (err) {
     console.error('Knowledge search error:', err);
     return [];
+  }
+}
+
+export async function extractTextFromImage(imageBuffer: ArrayBuffer, apiKey: string): Promise<string> {
+  try {
+    const base64Image = toBase64(imageBuffer);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: "image/jpeg", data: base64Image } },
+            { text: "สกัดข้อความทั้งหมดจากภาพนี้ออกมาเป็นข้อความธรรมดา (Plain Text) หากเป็นหนังสือราชการให้คงรูปแบบลำดับเนื้อหาไว้" }
+          ]
+        }]
+      })
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    }
+    return "";
+  } catch (err) {
+    console.error('Image OCR error:', err);
+    return "";
   }
 }

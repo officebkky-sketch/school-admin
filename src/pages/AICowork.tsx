@@ -207,31 +207,82 @@ export default function AICowork() {
     setIsThinking(true);
 
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').single();
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+      const currentYear = settings?.current_academic_year || '2569';
       
       if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ก่อนใช้งาน');
 
-      // 1. ค้นหาข้อมูลจาก "สมองอัจฉริยะ" (Vector Search)
+      // 1. ดึงข้อมูลสถิติจริงจากฐานข้อมูล (ประสานระบบเก่า)
+      // กรองเฉพาะปีการศึกษาปัจจุบัน, สถานะปกติ และดึงชื่อมาด้วย
+      const { data: studentStats } = await supabase
+        .from('students')
+        .select('class_level, gender, prefix, first_name, last_name, graduation_status')
+        .eq('academic_year', currentYear)
+        .eq('graduation_status', 'ปกติ');
+
+      const { count: teacherCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
+      const { data: utilityStats } = await supabase.from('utilities').select('amount').order('created_at', { descending: true }).limit(5);
+
+      // จัดรูปแบบสถิตินักเรียนและรายชื่อ
+      const studentSummary = studentStats?.reduce((acc: any, curr: any) => {
+        const level = curr.class_level || 'ไม่ระบุ';
+        if (!acc[level]) acc[level] = { total: 0, male: 0, female: 0, names: [] };
+        acc[level].total++;
+        
+        // ตรวจสอบเพศแบบละเอียด (ชาย, ด.ช., เด็กชาย, Male)
+        const gender = (curr.gender || '').trim();
+        const prefix = (curr.prefix || '').trim();
+        const isMale = gender === 'ชาย' || gender.toLowerCase() === 'male' || 
+                       prefix === 'ด.ช.' || prefix === 'เด็กชาย' || prefix === 'นาย';
+        const isFemale = gender === 'หญิง' || gender.toLowerCase() === 'female' || 
+                         prefix === 'ด.ญ.' || prefix === 'เด็กหญิง' || prefix === 'นางสาว' || prefix === 'นาง';
+        
+        if (isMale) acc[level].male++;
+        else if (isFemale) acc[level].female++;
+        
+        // เก็บรายชื่อ (เก็บสูงสุด 20 คนต่อชั้นเพื่อความละเอียด)
+        if (acc[level].names.length < 20) {
+          acc[level].names.push(`${curr.prefix || ''}${curr.first_name} ${curr.last_name}`);
+        }
+        return acc;
+      }, {});
+
+      const dbContext = `
+      ข้อมูลจริงจากระบบฐานข้อมูล (เฉพาะนักเรียนสถานะปกติ ปีการศึกษา ${currentYear}):
+      - จำนวนนักเรียนปัจจุบัน: ${studentStats?.length || 0} คน
+      - รายละเอียดรายชั้น: ${Object.entries(studentSummary || {}).map(([lv, s]: any) => 
+          `ชั้น ${lv}: ${s.total} คน (ชาย ${s.male}, หญิง ${s.female}) [รายชื่อ: ${s.names.join(', ')}${s.total > 20 ? ' ...และคนอื่นๆ' : ''}]`
+        ).join('\n      - ')}
+      - จำนวนบุคลากรครู: ${teacherCount || 0} คน
+      - ข้อมูลค่าสาธารณูปโภคล่าสุด: ${utilityStats?.map(u => `${u.amount} บาท`).join(', ')}
+      `;
+
+      // 2. ค้นหาข้อมูลจาก "สมองอัจฉริยะ" (Vector Search จากไฟล์ PDF)
       const matches = await searchKnowledge(userMsg, apiKey, 5);
       
-      // 2. จัดรูปแบบบริบทจากคลังปัญญา
-      const context = matches.length > 0 
+      // 3. จัดรูปแบบบริบททั้งหมด
+      const knowledgeContext = matches.length > 0 
         ? matches.map((m: any) => `[อ้างอิง: ${m.document_name} หน้า ${m.page_number}]\n${m.chunk_text}`).join('\n\n')
         : "ไม่พบข้อมูลที่ตรงกันโดยตรงในคลังปัญญาโรงเรียน";
 
-      // 3. สร้าง Prompt สำหรับ Gemini
-      const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา 
-      ข้อมูลที่ค้นพบจากคลังปัญญาโรงเรียน:
-      ${context}
+      // 4. สร้าง Prompt สำหรับ Gemini
+      const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา
+      
+      [ส่วนที่ 1: ข้อมูลจริงจากระบบฐานข้อมูล]
+      ${dbContext}
+
+      [ส่วนที่ 2: ข้อมูลจากคลังปัญญา (ไฟล์ระเบียบ/PDF)]
+      ${knowledgeContext}
 
       คำถามของคุณครู: ${userMsg}
 
       คำแนะนำในการตอบ:
-      1. ตอบคำถามโดยอ้างอิงจากข้อมูลที่ค้นพบข้างต้น (ถ้ามี)
-      2. หากข้อมูลในคลังระบุไว้ชัดเจน ให้ตอบตามนั้นและระบุ [อ้างอิงไฟล์/หน้า] ด้วยเสมอ
-      3. หากในคลังไม่มีข้อมูล ให้ตอบตามความรู้พื้นฐานและแจ้งว่า "ข้อมูลนี้ไม่อยู่ในคลังปัญญาโรงเรียน"
-      4. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่เป็นกันเอง`;
+      1. หากคำถามเกี่ยวกับ "จำนวน" หรือ "สถิติ" ให้ใช้ข้อมูลจาก [ส่วนที่ 1] ในการตอบทันที
+      2. หากคำถามเกี่ยวกับ "ระเบียบ" หรือ "วิธีปฏิบัติ" ให้ใช้ข้อมูลจาก [ส่วนที่ 2] ในการตอบ
+      3. จัดรูปแบบคำตอบให้ "อ่านง่ายที่สุด" โดยใช้ Markdown (## หัวข้อ, **ตัวหนา**, รายการข้อ)
+      4. หากข้อมูลใดไม่มีทั้งในฐานข้อมูลและคลังปัญญา ให้ตอบตามความรู้พื้นฐานและแจ้งว่า "ข้อมูลนี้ไม่อยู่ในฐานข้อมูลโรงเรียน"
+      5. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่เป็นกันเอง`;
 
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
@@ -325,15 +376,42 @@ export default function AICowork() {
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-brand-primary text-white rounded-tr-none' : 'bg-slate-50 text-slate-700 rounded-tl-none border border-slate-100'}`}>
-                  {msg.text}
+                <div className={`max-w-[85%] p-5 rounded-[28px] text-sm leading-relaxed shadow-sm transition-all ${
+                  msg.role === 'user' 
+                    ? 'bg-brand-primary text-white rounded-tr-none' 
+                    : 'bg-white text-slate-700 rounded-tl-none border border-slate-100'
+                }`}>
+                  <div className="whitespace-pre-wrap prose-sm max-w-none prose-headings:text-slate-800 prose-headings:font-black prose-strong:text-brand-primary prose-strong:font-black">
+                     {msg.text.split('\n').map((line: string, index: number) => {
+                        // Simple Markdown rendering for headers
+                        if (line.startsWith('# ')) return <h1 key={index} className="text-xl font-black mb-4 mt-2">{line.replace('# ', '')}</h1>;
+                        if (line.startsWith('## ')) return <h2 key={index} className="text-lg font-black mb-3 mt-4 text-slate-800">{line.replace('## ', '')}</h2>;
+                        if (line.startsWith('### ')) return <h3 key={index} className="text-base font-black mb-2 mt-3 text-slate-700">{line.replace('### ', '')}</h3>;
+                        
+                        // Simple Bold rendering **text**
+                        const parts = line.split(/(\*\*.*?\*\*)/g);
+                        return (
+                          <p key={index} className="mb-2 last:mb-0">
+                            {parts.map((part, pIdx) => {
+                              if (part.startsWith('**') && part.endsWith('**')) {
+                                return <strong key={pIdx} className="font-black text-slate-900 bg-yellow-50 px-1 rounded-sm">{part.slice(2, -2)}</strong>;
+                              }
+                              return part;
+                            })}
+                          </p>
+                        );
+                     })}
+                  </div>
                 </div>
               </div>
             ))}
             {isThinking && (
               <div className="flex justify-start">
-                <div className="bg-slate-50 p-4 rounded-2xl rounded-tl-none border border-slate-100">
-                  <Loader2 size={20} className="animate-spin text-brand-primary" />
+                <div className="bg-white p-5 rounded-[28px] rounded-tl-none border border-slate-100 shadow-sm">
+                  <div className="flex items-center gap-2">
+                     <Loader2 size={20} className="animate-spin text-brand-primary" />
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI กำลังวิเคราะห์คลังปัญญา...</span>
+                  </div>
                 </div>
               </div>
             )}

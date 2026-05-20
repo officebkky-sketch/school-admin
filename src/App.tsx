@@ -22,6 +22,7 @@ import ProfilePage from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import Academic from './pages/Academic';
 import Finance from './pages/Finance';
+import Procurement from './pages/Procurement';
 import FreeEducation from './pages/FreeEducation';
 import Utilities from './pages/Utilities';
 import AICowork from './pages/AICowork';
@@ -189,9 +190,17 @@ function App() {
         </nav>
 
         <div className="p-4 border-t border-slate-100 bg-white">
-          <button onClick={() => signOut()} className="flex items-center gap-3 w-full px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition-all font-bold text-sm">
+          <button onClick={() => signOut()} className="flex items-center gap-3 w-full px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl transition-all font-bold text-sm mb-4">
             <LogOut size={20} /> ออกจากระบบ
           </button>
+          
+          <div className="px-4 py-2 border-t border-slate-50 mt-2">
+            <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tighter leading-tight">
+              Smart School Admin © 2026<br/>
+              <span className="text-brand-primary">Phairot Makkaew & Gemini AI</span><br/>
+              โรงเรียนบ้านควนโคกยา
+            </p>
+          </div>
         </div>
       </aside>
 
@@ -261,7 +270,7 @@ function App() {
             {activeTab === 'settings' && <SettingsPage />}
             {activeTab === 'users' && <UsersManagement />}
             {activeTab === 'academic' && <Academic />}
-            {activeTab === 'finance' && <Finance />}
+            {activeTab === 'finance' && <Procurement />}
             {activeTab === 'utilities' && <Utilities />}
             {activeTab === 'free_education' && <FreeEducation />}
             {activeTab === 'ai_cowork' && <AICowork />}
