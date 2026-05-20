@@ -6,7 +6,7 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 async function listModels() {
-  const apiKey = 'AIzaSyBJdsm4VISTj2GzXpUjE5JdrHXis3cBwfI';
+  const apiKey = process.env.GEMINI_API_KEY || ''; // ลบ API Key ที่รั่วไหลออกเพื่อความปลอดภัย
   console.log('--- Listing Available Models ---');
   try {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);

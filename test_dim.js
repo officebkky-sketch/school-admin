@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 async function testEmbedding2() {
-  const apiKey = 'AIzaSyBJdsm4VISTj2GzXpUjE5JdrHXis3cBwfI';
+  const apiKey = process.env.GEMINI_API_KEY || ''; // ลบ API Key ที่รั่วไหลออกเพื่อความปลอดภัย
   const text = 'ทดสอบระบบ';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=${apiKey}`;
   

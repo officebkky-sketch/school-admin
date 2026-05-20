@@ -6,7 +6,7 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 async function testEmbedding() {
-  const apiKey = 'AIzaSyBJdsm4VISTj2GzXpUjE5JdrHXis3cBwfI';
+  const apiKey = process.env.GEMINI_API_KEY || ''; // ลบ API Key ที่รั่วไหลออกเพื่อความปลอดภัย
   const text = 'ทดสอบระบบ';
   
   const models = ["models/text-embedding-004", "models/embedding-001"];

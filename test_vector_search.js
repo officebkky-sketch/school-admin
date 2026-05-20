@@ -20,7 +20,7 @@ async function generateEmbedding(text, apiKey) {
 }
 
 async function testSearch() {
-  const apiKey = 'AIzaSyB6gp8xCzC7jGof3Pd6rkZpQJZJDzK-0Qs';
+  const apiKey = process.env.GEMINI_API_KEY || ''; // ลบ API Key ที่รั่วไหลออกเพื่อความปลอดภัย
   const query = 'รายชื่อโครงการ โครงการจัดซื้อจัดจ้าง วงเงินงบประมาณ รายละเอียดโครงการ';
   
   console.log('--- Testing Vector Search ---');
