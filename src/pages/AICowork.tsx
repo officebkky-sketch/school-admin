@@ -292,17 +292,25 @@ export default function AICowork() {
       const apiVersions = ["v1beta", "v1"];
       let aiResponseText = "";
       let success = false;
+      let lastErrorMessage = "";
 
       for (const modelName of modelsToTry) {
         if (success) break;
         for (const version of apiVersions) {
           if (success) break;
           try {
-            const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`;
+            const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey.trim()}`;
             const response = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+              body: JSON.stringify({ 
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  temperature: 0.7,
+                  topP: 0.95,
+                  maxOutputTokens: 2048,
+                }
+              })
             });
 
             const resData = await response.json();
@@ -310,16 +318,20 @@ export default function AICowork() {
               aiResponseText = resData.candidates[0].content.parts[0].text.trim();
               success = true;
             } else if (resData.error) {
-              console.warn(`AICowork: Model ${modelName} (${version}) failed:`, resData.error.message);
+              lastErrorMessage = resData.error.message;
+              console.warn(`AICowork: Model ${modelName} (${version}) failed:`, lastErrorMessage);
+            } else if (resData.candidates?.[0]?.finishReason) {
+              lastErrorMessage = `AI ปฏิเสธการตอบคำถาม (สาเหตุ: ${resData.candidates[0].finishReason})`;
             }
-          } catch (fetchErr) {
+          } catch (fetchErr: any) {
+            lastErrorMessage = fetchErr.message;
             console.error(`AICowork: Fetch error with ${modelName} (${version}):`, fetchErr);
           }
         }
       }
 
       if (!success) {
-        throw new Error('ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ โปรดตรวจสอบการเชื่อมต่ออินเทอร์เน็ตหรือ API Key ของคุณ');
+        throw new Error(lastErrorMessage || 'ไม่สามารถติดต่อ AI ได้ในขณะนี้ โปรดตรวจสอบ API Key ของคุณ');
       }
       
       setMessages(prev => [...prev, { role: 'ai', text: aiResponseText }]);

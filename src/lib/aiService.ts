@@ -272,22 +272,8 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
 
 export async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
   try {
-    // 1. ลองดึงรายชื่อโมเดลที่รองรับการทำ embedContent (ปรับปรุงให้รองรับโมเดลตระกูล gemini-embedding)
-    let targetModel = "models/gemini-embedding-2"; // ค่าเริ่มต้นใหม่ (3072 dim)
-    try {
-      const listResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      if (listResponse.ok) {
-        const listData = await listResponse.json();
-        const embedModel = listData.models?.find((m: any) => 
-          m.supportedGenerationMethods?.includes('embedContent') && 
-          (m.name.includes('gemini-embedding-2') || m.name.includes('gemini-embedding-001'))
-        );
-        if (embedModel) targetModel = embedModel.name;
-      }
-    } catch (e) {
-      console.warn("Failed to list models, using default...");
-    }
-
+    // ใช้ embedding-001 เป็นค่ามาตรฐานเพื่อความเข้ากันได้ของข้อมูลเดิม (768 dim)
+    const targetModel = "models/embedding-001"; 
     const versions = ['v1beta', 'v1'];
     let lastError = "";
 
