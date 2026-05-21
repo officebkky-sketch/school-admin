@@ -7,18 +7,17 @@ const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY!;
 // ใช้ Service Role เพื่อข้าม RLS ในการค้นหาข้อมูลส่วนตัวครู (ต้องเพิ่มใน Vercel Env)
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req: any, res: any) {
   if (req.method === 'GET') {
     return res.status(200).json({ 
-      message: 'AI Cowork LINE Webhook is ONLINE with RAG',
+      message: 'AI Cowork LINE Webhook is ONLINE with Advanced RAG',
       status: 'ready',
       env_check: {
         has_token: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
-        has_url: !!process.env.VITE_SUPABASE_URL,
-        has_key: !!process.env.VITE_SUPABASE_ANON_KEY
+        has_service_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        has_url: !!process.env.VITE_SUPABASE_URL
       },
       time: new Date().toISOString()
     });
@@ -36,29 +35,29 @@ export default async function handler(req: any, res: any) {
         const userId = event.source.userId;
         const userMessage = event.message.text.trim();
 
-        // 1. Check if user is already bound
-        const { data: profile } = await supabase
+        // 1. Check if user is already bound (ใช้ Admin เพื่อหาจาก line_user_id ได้ทุกเคส)
+        const { data: profile } = await supabaseAdmin
           .from('profiles')
           .select('*')
           .eq('line_user_id', userId)
           .maybeSingle();
 
         if (profile) {
-          // --- FULL AI BRAIN (Stats + Knowledge Base) ---
+          // --- FULL AI BRAIN (Stats + Dual Knowledge Base) ---
           await handleFullAIQuery(event.replyToken, userMessage, profile);
         } else {
           // 2. Not bound yet. Check if the message is an email
           if (userMessage.includes('@')) {
             const incomingEmail = userMessage.toLowerCase().trim();
-            const { data: foundUser } = await supabase
+            const { data: foundUser } = await supabaseAdmin
               .from('profiles')
               .select('*')
               .eq('email', incomingEmail)
               .maybeSingle();
 
             if (foundUser) {
-              await supabase.from('profiles').update({ line_user_id: userId }).eq('id', foundUser.id);
-              await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบ AI Cowork ครับ\n\nตอนนี้ผมเชื่อมต่อกับ "คลังปัญญาโรงเรียน" เรียบร้อยแล้ว คุณครูสามารถถามระเบียบหรือข้อมูลนักเรียนได้ทันทีครับ!`);
+              await supabaseAdmin.from('profiles').update({ line_user_id: userId }).eq('id', foundUser.id);
+              await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบ AI Cowork ครับ\n\nตอนนี้ผมเชื่อมต่อกับ "คลังปัญญาโรงเรียน" และ "Virtual Drive ส่วนตัว" ของคุณครูเรียบร้อยแล้ว ถามข้อมูลได้ทันทีครับ!`);
             } else {
               await replyToLine(event.replyToken, 'ขออภัยครับ ไม่พบอีเมลนี้ในระบบโรงเรียน กรุณาตรวจสอบอีเมลและส่งมาใหม่ครับ');
             }
@@ -78,7 +77,7 @@ export default async function handler(req: any, res: any) {
 async function handleFullAIQuery(replyToken: string, message: string, profile: any) {
   try {
     // 1. Fetch Basic Settings & API Key
-    const { data: sets } = await supabase.from('settings').select('*').maybeSingle();
+    const { data: sets } = await supabaseAdmin.from('settings').select('*').maybeSingle();
     const apiKey = sets?.gemini_api_key;
     if (!apiKey) {
       await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า Gemini API Key ในหน้าการตั้งค่าครับ');
@@ -87,8 +86,8 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
 
     // 2. Database Context (Stats)
     const currentYear = sets?.current_academic_year || '2569';
-    const { data: students } = await supabase.from('students').select('class_level, gender, religion, prefix').eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
-    const { count: teacherCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
+    const { data: students } = await supabaseAdmin.from('students').select('class_level, gender, religion, prefix').eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
+    const { count: teacherCount } = await supabaseAdmin.from('teachers').select('*', { count: 'exact', head: true });
     
     const religionStats: any = {};
     const classStats: any = {};
@@ -99,7 +98,6 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
       if (!classStats[lv]) classStats[lv] = { total: 0, male: 0, female: 0 };
       classStats[lv].total++;
       
-      // ตรวจสอบเพศแบบครอบคลุม (ช, ญ, ชาย, หญิง, ด.ช., ด.ญ.)
       const g = s.gender || '';
       const p = s.prefix || '';
       if (g === 'ชาย' || g === 'ช' || g === 'Male' || p.includes('ด.ช.') || p.includes('เด็กชาย')) {
@@ -109,48 +107,55 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
       }
     });
 
-    // 3. Knowledge Base Context (RAG / Hybrid Search)
+    // 3. Advanced Hybrid Search (Global + Private + Thai Regex)
     let knowledgeContext = "";
     try {
-       // 3.1 Vector Search (Primary)
        const embedding = await generateEmbedding(message, apiKey);
        let matches: any[] = [];
        
        if (embedding) {
-          const { data: vectorMatches } = await supabase.rpc('match_knowledge', {
+          // 3.1 Search Global Knowledge
+          const { data: globalMatches } = await supabaseAdmin.rpc('match_knowledge', {
             query_embedding: embedding,
             match_threshold: 0.1,
             match_count: 5
           });
-          if (vectorMatches) matches = [...vectorMatches];
+          if (globalMatches) matches = [...globalMatches];
+
+          // 3.2 Search Private Knowledge
+          const { data: privateMatches } = await supabaseAdmin.rpc('match_personal_knowledge', {
+            query_embedding: embedding,
+            match_threshold: 0.1,
+            match_count: 5,
+            p_teacher_id: profile.id
+          });
+          if (privateMatches) matches = [...matches, ...privateMatches];
        }
 
-       // 3.2 Text Search (Fallback/Supplement)
-       if (matches.length < 3) {
-          // Extract keywords (simple split for demo, can be improved)
-          const keywords = message.split(' ').filter(k => k.length > 2);
-          if (keywords.length > 0) {
-            const orQuery = keywords.map(k => `chunk_text.ilike.%${k}%`).join(',');
-            const { data: textMatches } = await supabase
-              .from('school_knowledge')
-              .select('document_name, chunk_text')
-              .or(orQuery)
-              .limit(5);
-            
-            if (textMatches) {
-               // Combine and deduplicate
-               const allMatches = [...matches, ...textMatches];
-               matches = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
-            }
+       // 3.3 Thai Keyword Fallback (Regex based)
+       if (matches.length < 5) {
+          const yearMatch = message.match(/\d{4}/g) || [];
+          const keywords = ["โครงการ", "งบประมาณ", "ระเบียบ", "แผน", "พัสดุ", "เงิน", "นักเรียน", "กิจกรรม"];
+          const foundKeywords = keywords.filter(k => message.includes(k));
+          const searchTerms = [...yearMatch, ...foundKeywords];
+
+          if (searchTerms.length > 0) {
+            const orQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%`).join(',');
+            const [{data: t1}, {data: t2}] = await Promise.all([
+               supabaseAdmin.from('school_knowledge').select('document_name, chunk_text').or(orQuery).limit(5),
+               supabaseAdmin.from('ai_knowledge_base').select('document_name, chunk_text').or(orQuery).eq('teacher_id', profile.id).limit(5)
+            ]);
+            const textMatches = [...(t1 || []), ...(t2 || [])];
+            const allMatches = [...matches, ...textMatches];
+            matches = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
           }
        }
 
        if (matches.length > 0) {
-         // Limit to top 10 chunks to avoid exceeding context window
-         knowledgeContext = matches.slice(0, 10).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
+         knowledgeContext = matches.slice(0, 12).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
        }
     } catch (err) {
-       console.warn('Hybrid Search failed:', err);
+       console.warn('Advanced Search failed:', err);
     }
 
     const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
@@ -160,18 +165,17 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ช ${s.male} ญ ${s.female})`).join('\n    ')}
     - จำนวนครู: ${teacherCount || 0} คน
 
-    [ข้อมูลจากคลังปัญญาโรงเรียน (เนื้อหาจากระเบียบ/เอกสาร)]
+    [ข้อมูลจากคลังปัญญา (ส่วนกลาง + ส่วนตัว)]
     ${knowledgeContext || "ไม่พบข้อมูลที่เกี่ยวข้องในคลังปัญญา"}
 
     ผู้ถาม: คุณครู ${profile.display_name} (สิทธิ์: ${profile.role})
     คำถาม: ${message}
 
     คำแนะนำในการตอบ:
-    1. หากข้อมูลในสถิติระบุว่าเป็น 0 คน แต่ใน "คลังปัญญา" มีข้อมูลอื่น ให้แจ้งคุณครูตามตรงและอ้างอิงจากคลังปัญญา
-    2. ตอบให้กระชับ เหมาะกับการอ่านใน LINE พร้อมใช้ Emoji
-    3. หากหาข้อมูลไม่เจอจริงๆ ให้แนะนำให้คุณครูอัปโหลดเอกสารเพิ่มที่เมนู AI Cowork บนคอมพิวเตอร์`;
+    1. วิเคราะห์ข้อมูลจากทั้ง "สถิติ" และ "คลังปัญญา" ให้ครบถ้วน
+    2. ตอบให้กระชับ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji
+    3. หากไม่พบข้อมูลจริงๆ ให้ขอให้คุณครูอัปโหลดแผนปฏิบัติการหรือระเบียบเพิ่มในคอมพิวเตอร์`;
 
-    // 4. Call Gemini with Full Context
     const finalAnswer = await callGemini(context, apiKey);
     await replyToLine(replyToken, finalAnswer);
 
@@ -202,7 +206,6 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
 }
 
 async function callGemini(prompt: string, apiKey: string): Promise<string> {
-  // ลองหาโมเดลที่ใช้งานได้ (เหมือนเดิม)
   let modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"];
   try {
      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
