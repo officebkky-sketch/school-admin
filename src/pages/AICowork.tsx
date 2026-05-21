@@ -911,12 +911,16 @@ export default function AICowork() {
                     ? 'bg-brand-primary text-white rounded-tr-none' 
                     : 'bg-white text-slate-700 rounded-tl-none border border-slate-100'
                 }`}>
-                  <div className="whitespace-pre-wrap prose-sm max-w-none prose-headings:text-slate-800 prose-headings:font-black prose-strong:text-brand-primary prose-strong:font-black">
+                  <div className={`whitespace-pre-wrap prose-sm max-w-none prose-headings:font-black prose-strong:font-black ${
+                    msg.role === 'user' 
+                      ? 'text-white prose-headings:text-white prose-strong:text-white' 
+                      : 'text-slate-700 prose-headings:text-slate-800 prose-strong:text-brand-primary'
+                  }`}>
                      {msg.text.split('\n').map((line: string, index: number) => {
                         // Simple Markdown rendering for headers
-                        if (line.startsWith('# ')) return <h1 key={index} className="text-xl font-black mb-4 mt-2 text-slate-800">{line.replace('# ', '')}</h1>;
-                        if (line.startsWith('## ')) return <h2 key={index} className="text-lg font-black mb-3 mt-4 text-slate-800">{line.replace('## ', '')}</h2>;
-                        if (line.startsWith('### ')) return <h3 key={index} className="text-base font-black mb-2 mt-3 text-slate-700">{line.replace('### ', '')}</h3>;
+                        if (line.startsWith('# ')) return <h1 key={index} className="text-xl font-black mb-4 mt-2">{line.replace('# ', '')}</h1>;
+                        if (line.startsWith('## ')) return <h2 key={index} className="text-lg font-black mb-3 mt-4">{line.replace('## ', '')}</h2>;
+                        if (line.startsWith('### ')) return <h3 key={index} className="text-base font-black mb-2 mt-3">{line.replace('### ', '')}</h3>;
                         
                         // ตรวจสอบและแปลงรายการ Bullet points (*, -, •, +)
                         const trimmedLine = line.trim();
@@ -939,7 +943,7 @@ export default function AICowork() {
                           if (part.startsWith('**') && part.endsWith('**')) {
                             // สไตล์ตัวหนาพรีเมียมสีเหลืองทองครีม สวยงามนำสายตา อ่านง่าย สบายตา
                             return (
-                              <strong key={pIdx} className="bg-amber-50 text-slate-900 px-1.5 py-0.5 rounded-md border border-amber-100 font-bold mx-0.5 shadow-2xs">
+                              <strong key={pIdx} className={`${msg.role === 'user' ? 'text-white' : 'bg-amber-50 text-slate-900 px-1.5 py-0.5 rounded-md border border-amber-100 font-bold mx-0.5 shadow-2xs'}`}>
                                 {part.slice(2, -2)}
                               </strong>
                             );
@@ -948,17 +952,17 @@ export default function AICowork() {
                         });
                         
                         if (isBullet) {
-                          let bulletIndicator = <span className="text-brand-primary mt-2 min-w-[6px] h-[6px] rounded-full bg-brand-primary"></span>;
+                          let bulletIndicator = <span className={`${msg.role === 'user' ? 'bg-white' : 'bg-brand-primary'} mt-2 min-w-[6px] h-[6px] rounded-full`}></span>;
                           if (indentLevel === 1) {
-                            bulletIndicator = <span className="text-brand-primary mt-1.5 min-w-[6px] h-[6px] rounded-full border border-brand-primary bg-transparent"></span>;
+                            bulletIndicator = <span className={`mt-1.5 min-w-[6px] h-[6px] rounded-full border ${msg.role === 'user' ? 'border-white' : 'border-brand-primary'} bg-transparent`}></span>;
                           } else if (indentLevel >= 2) {
-                            bulletIndicator = <span className="text-brand-primary mt-2 min-w-[5px] h-[5px] bg-brand-primary/80"></span>;
+                            bulletIndicator = <span className={`mt-2 min-w-[5px] h-[5px] ${msg.role === 'user' ? 'bg-white/80' : 'bg-brand-primary/80'}`}></span>;
                           }
                           
                           return (
                             <div key={index} className="flex items-start gap-2 mb-2" style={{ paddingLeft: `${(indentLevel + 1) * 16}px` }}>
                               {bulletIndicator}
-                              <span className="flex-1 text-slate-700">{renderedContent}</span>
+                              <span className="flex-1">{renderedContent}</span>
                             </div>
                           );
                         }
@@ -968,8 +972,8 @@ export default function AICowork() {
                           const num = numMatch ? numMatch[1] : '1';
                           return (
                             <div key={index} className="flex items-start gap-2 mb-2" style={{ paddingLeft: `${(indentLevel + 1) * 16}px` }}>
-                              <span className="text-brand-primary font-black text-xs min-w-[20px]">{num}.</span>
-                              <span className="flex-1 text-slate-700">{renderedContent}</span>
+                              <span className={`font-black text-xs min-w-[20px] ${msg.role === 'user' ? 'text-white' : 'text-brand-primary'}`}>{num}.</span>
+                              <span className="flex-1">{renderedContent}</span>
                             </div>
                           );
                         }
@@ -979,7 +983,7 @@ export default function AICowork() {
                         }
                         
                         return (
-                          <p key={index} className="mb-2 last:mb-0 text-slate-700">
+                          <p key={index} className="mb-2 last:mb-0">
                             {renderedContent}
                           </p>
                         );
