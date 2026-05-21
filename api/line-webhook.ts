@@ -128,14 +128,37 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     3. หากถามข้อมูลที่ไม่มี ให้บอกว่ายังไม่มีข้อมูลส่วนนี้ในระบบ
     4. ใช้ภาษาไทยที่สุภาพเป็นกันเอง`;
 
-    // 3. Call Gemini (Manual Fetch with Fallback)
+    // 3. Dynamic Model Discovery (Same as Desktop App)
     const apiKey = sets?.gemini_api_key;
     if (!apiKey) {
       await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า Gemini API Key ในหน้าการตั้งค่าครับ');
       return;
     }
 
-    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+    let modelsToTry: string[] = [];
+    try {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        modelsToTry = listData.models
+          ?.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+          .map((m: any) => m.name.replace('models/', ''))
+          .sort((a: string, b: string) => {
+            // เรียงรุ่น Flash ขึ้นก่อนเพื่อความเร็ว
+            if (a.includes('flash') && !b.includes('flash')) return -1;
+            if (!a.includes('flash') && b.includes('flash')) return 1;
+            return b.localeCompare(a);
+          }) || [];
+      }
+    } catch (e) {
+      console.warn('Failed to list models:', e);
+    }
+
+    // Fallback ถ้าดึงลิสต์ไม่ได้
+    if (modelsToTry.length === 0) {
+      modelsToTry = ["gemini-1.5-flash", "gemini-pro", "gemini-2.0-flash"];
+    }
+
     const versions = ["v1beta", "v1"];
     let finalAnswer = "";
     let attemptLogs: string[] = [];
@@ -159,10 +182,12 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
             if (finalAnswer) break;
           } else {
             const errMsg = data.error?.message || JSON.stringify(data);
-            attemptLogs.push(`❌ ${model} (${ver}): ${response.status} - ${errMsg.slice(0, 100)}`);
+            if (response.status !== 404) { // ไม่เก็บ 404 เพราะรุ่นเยอะเกินไป
+               attemptLogs.push(`❌ ${model} (${ver}): ${response.status} - ${errMsg.slice(0, 50)}`);
+            }
           }
         } catch (e: any) {
-          attemptLogs.push(`❌ ${model} (${ver}): Fetch Error - ${e.message}`);
+          // ignore fetch error
         }
       }
     }
@@ -170,7 +195,7 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     if (finalAnswer) {
       await replyToLine(replyToken, finalAnswer);
     } else {
-      throw new Error(`AI ทุกรุ่นไม่สามารถทำงานได้:\n${attemptLogs.join('\n')}`);
+      throw new Error(`ไม่พบ AI รุ่นที่พร้อมใช้งานในขณะนี้ (ตรวจพบ ${modelsToTry.length} รุ่น)\n${attemptLogs.slice(0, 3).join('\n')}`);
     }
 
   } catch (err: any) {
