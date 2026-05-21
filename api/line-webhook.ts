@@ -52,12 +52,14 @@ export default async function handler(req: any, res: any) {
         } else {
           console.log('Unrecognized user, checking for email...');
           // 2. Not bound yet. Check if the message is an email
-          if (userMessage.includes('@')) {
-            const { data: foundUser, error: findError } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('email', userMessage)
-              .maybeSingle();
+          const incomingEmail = userMessage.toLowerCase().trim();
+          console.log('Normalized email:', incomingEmail);
+
+          const { data: foundUser } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('email', incomingEmail)
+            .maybeSingle();
 
             if (findError) console.error('Find User Error:', findError);
 
