@@ -75,10 +75,29 @@ export default async function handler(req: any, res: any) {
 async function handleAIQuery(replyToken: string, message: string, profile: any) {
   try {
     // 1. Fetch Context Data
-    const { data: sets } = await supabase.from('settings').select('*').single();
-    const { data: students } = await supabase.from('students').select('class_level, gender, religion, prefix').eq('academic_year', sets?.current_academic_year || '2569').eq('graduation_status', 'ปกติ');
-    const { count: teacherCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
-    const { data: recentDocs } = await supabase.from('incoming_docs').select('subject, doc_number, doc_date').order('created_at', { ascending: false }).limit(5);
+    const { data: sets, error: setsErr } = await supabase.from('settings').select('*').maybeSingle();
+    if (setsErr) throw new Error(`Settings DB Error: ${setsErr.message}`);
+
+    const currentYear = sets?.current_academic_year || '2569';
+    
+    const { data: students, error: stdErr } = await supabase
+      .from('students')
+      .select('class_level, gender, religion, prefix')
+      .eq('academic_year', currentYear)
+      .eq('graduation_status', 'ปกติ');
+    if (stdErr) throw new Error(`Students DB Error: ${stdErr.message}`);
+
+    const { count: teacherCount, error: teachErr } = await supabase
+      .from('teachers')
+      .select('*', { count: 'exact', head: true });
+    if (teachErr) throw new Error(`Teachers DB Error: ${teachErr.message}`);
+
+    const { data: recentDocs, error: docsErr } = await supabase
+      .from('incoming_docs')
+      .select('subject, doc_number, doc_date')
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (docsErr) throw new Error(`Docs DB Error: ${docsErr.message}`);
 
     // 2. Prepare Statistics
     const religionStats: any = {};
@@ -94,27 +113,26 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     });
 
     const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
-    ข้อมูลปัจจุบัน:
-    - ปีการศึกษา: ${sets?.current_academic_year || '2569'} ภาคเรียนที่ ${sets?.current_term || '1'}
+    ข้อมูลปัจจุบัน (ปี ${currentYear}):
     - จำนวนนักเรียนทั้งหมด: ${students?.length || 0} คน
     - สรุปศาสนา: ${Object.entries(religionStats).map(([r, c]) => `${r} ${c} คน`).join(', ')}
     - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ช ${s.male} ญ ${s.female})`).join('\n    ')}
     - จำนวนครู: ${teacherCount || 0} คน
-    - หนังสือรับล่าสุด 5 ฉบับ: ${recentDocs?.map(d => `${d.doc_number}: ${d.subject}`).join('\n    ')}
+    - หนังสือรับล่าสุด: ${recentDocs?.map(d => `${d.doc_number}: ${d.subject}`).join('\n    ')}
 
     ผู้ถาม: คุณครู ${profile.display_name} (สิทธิ์: ${profile.role})
     คำถาม: ${message}
 
     คำแนะนำในการตอบ:
     1. ตอบให้กระชับ เหมาะกับการอ่านใน LINE
-    2. ใช้ Emoji ตกแต่งให้น่ารักและเป็นกันเอง
-    3. หากถามข้อมูลที่ไม่มีในสถิตินี้ ให้บอกว่าข้อมูลในระบบยังไม่ครอบคลุมจุดนั้น
-    4. หากถามเรื่องระเบียบ ให้แนะนำให้ไปดูใน Intelligence Hub บนคอมพิวเตอร์`;
+    2. ใช้ Emoji ตกแต่งให้น่ารัก
+    3. หากถามข้อมูลที่ไม่มี ให้บอกว่ายังไม่มีข้อมูลส่วนนี้ในระบบ
+    4. ใช้ภาษาไทยที่สุภาพเป็นกันเอง`;
 
     // 3. Call Gemini
     const apiKey = sets?.gemini_api_key;
     if (!apiKey) {
-      await replyToLine(replyToken, 'ขออภัยครับ ระบบยังไม่ได้ตั้งค่า API Key สำหรับ AI ในหน้าการตั้งค่า');
+      await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า Gemini API Key ในหน้าการตั้งค่าครับ');
       return;
     }
 
@@ -125,9 +143,9 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     const text = response.text();
 
     await replyToLine(replyToken, text);
-  } catch (err) {
+  } catch (err: any) {
     console.error('AI Query Error:', err);
-    await replyToLine(replyToken, 'ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำถาม กรุณาลองใหม่อีกครั้ง');
+    await replyToLine(replyToken, `⚠️ เกิดข้อผิดพลาด: ${err.message || 'ไม่ทราบสาเหตุ'}\nกรุณาแจ้งแอดมินเพื่อตรวจสอบครับ`);
   }
 }
 
