@@ -89,6 +89,7 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     const { data: students } = await supabaseAdmin.from('students').select('class_level, gender, religion, prefix').eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
     const { count: teacherCount } = await supabaseAdmin.from('teachers').select('*', { count: 'exact', head: true });
     const { data: projects } = await supabaseAdmin.from('school_projects').select('project_name, planned_amount, status').eq('academic_year', currentYear);
+    const { data: utilities } = await supabaseAdmin.from('utilities').select('type, month, amount, status').eq('academic_year', currentYear);
     
     const religionStats: any = {};
     const classStats: any = {};
@@ -111,6 +112,20 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     const projectContext = projects && projects.length > 0 
       ? `[รายการโครงการปี ${currentYear} จากฐานข้อมูล] (${projects.length} โครงการ):\n` + projects.map(p => `- ${p.project_name} (งบ: ${p.planned_amount} บาท)`).join('\n')
       : "ไม่พบข้อมูลโครงการในฐานข้อมูลปีนี้";
+
+    const translateUtilityType = (type: string) => {
+      switch (type) {
+        case 'electricity': return 'ค่าไฟฟ้า';
+        case 'water': return 'ค่าน้ำประปา';
+        case 'telephone': return 'ค่าโทรศัพท์';
+        case 'internet': return 'ค่าอินเทอร์เน็ต';
+        default: return type;
+      }
+    };
+
+    const utilitySummary = utilities && utilities.length > 0
+      ? utilities.map(u => `- ${translateUtilityType(u.type)} เดือน${u.month} ยอด: ${u.amount} บาท (${u.status})`).join('\n    ')
+      : "ไม่มีข้อมูลค่าสาธารณูปโภคบันทึกในปีการศึกษานี้";
 
     // 3. Advanced Hybrid Search (Global + Private + Thai Regex)
     let knowledgeContext = "";
@@ -175,11 +190,14 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     }
 
     const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
-    [ส่วนที่ 1: ข้อมูลสถิติและโครงการจากฐานข้อมูลโดยตรง (แม่นยำสูง)]
+    [ส่วนที่ 1: ข้อมูลสถิติ โครงการ และค่าสาธารณูปโภคจากฐานข้อมูลโดยตรง (แม่นยำสูง)]
     - ปีการศึกษา: ${currentYear}
     - จำนวนนักเรียน: ${students?.length || 0} คน
     - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ชาย ${s.male} หญิง ${s.female})`).join('\n    ')}
     - จำนวนครู: ${teacherCount || 0} คน
+    - รายการเบิกค่าสาธารณูปโภค (ค่าน้ำ/ค่าไฟ/ค่าเน็ต) ปี ${currentYear}:
+    ${utilitySummary}
+    
     ${projectContext}
 
     [ส่วนที่ 2: ข้อมูลจากคลังปัญญา (เนื้อหาจากระเบียบ/เอกสาร)]
@@ -198,8 +216,9 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
        - ห้ามใช้ตารางแบบ Markdown (ที่ใช้ | และ -) เนื่องจากแสดงผลได้ไม่ดีบนอุปกรณ์เคลื่อนที่ ให้เปลี่ยนรูปแบบตารางเป็นหัวข้อย่อยและข้อมูลในแต่ละบรรทัดแทน
     3. ตอบคำถามอย่างเป็นมืออาชีพ กระชับ แต่มีรายละเอียดที่ใช้งานได้จริง (Actionable Suggestions)
     4. หากคุณครูถามเรื่อง "โครงการ" ให้สรุปรายชื่อและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
-    5. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยใช้เนื้อหาจาก [ส่วนที่ 2] มาสรุปเพิ่มเติม
-    6. ตอบในฐานะผู้ช่วยครูที่เป็นมิตร สุภาพ มีหางเสียง (ครับ/ค่ะ) และสร้างพลังบวกในการทำงาน`;
+    5. หากคุณครูถามเรื่อง "ค่าน้ำ", "ค่าไฟ", "ค่าเน็ต" หรือ "ค่าสาธารณูปโภค" ให้ประมวลผลข้อมูลและสรุปยอดเบิกจากรายการค่าสาธารณูปโภคใน [ส่วนที่ 1] ให้ชัดเจน
+    6. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยใช้เนื้อหาจาก [ส่วนที่ 2] มาสรุปเพิ่มเติม
+    7. ตอบในฐานะผู้ช่วยครูที่เป็นมิตร สุภาพ มีหางเสียง (ครับ/ค่ะ) และสร้างพลังบวกในการทำงาน`;
 
     const finalAnswer = await callGemini(context, apiKey);
     await replyToLine(replyToken, finalAnswer);
