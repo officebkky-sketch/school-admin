@@ -45,14 +45,14 @@ export default async function handler(req: any, res: any) {
   return res.status(200).json({ message: 'OK' });
 }
 
-async function handleFullAIQuery(replyToken: string, message: string, profile: any) {
+async function handleFullAIQuery(replyToken: string, message: string, _profile: any) {
   try {
     const { data: sets } = await supabaseAdmin.from('settings').select('*').maybeSingle();
     const apiKey = sets?.gemini_api_key;
     if (!apiKey) return await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า API Key ค่ะ');
 
     const currentYear = sets?.current_academic_year || '2569';
-    const schemaMap = await getDynamicSchema(supabaseUrl, supabaseServiceKey);
+    const schemaMap = await getDynamicSchema();
     const queryPlan = await planDatabaseQueries(message, schemaMap, apiKey, currentYear);
     
     let dbContextParts: string[] = [];
@@ -136,7 +136,7 @@ const DEFAULT_SCHEMA_MAP: Record<string, any> = {
   school_projects: { description: "โครงการ", columns: ["id", "project_name", "planned_amount", "academic_year"] }
 };
 
-async function getDynamicSchema(url: string, key: string) { return DEFAULT_SCHEMA_MAP; }
+async function getDynamicSchema() { return DEFAULT_SCHEMA_MAP; }
 
 async function planDatabaseQueries(msg: string, map: any, key: string, year: string) {
   const prompt = `วิเคราะห์คำถาม: "${msg}" ปีการศึกษา: ${year} Schema: ${JSON.stringify(map)}
