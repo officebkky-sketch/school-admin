@@ -247,18 +247,3 @@ export default function Profile() {
     </div>
   );
 }
-     </div>
-
-            <button 
-              type="submit" 
-              disabled={isSaving}
-              className="w-full py-5 bg-brand-primary text-white rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 className="animate-spin" /> : <Save />} บันทึกการเปลี่ยนแปลง
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
