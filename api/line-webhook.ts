@@ -126,18 +126,9 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
             match_count: 10
           });
           if (globalMatches) matches = [...globalMatches];
-
-          // 3.2 Search Private Knowledge (เพิ่มเป็น 10)
-          const { data: privateMatches } = await supabaseAdmin.rpc('match_personal_knowledge', {
-            query_embedding: embedding,
-            match_threshold: 0.1,
-            match_count: 10,
-            p_teacher_id: profile.id
-          });
-          if (privateMatches) matches = [...matches, ...privateMatches];
        }
 
-       // 3.3 Thai Keyword Fallback (Regex based - เพิ่มคำย่อ)
+       // 3.2 Thai Keyword Fallback (Regex based - เพิ่มคำย่อ)
        if (matches.length < 10) {
           const yearMatch = message.match(/\d{4}/g) || [];
           const keywords = ["โครงการ", "งบประมาณ", "ระเบียบ", "แผน", "พัสดุ", "เงิน", "นักเรียน", "กิจกรรม", "โครง", "งบ"];
@@ -145,13 +136,31 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
           const searchTerms = [...yearMatch, ...foundKeywords];
 
           if (searchTerms.length > 0) {
-            // ค้นหาทั้งจากเนื้อหา (chunk_text) และชื่อเอกสาร (document_name)
-            const orQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%,document_name.ilike.%${t}%`).join(',');
+            // ค้นหาตาราง school_knowledge (ใช้ chunk_text และ document_name)
+            const globalOrQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%,document_name.ilike.%${t}%`).join(',');
+            
+            // ค้นหาตาราง ai_knowledge_base (ใช้ content_text และ file_name ให้ตรงกับ DB)
+            const privateOrQuery = searchTerms.map(t => `content_text.ilike.%${t}%,file_name.ilike.%${t}%`).join(',');
+
             const [{data: t1}, {data: t2}] = await Promise.all([
-               supabaseAdmin.from('school_knowledge').select('document_name, chunk_text').or(orQuery).limit(10),
-               supabaseAdmin.from('ai_knowledge_base').select('document_name, chunk_text').or(orQuery).eq('teacher_id', profile.id).limit(10)
+               supabaseAdmin.from('school_knowledge')
+                 .select('document_name, chunk_text')
+                 .or(globalOrQuery)
+                 .limit(10),
+               supabaseAdmin.from('ai_knowledge_base')
+                 .select('file_name, content_text')
+                 .or(privateOrQuery)
+                 .eq('teacher_id', profile.id)
+                 .limit(5)
             ]);
-            const textMatches = [...(t1 || []), ...(t2 || [])];
+
+            // แปลงข้อมูลเอกสารส่วนตัวให้อยู่ในโครงสร้างมาตรฐาน
+            const formattedPrivateMatches = (t2 || []).map((m: any) => ({
+              document_name: m.file_name,
+              chunk_text: m.content_text ? m.content_text.substring(0, 1500) : ""
+            }));
+
+            const textMatches = [...(t1 || []), ...formattedPrivateMatches];
             const allMatches = [...matches, ...textMatches];
             matches = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
           }
@@ -169,7 +178,7 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     [ส่วนที่ 1: ข้อมูลสถิติและโครงการจากฐานข้อมูลโดยตรง (แม่นยำสูง)]
     - ปีการศึกษา: ${currentYear}
     - จำนวนนักเรียน: ${students?.length || 0} คน
-    - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ช ${s.male} ญ ${s.female})`).join('\n    ')}
+    - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ชาย ${s.male} หญิง ${s.female})`).join('\n    ')}
     - จำนวนครู: ${teacherCount || 0} คน
     ${projectContext}
 
@@ -179,13 +188,18 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     ผู้ถาม: คุณครู ${profile.display_name} (สิทธิ์: ${profile.role})
     คำถาม: ${message}
 
-    คำแนะนำในการตอบ (STRICT RULES):
-    1. ให้ความสำคัญกับข้อมูลใน [ส่วนที่ 1] เป็นอันดับแรก เพราะเป็นข้อมูลจริงล่าสุดจากฐานข้อมูล
-    2. หากข้อมูลในคลังปัญญามีหลายปีการศึกษา ให้ยึดข้อมูลปี ${currentYear} เป็นหลัก
-    3. หากคุณครูถามเรื่อง "โครงการ" หรือ "โครง" ให้สรุปรายชื่อโครงการและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
-    4. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยนำเนื้อหาจาก [ส่วนที่ 2] มาเสริม
-    5. ตอบให้เป็นมืออาชีพ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji ให้เหมาะสม
-    6. ตอบให้กระชับเหมาะกับหน้าจอ LINE`;
+    คำแนะนำในการตอบและจัดรูปแบบคำตอบ (STRICT RULES FOR PREMIUM LINE UI):
+    1. ให้ความสำคัญกับข้อมูลจริงใน [ส่วนที่ 1] เป็นอันดับแรก
+    2. จัดรูปแบบคำตอบให้สวยงาม อ่านง่าย และเป็นระเบียบเรียบร้อยบนหน้าจอ LINE:
+       - ใช้ Emoji นำหน้าหัวข้อที่เหมาะสมเพื่อความสวยงามและเป็นมิตร (เช่น 📝, 📊, 💡, ⚠️, ✅)
+       - จัดย่อหน้าและเว้นบรรทัด (Spacing/Line Break) ให้ดูโปร่งตา ไม่ติดกันเป็นพรืด
+       - ใช้ตัวหนา (**ข้อความ**) ในการเน้นประเด็นสำคัญ หัวข้อ หรือคีย์เวิร์ด เพื่อดึงดูดสายตา
+       - นำเสนอข้อมูลเป็นข้อๆ (Bullet points) หรือใช้การสรุปสั้นๆ ที่เข้าใจง่าย
+       - ห้ามใช้ตารางแบบ Markdown (ที่ใช้ | และ -) เนื่องจากแสดงผลได้ไม่ดีบนอุปกรณ์เคลื่อนที่ ให้เปลี่ยนรูปแบบตารางเป็นหัวข้อย่อยและข้อมูลในแต่ละบรรทัดแทน
+    3. ตอบคำถามอย่างเป็นมืออาชีพ กระชับ แต่มีรายละเอียดที่ใช้งานได้จริง (Actionable Suggestions)
+    4. หากคุณครูถามเรื่อง "โครงการ" ให้สรุปรายชื่อและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
+    5. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยใช้เนื้อหาจาก [ส่วนที่ 2] มาสรุปเพิ่มเติม
+    6. ตอบในฐานะผู้ช่วยครูที่เป็นมิตร สุภาพ มีหางเสียง (ครับ/ค่ะ) และสร้างพลังบวกในการทำงาน`;
 
     const finalAnswer = await callGemini(context, apiKey);
     await replyToLine(replyToken, finalAnswer);
