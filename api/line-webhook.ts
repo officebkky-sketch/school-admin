@@ -129,20 +129,47 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     3. หากถามข้อมูลที่ไม่มี ให้บอกว่ายังไม่มีข้อมูลส่วนนี้ในระบบ
     4. ใช้ภาษาไทยที่สุภาพเป็นกันเอง`;
 
-    // 3. Call Gemini
+    // 3. Call Gemini (Manual Fetch with Fallback)
     const apiKey = sets?.gemini_api_key;
     if (!apiKey) {
       await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า Gemini API Key ในหน้าการตั้งค่าครับ');
       return;
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-    const result = await model.generateContent(context);
-    const response = await result.response;
-    const text = response.text();
+    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"];
+    const versions = ["v1beta", "v1"];
+    let finalAnswer = "";
 
-    await replyToLine(replyToken, text);
+    for (const model of modelsToTry) {
+      if (finalAnswer) break;
+      for (const ver of versions) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: context }] }]
+            })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            finalAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            if (finalAnswer) break;
+          }
+        } catch (e) {
+          console.warn(`Failed with ${model} ${ver}:`, e);
+        }
+      }
+    }
+
+    if (finalAnswer) {
+      await replyToLine(replyToken, finalAnswer);
+    } else {
+      throw new Error('ไม่สามารถดึงข้อมูลจาก AI ได้ทุกเวอร์ชัน');
+    }
+
   } catch (err: any) {
     console.error('AI Query Error:', err);
     await replyToLine(replyToken, `⚠️ เกิดข้อผิดพลาด: ${err.message || 'ไม่ทราบสาเหตุ'}\nกรุณาแจ้งแอดมินเพื่อตรวจสอบครับ`);
