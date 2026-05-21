@@ -117,7 +117,7 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
           continue;
         }
         
-        let queryBuilder = supabaseAdmin.from(targetTable).select(queryConfig.select || '*');
+        let queryBuilder: any = supabaseAdmin.from(targetTable).select(queryConfig.select || '*');
         
         // 2. Filters Whitelisting & Execution
         if (queryConfig.filters && Array.isArray(queryConfig.filters)) {
