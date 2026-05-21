@@ -18,7 +18,9 @@ import {
   BrainCircuit,
   UploadCloud,
   CheckCircle2,
-  FileSearch
+  FileSearch,
+  Megaphone,
+  Gamepad2
 } from 'lucide-react';
 import { extractTextFromPdf, getAvailableModels, processDocumentToKnowledge, searchKnowledge } from '../lib/aiService';
 import { uploadFileToDrive, deleteFileFromDrive } from '../lib/storage';
@@ -122,6 +124,51 @@ export default function AICowork() {
   const [isThinking, setIsThinking] = useState(false);
   const [searchSource, setSearchSource] = useState<'all' | 'global' | 'private'>('all');
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const QUICK_TOOLS = [
+    { 
+      id: 'worksheet', 
+      name: 'ออกแบบใบงาน/แบบฝึกหัด', 
+      icon: <FileText className="text-orange-500" />, 
+      prompt: 'ช่วยออกแบบใบงาน หรือแบบฝึกหัดที่น่าสนใจสำหรับนักเรียนเรื่อง... (ระบุหัวข้อและระดับชั้น)',
+      description: 'สร้างโจทย์ ปริศนา หรือข้อสอบพร้อมเฉลย'
+    },
+    { 
+      id: 'memo', 
+      name: 'ร่างบันทึกข้อความ/โครงการ', 
+      icon: <Plus className="text-blue-500" />, 
+      prompt: 'ช่วยร่างบันทึกข้อความ หรือร่างโครงการโรงเรียนเรื่อง... (ระบุวัตถุประสงค์)',
+      description: 'ร่างเอกสารภาษาราชการที่สละสลวย'
+    },
+    { 
+      id: 'social', 
+      name: 'ช่วยคิดโพสต์ PR โรงเรียน', 
+      icon: <Megaphone className="text-pink-500" />, 
+      prompt: 'ช่วยร่างโพสต์ Facebook สำหรับประชาสัมพันธ์กิจกรรม... (ระบุชื่อกิจกรรมและรายละเอียดที่เกิดขึ้น)',
+      description: 'ร่างโพสต์โซเชียล สคริปต์ข่าว หรือคำกล่าว'
+    },
+    { 
+      id: 'creative', 
+      name: 'ออกแบบกิจกรรมเชิงสร้างสรรค์', 
+      icon: <Gamepad2 className="text-indigo-500" />, 
+      prompt: 'ช่วยออกแบบกิจกรรมการเรียนรู้แบบสนุกๆ เช่น เกม ฐานการเรียนรู้ หรือบทบาทสมมติ เรื่อง... (ระบุหัวข้อ)',
+      description: 'ออกแบบเกม บทละคร หรือกิจกรรม Active Learning'
+    },
+    { 
+      id: 'analyze', 
+      name: 'วิเคราะห์ข้อมูล/เสนอแนะ', 
+      icon: <Database className="text-purple-500" />, 
+      prompt: 'ช่วยวิเคราะห์ข้อมูลนักเรียน หรือสถิติต่างๆ ของโรงเรียน และให้ข้อเสนอแนะในการพัฒนา...',
+      description: 'วิเคราะห์จุดแข็ง จุดอ่อน จากข้อมูลจริง'
+    },
+    { 
+      id: 'lesson', 
+      name: 'ช่วยออกแบบแผนการสอน', 
+      icon: <Sparkles className="text-green-500" />, 
+      prompt: 'ช่วยออกแบบแผนการจัดการเรียนรู้ (Lesson Plan) ที่เน้น Active Learning เรื่อง...',
+      description: 'กำหนดตัวชี้วัด กิจกรรม และการวัดผล'
+    }
+  ];
 
   useEffect(() => {
     if (activeView === 'drive') fetchFiles();
@@ -288,7 +335,7 @@ export default function AICowork() {
       // กรองเฉพาะปีการศึกษาปัจจุบัน, สถานะปกติ และดึงชื่อมาด้วย
       const { data: studentStats } = await supabase
         .from('students')
-        .select('class_level, gender, prefix, first_name, last_name, graduation_status')
+        .select('class_level, gender, prefix, first_name, last_name, graduation_status, religion')
         .eq('academic_year', currentYear)
         .eq('graduation_status', 'ปกติ');
 
@@ -296,11 +343,16 @@ export default function AICowork() {
       const { data: utilityStats } = await supabase.from('utilities').select('amount').order('created_at', { ascending: false }).limit(5);
 
       // จัดรูปแบบสถิตินักเรียนและรายชื่อ
+      const religionStats: Record<string, number> = {};
       const studentSummary = studentStats?.reduce((acc: any, curr: any) => {
         const level = curr.class_level || 'ไม่ระบุ';
         if (!acc[level]) acc[level] = { total: 0, male: 0, female: 0, names: [] };
         acc[level].total++;
         
+        // สถิติศาสนา
+        const rel = curr.religion || 'ไม่ระบุ';
+        religionStats[rel] = (religionStats[rel] || 0) + 1;
+
         // ตรวจสอบเพศแบบละเอียด (ชาย, ด.ช., เด็กชาย, Male)
         const gender = (curr.gender || '').trim();
         const prefix = (curr.prefix || '').trim();
@@ -322,6 +374,7 @@ export default function AICowork() {
       const dbContext = `
       ข้อมูลจริงจากระบบฐานข้อมูล (เฉพาะนักเรียนสถานะปกติ ปีการศึกษา ${currentYear}):
       - จำนวนนักเรียนปัจจุบัน: ${studentStats?.length || 0} คน
+      - สรุปแยกตามศาสนา: ${Object.entries(religionStats).map(([r, c]) => `${r} ${c} คน`).join(', ')}
       - รายละเอียดรายชั้น: ${Object.entries(studentSummary || {}).map(([lv, s]: any) => 
           `ชั้น ${lv}: ${s.total} คน (ชาย ${s.male}, หญิง ${s.female}) [รายชื่อ: ${s.names.join(', ')}${s.total > 20 ? ' ...และคนอื่นๆ' : ''}]`
         ).join('\n      - ')}
@@ -429,8 +482,21 @@ export default function AICowork() {
         : "ไม่พบข้อมูลที่ตรงกันในเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)";
 
       // 5. สร้าง Prompt สำหรับ Gemini
+      const isWorksheet = userMsg.includes('ใบงาน') || userMsg.includes('ฝึกหัด') || userMsg.includes('ข้อสอบ');
+      const isMemo = userMsg.includes('บันทึกข้อความ') || userMsg.includes('โครงการ') || userMsg.includes('ร่าง');
+      const isAnalysis = userMsg.includes('วิเคราะห์') || userMsg.includes('เสนอแนะ') || userMsg.includes('สรุป');
+      const isSocial = userMsg.includes('โพสต์') || userMsg.includes('ประชาสัมพันธ์') || userMsg.includes('Facebook');
+      const isCreative = userMsg.includes('กิจกรรม') || userMsg.includes('เกม') || userMsg.includes('สร้างสรรค์');
+
       const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา
       
+      [ความสามารถพิเศษที่ต้องใช้ในครั้งนี้]
+      ${isWorksheet ? '- ทำหน้าที่เป็น: "ครูวิชาการเชี่ยวชาญด้านการออกแบบสื่อการสอน"' : ''}
+      ${isMemo ? '- ทำหน้าที่เป็น: "ผู้เชี่ยวชาญงานสารบรรณและธุรการโรงเรียน"' : ''}
+      ${isAnalysis ? '- ทำหน้าที่เป็น: "นักวิเคราะห์ข้อมูลและที่ปรึกษาผู้บริหารโรงเรียน"' : ''}
+      ${isSocial ? '- ทำหน้าที่เป็น: "นักประชาสัมพันธ์และคอนเทนต์ครีเอเตอร์มือโปร"' : ''}
+      ${isCreative ? '- ทำหน้าที่เป็น: "นักออกแบบการเรียนรู้เชิงสร้างสรรค์ (Learning Designer)"' : ''}
+
       [ส่วนที่ 1: ข้อมูลจริงจากระบบฐานข้อมูล]
       ${dbContext}
 
@@ -446,18 +512,18 @@ export default function AICowork() {
 
       คำถามของคุณครู: ${userMsg}
 
-      คำแนะนำในการตอบ:
-      1. หากคำถามเกี่ยวกับ "จำนวน" หรือ "สถิติ" ของโรงเรียน ให้ใช้ข้อมูลจาก [ส่วนที่ 1] ในการตอบ
-      2. หากคำถามเกี่ยวกับ "ระเบียบ" หรือ "วิธีปฏิบัติ" ส่วนกลาง ให้ใช้ข้อมูลจาก [ส่วนที่ 2] ในการตอบ
-      3. หากคำถามเกี่ยวกับ "เอกสารหรือไฟล์ส่วนตัว" ให้ใช้ข้อมูลและรายชื่อจาก [ส่วนที่ 3] ในการตอบ
-      4. หากคุณครูถามถึง "เอกสารล่าสุด" หรือต้องการให้สรุป/อ้างอิงไฟล์ล่าสุด ให้วิเคราะห์จากรายชื่อไฟล์และหยิบยกเนื้อหาของไฟล์ล่าสุดจาก [ส่วนที่ 3] มาอธิบายให้ครบถ้วน
-      5. จัดรูปแบบคำตอบให้ "อ่านง่ายที่สุด" โดยใช้ Markdown (## หัวข้อ, **ตัวหนา**, รายการข้อ)
-      6. หากไม่มีข้อมูลในฐานข้อมูล คลังกลาง หรือเอกสารส่วนตัว ให้วิเคราะห์ตามหลักการและระบุด้วยว่า "ไม่พบข้อมูลนี้ในระบบของโรงเรียน"
-      7. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่เป็นกันเอง`;
+      คำแนะนำในการตอบ (STRICT RULES):
+      1. หากเป็น "ใบงาน/แบบฝึกหัด": ออกแบบให้มีโครงสร้างที่ชัดเจน (ชื่อ-นามสกุล, ชั้น, เลขที่, คำชี้แจง, ข้อสอบ/โจทย์) และแยก "เฉลย" ไว้ส่วนท้ายสุด
+      2. หากเป็น "บันทึกข้อความ": ใช้รูปแบบหนังสือราชการ (ส่วนราชการ, ที่, วันที่, เรื่อง, คำขึ้นต้น, เนื้อหาตามโครงสร้าง ภาคเหตุ-ภาคประสงค์-ภาคสรุป)
+      3. หากเป็น "วิเคราะห์ข้อมูล": ให้วิเคราะห์จาก [ส่วนที่ 1] โดยระบุตัวเลขจริง และให้ข้อเสนอแนะเชิงรุก (Actionable Advice) อย่างน้อย 3 ข้อ
+      4. หากเป็น "โพสต์ Facebook/PR": เขียนให้น่าสนใจ มีส่วนร่วม (Engagement) ใช้ Emoji ที่เหมาะสม และติด Hashtag สำคัญของโรงเรียน
+      5. หากเป็น "กิจกรรม/เกม": ออกแบบขั้นตอนการเล่น (How to play), อุปกรณ์ที่ต้องใช้ และเกณฑ์การให้คะแนน โดยเน้นความสนุกและได้ความรู้
+      6. จัดรูปแบบคำตอบให้สวยงามด้วย Markdown
+      7. หากไม่มีข้อมูลเพียงพอ ให้เสนอแนะสิ่งที่ครูควรเตรียมเพิ่มเพื่อให้ AI ทำงานได้ดีขึ้น`;
 
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
-        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
       }
 
       const apiVersions = ["v1beta", "v1"];
@@ -558,6 +624,23 @@ export default function AICowork() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+            {messages.length <= 1 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                {QUICK_TOOLS.map(tool => (
+                  <button
+                    key={tool.id}
+                    onClick={() => setInputText(tool.prompt)}
+                    className="flex flex-col items-start p-5 bg-slate-50 border border-slate-100 rounded-[32px] hover:bg-white hover:border-brand-primary/30 hover:shadow-xl hover:shadow-green-100/20 transition-all text-left group"
+                  >
+                    <div className="p-3 bg-white rounded-2xl mb-4 group-hover:scale-110 transition-transform shadow-sm">
+                      {tool.icon}
+                    </div>
+                    <h4 className="font-black text-slate-800 text-sm mb-1">{tool.name}</h4>
+                    <p className="text-[10px] text-slate-400 font-bold leading-relaxed">{tool.description}</p>
+                  </button>
+                ))}
+              </div>
+            )}
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] p-5 rounded-[28px] text-sm leading-relaxed shadow-sm transition-all ${
