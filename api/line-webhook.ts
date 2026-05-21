@@ -115,36 +115,37 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
        let matches: any[] = [];
        
        if (embedding) {
-          // 3.1 Search Global Knowledge
+          // 3.1 Search Global Knowledge (เพิ่มเป็น 10)
           const { data: globalMatches } = await supabaseAdmin.rpc('match_knowledge', {
             query_embedding: embedding,
             match_threshold: 0.1,
-            match_count: 5
+            match_count: 10
           });
           if (globalMatches) matches = [...globalMatches];
 
-          // 3.2 Search Private Knowledge
+          // 3.2 Search Private Knowledge (เพิ่มเป็น 10)
           const { data: privateMatches } = await supabaseAdmin.rpc('match_personal_knowledge', {
             query_embedding: embedding,
             match_threshold: 0.1,
-            match_count: 5,
+            match_count: 10,
             p_teacher_id: profile.id
           });
           if (privateMatches) matches = [...matches, ...privateMatches];
        }
 
-       // 3.3 Thai Keyword Fallback (Regex based)
-       if (matches.length < 5) {
+       // 3.3 Thai Keyword Fallback (Regex based - เพิ่มคำย่อ)
+       if (matches.length < 10) {
           const yearMatch = message.match(/\d{4}/g) || [];
-          const keywords = ["โครงการ", "งบประมาณ", "ระเบียบ", "แผน", "พัสดุ", "เงิน", "นักเรียน", "กิจกรรม"];
+          const keywords = ["โครงการ", "งบประมาณ", "ระเบียบ", "แผน", "พัสดุ", "เงิน", "นักเรียน", "กิจกรรม", "โครง", "งบ"];
           const foundKeywords = keywords.filter(k => message.includes(k));
           const searchTerms = [...yearMatch, ...foundKeywords];
 
           if (searchTerms.length > 0) {
-            const orQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%`).join(',');
+            // ค้นหาทั้งจากเนื้อหา (chunk_text) และชื่อเอกสาร (document_name)
+            const orQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%,document_name.ilike.%${t}%`).join(',');
             const [{data: t1}, {data: t2}] = await Promise.all([
-               supabaseAdmin.from('school_knowledge').select('document_name, chunk_text').or(orQuery).limit(5),
-               supabaseAdmin.from('ai_knowledge_base').select('document_name, chunk_text').or(orQuery).eq('teacher_id', profile.id).limit(5)
+               supabaseAdmin.from('school_knowledge').select('document_name, chunk_text').or(orQuery).limit(10),
+               supabaseAdmin.from('ai_knowledge_base').select('document_name, chunk_text').or(orQuery).eq('teacher_id', profile.id).limit(10)
             ]);
             const textMatches = [...(t1 || []), ...(t2 || [])];
             const allMatches = [...matches, ...textMatches];
@@ -153,7 +154,8 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
        }
 
        if (matches.length > 0) {
-         knowledgeContext = matches.slice(0, 12).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
+         // ส่งให้ AI อ่านสูงสุด 20 ชิ้น
+         knowledgeContext = matches.slice(0, 20).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
        }
     } catch (err) {
        console.warn('Advanced Search failed:', err);
@@ -164,6 +166,7 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     - ปีการศึกษา: ${currentYear}
     - จำนวนนักเรียน: ${students?.length || 0} คน
     - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ช ${s.male} ญ ${s.female})`).join('\n    ')}
+    - จำนวนครู: ${teacherCount || 0} คน
     ${projectContext}
 
     [ส่วนที่ 2: ข้อมูลจากคลังปัญญา (เนื้อหาจากระเบียบ/เอกสาร)]
@@ -174,10 +177,11 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
 
     คำแนะนำในการตอบ (STRICT RULES):
     1. ให้ความสำคัญกับข้อมูลใน [ส่วนที่ 1] เป็นอันดับแรก เพราะเป็นข้อมูลจริงล่าสุดจากฐานข้อมูล
-    2. หากคุณครูถามเรื่อง "โครงการ" ให้สรุปจากรายการโครงการใน [ส่วนที่ 1] ให้ครบถ้วน
-    3. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยนำเนื้อหาจาก [ส่วนที่ 2] มาเสริม
-    4. ตอบให้เป็นมืออาชีพ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji ให้เหมาะสม
-    5. ตอบให้กระชับเหมาะกับหน้าจอ LINE`;
+    2. หากข้อมูลในคลังปัญญามีหลายปีการศึกษา ให้ยึดข้อมูลปี ${currentYear} เป็นหลัก
+    3. หากคุณครูถามสั้นๆ เช่น "โครงการ" หรือ "โครง" ให้สรุปรายชื่อโครงการและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
+    4. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยนำเนื้อหาจาก [ส่วนที่ 2] มาเสริม
+    5. ตอบให้เป็นมืออาชีพ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji ให้เหมาะสม
+    6. ตอบให้กระชับเหมาะกับหน้าจอ LINE`;
 
     const finalAnswer = await callGemini(context, apiKey);
     await replyToLine(replyToken, finalAnswer);
