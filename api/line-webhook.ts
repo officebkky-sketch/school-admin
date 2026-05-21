@@ -94,8 +94,15 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
       const lv = s.class_level || 'ไม่ระบุ';
       if (!classStats[lv]) classStats[lv] = { total: 0, male: 0, female: 0 };
       classStats[lv].total++;
-      if (s.gender === 'ชาย' || s.gender === 'Male' || s.prefix?.includes('ด.ช.')) classStats[lv].male++;
-      else if (s.gender === 'หญิง' || s.gender === 'Female' || s.prefix?.includes('ด.ญ.')) classStats[lv].female++;
+      
+      // ตรวจสอบเพศแบบครอบคลุม (ช, ญ, ชาย, หญิง, ด.ช., ด.ญ.)
+      const g = s.gender || '';
+      const p = s.prefix || '';
+      if (g === 'ชาย' || g === 'ช' || g === 'Male' || p.includes('ด.ช.') || p.includes('เด็กชาย')) {
+        classStats[lv].male++;
+      } else if (g === 'หญิง' || g === 'ญ' || g === 'Female' || p.includes('ด.ญ.') || p.includes('เด็กหญิง')) {
+        classStats[lv].female++;
+      }
     });
 
     // 3. Knowledge Base Context (RAG / Vector Search)
@@ -105,11 +112,11 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
        if (embedding) {
           const { data: matches } = await supabase.rpc('match_knowledge', {
             query_embedding: embedding,
-            match_threshold: 0.2,
-            match_count: 5
+            match_threshold: 0.1, // ลดความเข้มงวดลงเพื่อให้หาข้อมูลง่ายขึ้น
+            match_count: 10 // เพิ่มจำนวนเนื้อหาที่ดึงมา
           });
           if (matches && matches.length > 0) {
-            knowledgeContext = matches.map((m: any) => `[ข้อมูลจากไฟล์: ${m.document_name}]\n${m.chunk_text}`).join('\n---\n');
+            knowledgeContext = matches.map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
           }
        }
     } catch (err) {
