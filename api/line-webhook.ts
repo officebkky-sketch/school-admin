@@ -46,58 +46,58 @@ async function handleFullAIQuery(replyToken: string, message: string, _profile: 
     if (!apiKey) return await replyToLine(replyToken, '❌ ยังไม่ได้ตั้งค่า API Key ค่ะ');
 
     const currentYear = sets?.current_academic_year || '2569';
-    const schemaMap = await getDynamicSchema();
-    const queryPlan = await planDatabaseQueries(message, schemaMap, apiKey, currentYear);
+    const queryPlan = await planDatabaseQueries(message, DEFAULT_SCHEMA_MAP, apiKey, currentYear);
     
     let dbContextParts: string[] = [];
     if (queryPlan?.queries?.length > 0) {
       for (const q of queryPlan.queries) {
-        if (!schemaMap[q.table]) continue;
+        if (!DEFAULT_SCHEMA_MAP[q.table]) continue;
         let qb: any = supabaseAdmin.from(q.table).select(q.select || '*');
         if (q.filters) {
           q.filters.forEach((f: any) => {
-            if (schemaMap[q.table].columns.includes(f.column)) qb = qb[f.operator](f.column, f.value);
+            if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
+              if (f.operator === 'eq') qb = qb.eq(f.column, f.value);
+              else if (f.operator === 'ilike') qb = qb.ilike(f.column, f.value);
+              else if (f.operator === 'gt') qb = qb.gt(f.column, f.value);
+              else if (f.operator === 'lt') qb = qb.lt(f.column, f.value);
+            }
           });
         }
         const { data } = await qb.limit(20);
-        if (data?.length > 0) dbContextParts.push(`[Data ${q.table}]: ${JSON.stringify(data)}`);
+        if (data?.length > 0) dbContextParts.push(`[ตาราง ${q.table}]: ${JSON.stringify(data)}`);
       }
     }
 
-    const dbContext = dbContextParts.length > 0 ? dbContextParts.join('\n') : "No direct database matches found.";
+    const dbContext = dbContextParts.length > 0 ? dbContextParts.join('\n') : "ไม่มีข้อมูลในฐานข้อมูล";
 
-    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงที่น่ารัก นอบน้อม และเฉลียวฉลาดของโรงเรียนบ้านควนโคกยา
-กฎเหล็กที่ต้องทำตามอย่างเคร่งครัด:
-1. ห้ามใช้เครื่องหมายดอกจัน (*) เด็ดขาด ไม่ว่าจะเน้นคำหรือทำรายการ
-2. ห้ามแทนตัวว่า AI Cowork หรือใช้คำว่า "ครับ" ให้แทนตัวว่า "ชบา" หรือ "หนู" และลงท้ายด้วย "ค่ะ/นะคะ"
-3. ตอบเข้าประเด็นทันที ห้ามเกริ่นนำ ห้ามแนะนำตัว ห้ามพิมพ์หัวข้อวิเคราะห์ หรือหัวข้อเทคนิคใดๆ ทั้งสิ้น
-4. จัดรูปแบบให้สะอาดตา ใช้ Emoji นำหน้าหัวข้อ และเว้นบรรทัดให้โปร่ง
-5. หากข้อมูลมาจากฐานข้อมูล ให้สรุปเป็นภาษามนุษย์ที่สละสลวย`;
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา
+กฎเหล็ก:
+1. ตอบสุภาพ นอบน้อม แทนตัวว่า "ชบา" หรือ "หนู" ลงท้ายด้วย "ค่ะ"
+2. ห้ามใช้ดอกจัน (*) เด็ดขาด
+3. ห้ามพิมพ์ชื่อ AI Cowork หรือใช้คำว่า "ครับ"
+4. ห้ามพิมพ์หัวข้อวิเคราะห์ หรือหัวข้อเทคนิค ตอบแค่เนื้อหาที่จะส่งให้ครูเท่านั้น
+5. ใช้ Emoji และเว้นบรรทัดให้สวยงาม`;
 
-    const userPrompt = `ข้อมูลอ้างอิง: ${dbContext}
-ปีการศึกษา: ${currentYear}
-คำถามของคุณครู: "${message}"
-จงตอบคำถามนี้โดยยึดกฎเหล็กอย่างเคร่งครัดค่ะ`;
+    const userPrompt = `ข้อมูลจริง: ${dbContext}\nปีการศึกษา: ${currentYear}\nคำถาม: "${message}"\nตอบสั้นๆ และถูกต้องตามกฎเหล็กค่ะ`;
 
     let finalAnswer = await callGemini(systemPrompt, userPrompt, apiKey);
     
-    // --- POST-PROCESSING FILTERS (Double Protection) ---
     finalAnswer = finalAnswer
-      .replace(/\*/g, '') // ลบดอกจันทุกตัว
-      .replace(/AI Cowork/gi, 'น้องชบา') // เปลี่ยนชื่อถ้าหลุดมา
-      .replace(/ครับ/g, 'ค่ะ') // เปลี่ยนครับเป็นค่ะ
-      .replace(/^(Identity|Role|User|Question|Data Source|Section|Formatting Rules|Goal|Answer|Analysis|Greeting|Main Answer|Details|Closing|Check|Is it optimized).*?:/gim, '') // ลบหัวข้อเทคนิคที่ AI ชอบเผลอพิมพ์
+      .replace(/\*/g, '')
+      .replace(/AI Cowork/gi, 'น้องชบา')
+      .replace(/ครับ/g, 'ค่ะ')
+      .replace(/^(Identity|Role|User|Question|Data Source|Section|Formatting Rules|Goal|Answer|Analysis|Greeting|Main Answer|Details|Closing|Check|Is it optimized).*?:/gim, '')
       .trim();
 
     await replyToLine(replyToken, finalAnswer);
 
   } catch (err: any) {
-    await replyToLine(replyToken, `⚠️ ขออภัยค่ะ เกิดข้อผิดพลาด: ${err.message}`);
+    await replyToLine(replyToken, `⚠️ เกิดข้อผิดพลาดค่ะ: ${err.message}`);
   }
 }
 
 async function callGemini(system: string, user: string, apiKey: string): Promise<string> {
-  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+  const models = ["gemini-1.5-flash", "gemini-2.0-flash"];
   for (const m of models) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
@@ -129,20 +129,27 @@ async function replyToLine(replyToken: string, text: string) {
 }
 
 const DEFAULT_SCHEMA_MAP: Record<string, any> = {
-  students: { description: "ข้อมูลนักเรียน", columns: ["id", "first_name", "last_name", "academic_year", "class_level"] },
-  school_projects: { description: "โครงการ", columns: ["id", "project_name", "planned_amount", "academic_year"] }
+  profiles: { description: "คุณครู", columns: ["id", "display_name", "email", "role"] },
+  students: { description: "นักเรียน", columns: ["id", "academic_year", "class_level", "room", "first_name", "last_name", "prefix"] },
+  school_projects: { description: "โครงการ", columns: ["id", "project_name", "academic_year", "planned_amount", "spent_amount", "status"] },
+  utilities: { description: "ค่าน้ำค่าไฟ", columns: ["id", "type", "academic_year", "month", "amount"] },
+  attendance: { description: "การมาเรียน", columns: ["id", "date", "class_level", "summary"] }
 };
 
-async function getDynamicSchema() { return DEFAULT_SCHEMA_MAP; }
-
-async function planDatabaseQueries(msg: string, _map: any, key: string, year: string) {
-  const prompt = `วิเคราะห์คำถาม: "${msg}" ปี ${year} ตอบ JSON: { "queries": [{ "table": string, "select": string, "filters": [] }], "need_rag": boolean }`;
+async function planDatabaseQueries(msg: string, map: any, key: string, year: string) {
+  const schemaBrief = JSON.stringify(map);
+  const prompt = `วิเคราะห์คำถาม: "${msg}" ในปีการศึกษา ${year} โดยใช้ Schema: ${schemaBrief}
+  ตอบเป็น JSON เท่านั้น: { "queries": [{ "table": "...", "select": "*", "filters": [{ "column": "...", "operator": "eq", "value": "..." }] }], "need_rag": false }`;
+  
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } })
+      body: JSON.stringify({ 
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
     });
     const data = await res.json() as any;
     return JSON.parse(data.candidates[0].content.parts[0].text);
