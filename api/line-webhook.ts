@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export default async function handler(req: any, res: any) {
   if (req.method === 'GET') {
     return res.status(200).json({ 
-      message: 'AI Cowork LINE Webhook is ONLINE',
+      message: 'AI Cowork LINE Webhook is ONLINE with RAG',
       status: 'ready',
       env_check: {
         has_token: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -40,8 +40,8 @@ export default async function handler(req: any, res: any) {
           .maybeSingle();
 
         if (profile) {
-          // --- AI BRAIN LOGIC ---
-          await handleAIQuery(event.replyToken, userMessage, profile);
+          // --- FULL AI BRAIN (Stats + Knowledge Base) ---
+          await handleFullAIQuery(event.replyToken, userMessage, profile);
         } else {
           // 2. Not bound yet. Check if the message is an email
           if (userMessage.includes('@')) {
@@ -54,7 +54,7 @@ export default async function handler(req: any, res: any) {
 
             if (foundUser) {
               await supabase.from('profiles').update({ line_user_id: userId }).eq('id', foundUser.id);
-              await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบ AI Cowork ครับ\n\nตอนนี้คุณครูสามารถพิมพ์ถามข้อมูลโรงเรียนได้เลยครับ เช่น "จำนวนนักเรียนปีนี้" หรือ "สรุปศาสนา ป.1"`);
+              await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบ AI Cowork ครับ\n\nตอนนี้ผมเชื่อมต่อกับ "คลังปัญญาโรงเรียน" เรียบร้อยแล้ว คุณครูสามารถถามระเบียบหรือข้อมูลนักเรียนได้ทันทีครับ!`);
             } else {
               await replyToLine(event.replyToken, 'ขออภัยครับ ไม่พบอีเมลนี้ในระบบโรงเรียน กรุณาตรวจสอบอีเมลและส่งมาใหม่ครับ');
             }
@@ -71,34 +71,21 @@ export default async function handler(req: any, res: any) {
   return res.status(200).json({ message: 'OK' });
 }
 
-async function handleAIQuery(replyToken: string, message: string, profile: any) {
+async function handleFullAIQuery(replyToken: string, message: string, profile: any) {
   try {
-    // 1. Fetch Context Data
-    const { data: sets, error: setsErr } = await supabase.from('settings').select('*').maybeSingle();
-    if (setsErr) throw new Error(`Settings DB Error: ${setsErr.message}`);
+    // 1. Fetch Basic Settings & API Key
+    const { data: sets } = await supabase.from('settings').select('*').maybeSingle();
+    const apiKey = sets?.gemini_api_key;
+    if (!apiKey) {
+      await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า Gemini API Key ในหน้าการตั้งค่าครับ');
+      return;
+    }
 
+    // 2. Database Context (Stats)
     const currentYear = sets?.current_academic_year || '2569';
+    const { data: students } = await supabase.from('students').select('class_level, gender, religion, prefix').eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
+    const { count: teacherCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
     
-    const { data: students, error: stdErr } = await supabase
-      .from('students')
-      .select('class_level, gender, religion, prefix')
-      .eq('academic_year', currentYear)
-      .eq('graduation_status', 'ปกติ');
-    if (stdErr) throw new Error(`Students DB Error: ${stdErr.message}`);
-
-    const { count: teacherCount, error: teachErr } = await supabase
-      .from('teachers')
-      .select('*', { count: 'exact', head: true });
-    if (teachErr) throw new Error(`Teachers DB Error: ${teachErr.message}`);
-
-    const { data: recentDocs, error: docsErr } = await supabase
-      .from('incoming_docs')
-      .select('subject, doc_number, doc_date')
-      .order('created_at', { ascending: false })
-      .limit(5);
-    if (docsErr) throw new Error(`Docs DB Error: ${docsErr.message}`);
-
-    // 2. Prepare Statistics
     const religionStats: any = {};
     const classStats: any = {};
     students?.forEach(s => {
@@ -111,105 +98,112 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
       else if (s.gender === 'หญิง' || s.gender === 'Female' || s.prefix?.includes('ด.ญ.')) classStats[lv].female++;
     });
 
+    // 3. Knowledge Base Context (RAG / Vector Search)
+    let knowledgeContext = "";
+    try {
+       const embedding = await generateEmbedding(message, apiKey);
+       if (embedding) {
+          const { data: matches } = await supabase.rpc('match_knowledge', {
+            query_embedding: embedding,
+            match_threshold: 0.2,
+            match_count: 5
+          });
+          if (matches && matches.length > 0) {
+            knowledgeContext = matches.map((m: any) => `[ข้อมูลจากไฟล์: ${m.document_name}]\n${m.chunk_text}`).join('\n---\n');
+          }
+       }
+    } catch (err) {
+       console.warn('Vector Search failed:', err);
+    }
+
     const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
-    ข้อมูลปัจจุบัน (ปี ${currentYear}):
+    [ข้อมูลสถิติปัจจุบัน (ปี ${currentYear})]
     - จำนวนนักเรียนทั้งหมด: ${students?.length || 0} คน
     - สรุปศาสนา: ${Object.entries(religionStats).map(([r, c]) => `${r} ${c} คน`).join(', ')}
     - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ช ${s.male} ญ ${s.female})`).join('\n    ')}
     - จำนวนครู: ${teacherCount || 0} คน
-    - หนังสือรับล่าสุด: ${recentDocs?.map(d => `${d.doc_number}: ${d.subject}`).join('\n    ')}
+
+    [ข้อมูลจากคลังปัญญาโรงเรียน (เนื้อหาจากระเบียบ/เอกสาร)]
+    ${knowledgeContext || "ไม่พบข้อมูลที่เกี่ยวข้องในคลังปัญญา"}
 
     ผู้ถาม: คุณครู ${profile.display_name} (สิทธิ์: ${profile.role})
     คำถาม: ${message}
 
     คำแนะนำในการตอบ:
-    1. ตอบให้กระชับ เหมาะกับการอ่านใน LINE
-    2. ใช้ Emoji ตกแต่งให้น่ารัก
-    3. หากถามข้อมูลที่ไม่มี ให้บอกว่ายังไม่มีข้อมูลส่วนนี้ในระบบ
-    4. ใช้ภาษาไทยที่สุภาพเป็นกันเอง`;
+    1. หากข้อมูลในสถิติระบุว่าเป็น 0 คน แต่ใน "คลังปัญญา" มีข้อมูลอื่น ให้แจ้งคุณครูตามตรงและอ้างอิงจากคลังปัญญา
+    2. ตอบให้กระชับ เหมาะกับการอ่านใน LINE พร้อมใช้ Emoji
+    3. หากหาข้อมูลไม่เจอจริงๆ ให้แนะนำให้คุณครูอัปโหลดเอกสารเพิ่มที่เมนู AI Cowork บนคอมพิวเตอร์`;
 
-    // 3. Dynamic Model Discovery (Same as Desktop App)
-    const apiKey = sets?.gemini_api_key;
-    if (!apiKey) {
-      await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า Gemini API Key ในหน้าการตั้งค่าครับ');
-      return;
-    }
-
-    let modelsToTry: string[] = [];
-    try {
-      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      if (listRes.ok) {
-        const listData = await listRes.json();
-        modelsToTry = listData.models
-          ?.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-          .map((m: any) => m.name.replace('models/', ''))
-          .sort((a: string, b: string) => {
-            // เรียงรุ่น Flash ขึ้นก่อนเพื่อความเร็ว
-            if (a.includes('flash') && !b.includes('flash')) return -1;
-            if (!a.includes('flash') && b.includes('flash')) return 1;
-            return b.localeCompare(a);
-          }) || [];
-      }
-    } catch (e) {
-      console.warn('Failed to list models:', e);
-    }
-
-    // Fallback ถ้าดึงลิสต์ไม่ได้
-    if (modelsToTry.length === 0) {
-      modelsToTry = ["gemini-1.5-flash", "gemini-pro", "gemini-2.0-flash"];
-    }
-
-    const versions = ["v1beta", "v1"];
-    let finalAnswer = "";
-    let attemptLogs: string[] = [];
-
-    for (const model of modelsToTry) {
-      if (finalAnswer) break;
-      for (const ver of versions) {
-        try {
-          const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
-          const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: context }] }]
-            })
-          });
-
-          const data = await response.json();
-          if (response.ok) {
-            finalAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (finalAnswer) break;
-          } else {
-            const errMsg = data.error?.message || JSON.stringify(data);
-            if (response.status !== 404) { // ไม่เก็บ 404 เพราะรุ่นเยอะเกินไป
-               attemptLogs.push(`❌ ${model} (${ver}): ${response.status} - ${errMsg.slice(0, 50)}`);
-            }
-          }
-        } catch (e: any) {
-          // ignore fetch error
-        }
-      }
-    }
-
-    if (finalAnswer) {
-      await replyToLine(replyToken, finalAnswer);
-    } else {
-      throw new Error(`ไม่พบ AI รุ่นที่พร้อมใช้งานในขณะนี้ (ตรวจพบ ${modelsToTry.length} รุ่น)\n${attemptLogs.slice(0, 3).join('\n')}`);
-    }
+    // 4. Call Gemini with Full Context
+    const finalAnswer = await callGemini(context, apiKey);
+    await replyToLine(replyToken, finalAnswer);
 
   } catch (err: any) {
     console.error('AI Query Error:', err);
-    await replyToLine(replyToken, `⚠️ เกิดข้อผิดพลาด: ${err.message || 'ไม่ทราบสาเหตุ'}\nกรุณาแจ้งแอดมินเพื่อตรวจสอบครับ`);
+    await replyToLine(replyToken, `⚠️ เกิดข้อผิดพลาด: ${err.message}\nกรุณาลองใหม่อีกครั้งครับ`);
   }
+}
+
+async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
+  const model = "models/gemini-embedding-2";
+  const versions = ['v1beta', 'v1'];
+  for (const ver of versions) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/${ver}/${model}:embedContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, content: { parts: [{ text }] } })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.embedding?.values || null;
+      }
+    } catch (e) { /* next */ }
+  }
+  return null;
+}
+
+async function callGemini(prompt: string, apiKey: string): Promise<string> {
+  // ลองหาโมเดลที่ใช้งานได้ (เหมือนเดิม)
+  let modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"];
+  try {
+     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+     if (listRes.ok) {
+        const listData = await listRes.json();
+        const found = listData.models
+          ?.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+          .map((m: any) => m.name.replace('models/', ''));
+        if (found && found.length > 0) modelsToTry = found;
+     }
+  } catch (e) { /* fallback */ }
+
+  const versions = ["v1beta", "v1"];
+  for (const model of modelsToTry) {
+    if (!model.includes('gemini')) continue;
+    for (const ver of versions) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          return data.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัยครับ AI ไม่สามารถสร้างคำตอบได้";
+        }
+      } catch (e) { /* next */ }
+    }
+  }
+  return "ขออภัยครับ ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง";
 }
 
 async function replyToLine(replyToken: string, message: string) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token) return;
-  
   try {
-    const response = await fetch('https://api.line.me/v2/bot/message/reply', {
+    await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -220,11 +214,6 @@ async function replyToLine(replyToken: string, message: string) {
         messages: [{ type: 'text', text: message }]
       })
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('LINE API Error:', errorData);
-    }
   } catch (e) {
     console.error('Fetch Error:', e);
   }
