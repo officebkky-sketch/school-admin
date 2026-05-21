@@ -70,23 +70,20 @@ async function handleFullAIQuery(replyToken: string, message: string, _profile: 
 
     const dbContext = dbContextParts.length > 0 ? dbContextParts.join('\n') : "ไม่มีข้อมูลในฐานข้อมูล";
 
-    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา
-กฎเหล็ก:
-1. ตอบสุภาพ นอบน้อม แทนตัวว่า "ชบา" หรือ "หนู" ลงท้ายด้วย "ค่ะ"
-2. ห้ามใช้ดอกจัน (*) เด็ดขาด
-3. ห้ามพิมพ์ชื่อ AI Cowork หรือใช้คำว่า "ครับ"
-4. ห้ามพิมพ์หัวข้อวิเคราะห์ หรือหัวข้อเทคนิค ตอบแค่เนื้อหาที่จะส่งให้ครูเท่านั้น
-5. ใช้ Emoji และเว้นบรรทัดให้สวยงาม`;
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา (ห้ามใช้ดอกจัน * และห้ามเกริ่นนำ)
+กฎ: ตอบสุภาพ แทนตัวว่า ชบา/หนู ลงท้ายด้วย ค่ะ/นะคะ และเข้าเรื่องทันที ห้ามพิมพ์หัวข้อวิเคราะห์เด็ดขาด`;
 
-    const userPrompt = `ข้อมูลจริง: ${dbContext}\nปีการศึกษา: ${currentYear}\nคำถาม: "${message}"\nตอบสั้นๆ และถูกต้องตามกฎเหล็กค่ะ`;
+    const userPrompt = `ข้อมูล: ${dbContext}\nคำถาม: "${message}"`;
 
     let finalAnswer = await callGemini(systemPrompt, userPrompt, apiKey);
     
+    // --- POST-PROCESSING FILTERS (Aggressive Cleanup) ---
     finalAnswer = finalAnswer
-      .replace(/\*/g, '')
-      .replace(/AI Cowork/gi, 'น้องชบา')
+      .replace(/\*/g, '') // ลบดอกจันทั้งหมด
+      .replace(/AI Cowork/gi, 'น้องชบา') 
       .replace(/ครับ/g, 'ค่ะ')
-      .replace(/^(Identity|Role|User|Question|Data Source|Section|Formatting Rules|Goal|Answer|Analysis|Greeting|Main Answer|Details|Closing|Check|Is it optimized).*?:/gim, '')
+      // ลบหัวข้อเทคนิคและขั้นตอนการคิด (รองรับช่องว่างข้างหน้า)
+      .replace(/^\s*(Identity|Role|User|Question|Data|Section|Formatting|Goal|Answer|Analysis|Greeting|Main|Details|Closing|Check|Winner|Logic|Constraints|Drafting|Step|Priority|Refining|Winner).*?:/gim, '')
       .trim();
 
     await replyToLine(replyToken, finalAnswer);
