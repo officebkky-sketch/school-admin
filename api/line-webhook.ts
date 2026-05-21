@@ -138,6 +138,7 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"];
     const versions = ["v1beta", "v1"];
     let finalAnswer = "";
+    let lastGoogleError = "";
 
     for (const model of modelsToTry) {
       if (finalAnswer) break;
@@ -152,13 +153,16 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
             })
           });
 
+          const data = await response.json();
           if (response.ok) {
-            const data = await response.json();
             finalAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
             if (finalAnswer) break;
+          } else {
+            lastGoogleError = `[${model} ${ver}] ${response.status}: ${data.error?.message || JSON.stringify(data)}`;
+            console.warn('Google API Error:', lastGoogleError);
           }
-        } catch (e) {
-          console.warn(`Failed with ${model} ${ver}:`, e);
+        } catch (e: any) {
+          lastGoogleError = `Fetch Error: ${e.message}`;
         }
       }
     }
@@ -166,7 +170,7 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     if (finalAnswer) {
       await replyToLine(replyToken, finalAnswer);
     } else {
-      throw new Error('ไม่สามารถดึงข้อมูลจาก AI ได้ทุกเวอร์ชัน');
+      throw new Error(`AI ทุกรุ่นปฏิเสธการทำงาน\nรายละเอียดล่าสุด: ${lastGoogleError}`);
     }
 
   } catch (err: any) {
