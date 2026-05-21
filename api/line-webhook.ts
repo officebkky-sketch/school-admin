@@ -21,7 +21,7 @@ export default async function handler(req: any, res: any) {
       const userMessage = event.message.text.trim();
 
       // 1. Check if user is already bound
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('line_user_id', userId)
@@ -33,7 +33,7 @@ export default async function handler(req: any, res: any) {
       } else {
         // 2. Not bound yet. Check if the message is an email
         if (userMessage.includes('@')) {
-          const { data: foundUser, error: findError } = await supabase
+          const { data: foundUser } = await supabase
             .from('profiles')
             .select('*')
             .eq('email', userMessage)
