@@ -291,11 +291,11 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
 }
 
 async function callGemini(prompt: string, apiKey: string): Promise<string> {
-  let modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"];
+  let modelsToTry = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro", "gemini-flash-latest"];
   try {
      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
      if (listRes.ok) {
-        const listData = await listRes.json();
+        const listData = await listRes.json() as any;
         const found = listData.models
           ?.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
           .map((m: any) => m.name.replace('models/', ''));
@@ -305,7 +305,6 @@ async function callGemini(prompt: string, apiKey: string): Promise<string> {
 
   const versions = ["v1beta", "v1"];
   for (const model of modelsToTry) {
-    if (!model.includes('gemini')) continue;
     for (const ver of versions) {
       try {
         const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
@@ -315,7 +314,7 @@ async function callGemini(prompt: string, apiKey: string): Promise<string> {
           body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
         });
         if (response.ok) {
-          const data = await response.json();
+          const data = await response.json() as any;
           return data.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัยครับ AI ไม่สามารถสร้างคำตอบได้";
         }
       } catch (e) { /* next */ }
@@ -473,7 +472,7 @@ async function planDatabaseQueries(message: string, schemaMap: Record<string, an
   2. เขียนเงื่อนไข filters ในรูปแบบอาร์เรย์:
      - operator ที่รองรับ: "eq" (เท่ากับ), "neq" (ไม่เท่ากับ), "gt" (มากกว่า), "lt" (น้อยกว่า), "gte", "lte", "like", "ilike"
      - ถ้าคำถามระบุเกี่ยวกับปีการศึกษา เช่น "ปีนี้" หรือไม่ได้ระบุปีเฉพาะเจาะจง ให้กรองคอลัมน์ academic_year ด้วยปีการศึกษาปัจจุบัน "${academicYear}" เสมอ (หากตารางนั้นมีคอลัมน์ academic_year)
-     - สำหรับตาราง utilities: หากถามเรื่องน้ำประปา ให้กรอง type = 'water', ไฟฟ้า type = 'electricity', อินเทอร์เน็ต type = 'internet'
+     - สำหรับตาราง utilities: หากถามเรื่องน้ำประปา/ค่าน้ำ ให้กรอง type = 'water', ไฟฟ้า/ค่าไฟ type = 'electricity', อินเทอร์เน็ต/ค่าเน็ต type = 'internet'
   3. คอลัมน์ที่เลือก (select) ให้ใช้ * หรือระบุเฉพาะคอลัมน์ที่นำมาตอบคำถามจริง ๆ (ระบุคอลัมน์ที่มีอยู่จริงใน Schema เท่านั้น)
   4. จำกัดจำนวนรายการ (limit) ไม่เกิน 20-30 รายการต่อตารางเพื่อความรวดเร็ว
   5. หากต้องการนำเข้าข้อมูล RAG เพิ่มเติมจากคลังเอกสารโรงเรียน (PDF / Virtual Drive) ให้ตั้งค่า "need_rag": true
@@ -496,32 +495,50 @@ async function planDatabaseQueries(message: string, schemaMap: Record<string, an
     "need_rag": true หรือ false
   }`;
 
-  const model = "gemini-1.5-flash"; 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  
+  let modelsToTry = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro", "gemini-flash-latest"];
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Gemini API HTTP error ${response.status}`);
+     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+     if (listRes.ok) {
+        const listData = await listRes.json() as any;
+        const found = listData.models
+          ?.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+          .map((m: any) => m.name.replace('models/', ''));
+        if (found && found.length > 0) modelsToTry = found;
+     }
+  } catch (e) { /* fallback */ }
+
+  const versions = ["v1beta", "v1"];
+  for (const model of modelsToTry) {
+    for (const ver of versions) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: "application/json"
+            }
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json() as any;
+          let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+          
+          // ทำความสะอาด JSON string เผื่อ AI แนบ markdown tag
+          text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+          
+          console.log("--- AI Raw Query Plan ---");
+          console.log(text);
+          
+          return JSON.parse(text);
+        }
+      } catch (err: any) {
+        console.error(`Error with model ${model} on ${ver}:`, err.message);
+      }
     }
-    
-    const data = await response.json() as any;
-    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    
-    // ทำความสะอาด JSON string เผื่อ AI แนบ markdown tag
-    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    
-    console.log("--- AI Raw Query Plan ---");
-    console.log(text);
-    
-    return JSON.parse(text);
-  } catch (err: any) {
-    console.error("Error in planDatabaseQueries:", err.message);
-    return { queries: [], need_rag: true };
   }
+  return { queries: [], need_rag: true };
 }
