@@ -108,6 +108,10 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
       }
     });
 
+    const projectContext = projects && projects.length > 0 
+      ? `[รายการโครงการปี ${currentYear} จากฐานข้อมูล] (${projects.length} โครงการ):\n` + projects.map(p => `- ${p.project_name} (งบ: ${p.planned_amount} บาท)`).join('\n')
+      : "ไม่พบข้อมูลโครงการในฐานข้อมูลปีนี้";
+
     // 3. Advanced Hybrid Search (Global + Private + Thai Regex)
     let knowledgeContext = "";
     try {
@@ -178,7 +182,7 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     คำแนะนำในการตอบ (STRICT RULES):
     1. ให้ความสำคัญกับข้อมูลใน [ส่วนที่ 1] เป็นอันดับแรก เพราะเป็นข้อมูลจริงล่าสุดจากฐานข้อมูล
     2. หากข้อมูลในคลังปัญญามีหลายปีการศึกษา ให้ยึดข้อมูลปี ${currentYear} เป็นหลัก
-    3. หากคุณครูถามสั้นๆ เช่น "โครงการ" หรือ "โครง" ให้สรุปรายชื่อโครงการและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
+    3. หากคุณครูถามเรื่อง "โครงการ" หรือ "โครง" ให้สรุปรายชื่อโครงการและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
     4. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยนำเนื้อหาจาก [ส่วนที่ 2] มาเสริม
     5. ตอบให้เป็นมืออาชีพ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji ให้เหมาะสม
     6. ตอบให้กระชับเหมาะกับหน้าจอ LINE`;
