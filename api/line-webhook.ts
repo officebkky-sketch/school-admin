@@ -7,7 +7,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnon
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 export default async function handler(req: any, res: any) {
-  if (req.method === 'GET') return res.status(200).json({ message: 'Nong Chaba LINE Webhook is ONLINE' });
+  if (req.method === 'GET') return res.status(200).json({ message: 'Nong Chaba is Ready' });
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
   try {
@@ -15,22 +15,22 @@ export default async function handler(req: any, res: any) {
     for (const event of events) {
       if (event.type === 'message' && event.message.type === 'text') {
         const userId = event.source.userId;
-        const userMessage = event.message.text.trim();
+        const userMsg = event.message.text.trim();
         const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('line_user_id', userId).maybeSingle();
 
         if (profile) {
-          await handleFullAIQuery(event.replyToken, userMessage, profile);
+          await handleFullAIQuery(event.replyToken, userMsg, profile);
         } else {
-          if (userMessage.includes('@')) {
-            const { data: foundUser } = await supabaseAdmin.from('profiles').select('*').eq('email', userMessage.toLowerCase().trim()).maybeSingle();
-            if (foundUser) {
-              await supabaseAdmin.from('profiles').update({ line_user_id: userId }).eq('id', foundUser.id);
-              await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จค่ะ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบน้องชบานะคะ ถามงานชบาได้เลยค่ะ!`);
+          if (userMsg.includes('@')) {
+            const { data: found } = await supabaseAdmin.from('profiles').select('*').eq('email', userMsg.toLowerCase().trim()).maybeSingle();
+            if (found) {
+              await supabaseAdmin.from('profiles').update({ line_user_id: userId }).eq('id', found.id);
+              await replyToLine(event.replyToken, `ยินดีต้อนรับคุณครู ${found.display_name} เข้าสู่ระบบน้องชบาค่ะ ถามงานชบาได้ทันทีเลยนะคะ!`);
             } else {
-              await replyToLine(event.replyToken, 'ขออภัยค่ะ ไม่พบอีเมลนี้ในระบบโรงเรียน รบกวนตรวจสอบอีกครั้งนะคะ');
+              await replyToLine(event.replyToken, 'ไม่พบอีเมลนี้ในระบบค่ะ รบกวนตรวจสอบอีกครั้งนะคะ');
             }
           } else {
-            await replyToLine(event.replyToken, 'สวัสดีค่ะ ชบาคือ "น้องชบา" ผู้ช่วยส่วนตัวของคุณครูค่ะ\n\nรบกวนคุณครูพิมพ์ "อีเมล" เพื่อยืนยันตัวตนก่อนนะคะ');
+            await replyToLine(event.replyToken, 'สวัสดีค่ะ ชบาคือ "น้องชบา" ผู้ช่วยอัจฉริยะประจำโรงเรียนค่ะ\n\nรบกวนคุณครูพิมพ์ "อีเมล" เพื่อยืนยันตัวตนก่อนนะคะ');
           }
         }
       }
@@ -41,51 +41,51 @@ export default async function handler(req: any, res: any) {
 
 async function handleFullAIQuery(replyToken: string, message: string, _profile: any) {
   try {
-    const { data: sets } = await supabaseAdmin.from('settings').select('*').maybeSingle();
+    const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key, current_academic_year').single();
     const apiKey = sets?.gemini_api_key;
-    if (!apiKey) return await replyToLine(replyToken, '❌ ยังไม่ได้ตั้งค่า API Key ค่ะ');
+    if (!apiKey) return await replyToLine(replyToken, '❌ ระบบยังไม่ได้ตั้งค่า API Key ค่ะ');
 
     const currentYear = sets?.current_academic_year || '2569';
-    const queryPlan = await planDatabaseQueries(message, DEFAULT_SCHEMA_MAP, apiKey, currentYear);
     
-    let dbContextParts: string[] = [];
+    // 1. Fast Planning (Simplified)
+    const queryPlan = await planDatabaseQueries(message, apiKey, currentYear);
+    
+    let dbContext = "";
     if (queryPlan?.queries?.length > 0) {
-      for (const q of queryPlan.queries) {
-        if (!DEFAULT_SCHEMA_MAP[q.table]) continue;
-        let qb: any = supabaseAdmin.from(q.table).select(q.select || '*');
-        if (q.filters) {
-          q.filters.forEach((f: any) => {
-            if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
-              if (f.operator === 'eq') qb = qb.eq(f.column, f.value);
-              else if (f.operator === 'ilike') qb = qb.ilike(f.column, f.value);
-              else if (f.operator === 'gt') qb = qb.gt(f.column, f.value);
-              else if (f.operator === 'lt') qb = qb.lt(f.column, f.value);
-            }
-          });
-        }
-        const { data } = await qb.limit(20);
-        if (data?.length > 0) dbContextParts.push(`[ตาราง ${q.table}]: ${JSON.stringify(data)}`);
+      const q = queryPlan.queries[0]; // Take only the most relevant query for speed
+      let qb: any = supabaseAdmin.from(q.table).select(q.select || '*');
+      if (q.filters) {
+        q.filters.forEach((f: any) => { qb = qb.eq(f.column, f.value); });
       }
+      const { data } = await qb.limit(10);
+      if (data) dbContext = `ข้อมูลในระบบ: ${JSON.stringify(data)}`;
     }
 
-    const dbContext = dbContextParts.length > 0 ? dbContextParts.join('\n') : "ไม่มีข้อมูลในฐานข้อมูล";
+    // 2. Ultra-Strict Prompting
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา
+กฎเหล็ก:
+- ห้ามแนะนำตัว ห้ามทวนคำถาม ห้ามพิมพ์ขั้นตอนการคิด
+- ห้ามใช้ดอกจัน (*) และห้ามใช้คำว่า "ครับ"
+- ให้ตอบเฉพาะ "ข้อความสุดท้าย" ที่จะส่งให้คุณครูเท่านั้น
+- หากมีข้อมูลให้สรุปสั้นๆ ใช้ Emoji และเว้นบรรทัดให้สวยงาม`;
 
-    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา (ห้ามใช้ดอกจัน * และห้ามเกริ่นนำ)
-กฎ: ตอบสุภาพ แทนตัวว่า ชบา/หนู ลงท้ายด้วย ค่ะ/นะคะ และเข้าเรื่องทันที ห้ามพิมพ์หัวข้อวิเคราะห์เด็ดขาด`;
-
-    const userPrompt = `ข้อมูล: ${dbContext}\nคำถาม: "${message}"`;
+    const userPrompt = `ข้อมูล: ${dbContext || 'ไม่พบข้อมูลเฉพาะเจาะจง'}\nคำถาม: "${message}"\nตอบสั้นๆ และนอบน้อมค่ะ`;
 
     let finalAnswer = await callGemini(systemPrompt, userPrompt, apiKey);
     
-    // --- POST-PROCESSING FILTERS (Aggressive Cleanup) ---
+    // 3. Aggressive Post-Processing
     finalAnswer = finalAnswer
-      .replace(/\*/g, '') // ลบดอกจันทั้งหมด
-      .replace(/AI Cowork/gi, 'น้องชบา') 
+      .replace(/\*/g, '')
+      .replace(/AI Cowork/gi, 'น้องชบา')
       .replace(/ครับ/g, 'ค่ะ')
-      // ลบหัวข้อเทคนิคและขั้นตอนการคิด (รองรับช่องว่างข้างหน้า)
-      .replace(/^\s*(Identity|Role|User|Question|Data|Section|Formatting|Goal|Answer|Analysis|Greeting|Main|Details|Closing|Check|Winner|Logic|Constraints|Drafting|Step|Priority|Refining|Winner).*?:/gim, '')
+      // ลบทุกอย่างที่ดูเหมือนเป็นหัวข้อวิเคราะห์
+      .split('\n')
+      .filter(line => !line.match(/^\s*(Identity|Role|User|Context|Input|Logic|Drafting|Winner|Step|Goal|Strict|Formatting|Section|Check|Evaluation|Actionable).*?:/i))
+      .join('\n')
       .trim();
 
+    if (!finalAnswer) finalAnswer = "ชบาหาข้อมูลไม่เจอค่ะคุณครู รบกวนลองถามใหม่อีกครั้งนะคะ";
+    
     await replyToLine(replyToken, finalAnswer);
 
   } catch (err: any) {
@@ -94,25 +94,21 @@ async function handleFullAIQuery(replyToken: string, message: string, _profile: 
 }
 
 async function callGemini(system: string, user: string, apiKey: string): Promise<string> {
-  const models = ["gemini-1.5-flash", "gemini-2.0-flash"];
-  for (const m of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: system }] },
-          contents: [{ role: 'user', parts: [{ text: user }] }]
-        })
-      });
-      if (res.ok) {
-        const data = await res.json() as any;
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      }
-    } catch (e) { /* next */ }
-  }
-  return "ขออภัยค่ะ ระบบขัดข้อง";
+  // Use flash only for speed
+  const model = "gemini-1.5-flash";
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }]
+      })
+    });
+    const data = await res.json() as any;
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  } catch (e) { return ""; }
 }
 
 async function replyToLine(replyToken: string, text: string) {
@@ -121,23 +117,12 @@ async function replyToLine(replyToken: string, text: string) {
   await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] })
+    body: JSON.stringify({ replyToken, messages: [{ type: 'text', text: text.substring(0, 5000) }] })
   });
 }
 
-const DEFAULT_SCHEMA_MAP: Record<string, any> = {
-  profiles: { description: "คุณครู", columns: ["id", "display_name", "email", "role"] },
-  students: { description: "นักเรียน", columns: ["id", "academic_year", "class_level", "room", "first_name", "last_name", "prefix"] },
-  school_projects: { description: "โครงการ", columns: ["id", "project_name", "academic_year", "planned_amount", "spent_amount", "status"] },
-  utilities: { description: "ค่าน้ำค่าไฟ", columns: ["id", "type", "academic_year", "month", "amount"] },
-  attendance: { description: "การมาเรียน", columns: ["id", "date", "class_level", "summary"] }
-};
-
-async function planDatabaseQueries(msg: string, map: any, key: string, year: string) {
-  const schemaBrief = JSON.stringify(map);
-  const prompt = `วิเคราะห์คำถาม: "${msg}" ในปีการศึกษา ${year} โดยใช้ Schema: ${schemaBrief}
-  ตอบเป็น JSON เท่านั้น: { "queries": [{ "table": "...", "select": "*", "filters": [{ "column": "...", "operator": "eq", "value": "..." }] }], "need_rag": false }`;
-  
+async function planDatabaseQueries(msg: string, key: string, year: string) {
+  const prompt = `วิเคราะห์คำถาม: "${msg}" ปี ${year} ตอบเป็น JSON เท่านั้น: { "queries": [{ "table": "students หรือ school_projects", "filters": [] }] }`;
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
     const res = await fetch(url, {
@@ -150,5 +135,5 @@ async function planDatabaseQueries(msg: string, map: any, key: string, year: str
     });
     const data = await res.json() as any;
     return JSON.parse(data.candidates[0].content.parts[0].text);
-  } catch (e) { return { queries: [], need_rag: true }; }
+  } catch (e) { return { queries: [] }; }
 }
