@@ -135,7 +135,7 @@ const DEFAULT_SCHEMA_MAP: Record<string, any> = {
 
 async function getDynamicSchema() { return DEFAULT_SCHEMA_MAP; }
 
-async function planDatabaseQueries(msg: string, map: any, key: string, year: string) {
+async function planDatabaseQueries(msg: string, _map: any, key: string, year: string) {
   const prompt = `วิเคราะห์คำถาม: "${msg}" ปี ${year} ตอบ JSON: { "queries": [{ "table": string, "select": string, "filters": [] }], "need_rag": boolean }`;
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
