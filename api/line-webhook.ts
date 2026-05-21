@@ -343,3 +343,185 @@ async function replyToLine(replyToken: string, message: string) {
     console.error('Fetch Error:', e);
   }
 }
+
+const DEFAULT_SCHEMA_MAP: Record<string, { description: string; columns: string[] }> = {
+  profiles: {
+    description: "ข้อมูลโปรไฟล์/คุณครูในระบบโรงเรียน",
+    columns: ["id", "display_name", "email", "role", "status", "created_at"]
+  },
+  students: {
+    description: "ข้อมูลประวัตินักเรียน ชั้นเรียน ห้องเรียน และรายละเอียดผู้ปกครอง",
+    columns: ["id", "academic_year", "class_level", "room", "student_id", "gender", "prefix", "first_name", "last_name", "graduation_status", "religion"]
+  },
+  incoming_docs: {
+    description: "ทะเบียนหนังสือราชการรับ (จดหมายจากภายนอกเข้าโรงเรียน)",
+    columns: ["id", "doc_number", "from_agency", "to_agency", "subject", "doc_date", "urgency", "status"]
+  },
+  outgoing_docs: {
+    description: "ทะเบียนหนังสือราชการส่ง (เอกสารที่โรงเรียนส่งออกภายนอก)",
+    columns: ["id", "doc_number", "to_agency", "subject", "doc_date", "status"]
+  },
+  orders: {
+    description: "คำสั่งโรงเรียน (แต่งตั้งคณะกรรมการ หรือการปฏิบัติงานต่าง ๆ)",
+    columns: ["id", "order_number", "subject", "order_date", "status"]
+  },
+  memos: {
+    description: "บันทึกข้อความสื่อสารภายในหน่วยงาน",
+    columns: ["id", "memo_number", "subject", "requester", "department", "memo_date", "status"]
+  },
+  attendance: {
+    description: "สถิติเช็คชื่อการเข้าเรียน ขาด ลา มาสาย ของแต่ละชั้นเรียนในแต่ละวัน",
+    columns: ["id", "date", "class_level", "summary", "recorded_at"]
+  },
+  teachers: {
+    description: "ประวัติรายชื่อครูและบุคลากร ตำแหน่ง สังกัดฝ่าย เบอร์โทรศัพท์",
+    columns: ["id", "prefix", "first_name", "last_name", "position", "department", "phone", "email", "status"]
+  },
+  teacher_duties: {
+    description: "ตารางเวรปฏิบัติหน้าที่ประจำวันของคุณครู (เช่น ครูเวรวันจันทร์, ครูเวรประจำวัน)",
+    columns: ["id", "teacher_id", "duty_day", "duty_type"]
+  },
+  doc_assignments: {
+    description: "การมอบหมายหนังสือรับ ให้ครูไปปฏิบัติหน้าที่และรายงานผลการทำงาน",
+    columns: ["id", "doc_id", "assignee_id", "instruction", "status", "reported_at"]
+  },
+  utilities: {
+    description: "บิลสรุปค่าสาธารณูปโภค เช่น ค่าน้ำประปา ค่าไฟฟ้า ค่าโทรศัพท์ ค่าอินเทอร์เน็ต",
+    columns: ["id", "type", "academic_year", "month", "amount", "invoice_number", "status"]
+  },
+  school_projects: {
+    description: "โครงการและงบประมาณปีการศึกษาปัจจุบันของโรงเรียน",
+    columns: ["id", "project_name", "academic_year", "planned_amount", "current_amount", "spent_amount", "status"]
+  },
+  budget_allocations: {
+    description: "แหล่งจัดสรรงบประมาณแบ่งตามประเภทเงิน (เช่น งบอุดหนุน, งบอาหารกลางวัน)",
+    columns: ["id", "academic_year", "budget_type", "category_name", "amount", "spent_amount", "remaining_amount"]
+  },
+  procurement_projects: {
+    description: "โครงการการจัดซื้อจัดจ้างพัสดุหรือจ้างเหมางานพัสดุ",
+    columns: ["id", "project_id", "project_name", "academic_year", "method", "procurement_type", "total_amount", "status", "ref_doc_number"]
+  },
+  procurement_items: {
+    description: "รายการวัสดุและอุปกรณ์ที่จัดซื้อภายใต้โครงการจัดซื้อจัดจ้างต่าง ๆ",
+    columns: ["id", "procurement_id", "item_name", "quantity", "unit", "price_per_unit", "total_price"]
+  }
+};
+
+async function getDynamicSchema(supabaseUrl: string, serviceKey: string): Promise<Record<string, { description: string; columns: string[] }>> {
+  try {
+    const url = `${supabaseUrl}/rest/v1/`;
+    const response = await fetch(url, {
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`
+      }
+    });
+    if (!response.ok) {
+      console.log(`Failed to fetch schema dynamically (Status ${response.status}), using default static schema.`);
+      return DEFAULT_SCHEMA_MAP;
+    }
+    const schema = await response.json() as any;
+    const dynamicMap = { ...DEFAULT_SCHEMA_MAP };
+    
+    if (schema && schema.definitions) {
+      Object.entries(schema.definitions).forEach(([tableName, tableDef]: [string, any]) => {
+        const columns = Object.keys(tableDef.properties || {});
+        if (dynamicMap[tableName]) {
+          dynamicMap[tableName].columns = Array.from(new Set([...dynamicMap[tableName].columns, ...columns]));
+        } else {
+          dynamicMap[tableName] = {
+            description: tableDef.description || `ตารางข้อมูลระบบ ${tableName}`,
+            columns: columns
+          };
+        }
+      });
+      console.log("Successfully fetched and merged dynamic OpenAPI schema!");
+    }
+    return dynamicMap;
+  } catch (err: any) {
+    console.log("Error fetching dynamic schema, falling back to static:", err.message);
+    return DEFAULT_SCHEMA_MAP;
+  }
+}
+
+async function planDatabaseQueries(message: string, schemaMap: Record<string, any>, apiKey: string, academicYear = "2569"): Promise<{ queries: any[]; need_rag: boolean }> {
+  if (!apiKey) {
+    console.error("Gemini API key is required!");
+    return { queries: [], need_rag: true };
+  }
+
+  const schemaBrief: Record<string, { desc: string; cols: string[] }> = {};
+  Object.entries(schemaMap).forEach(([table, def]) => {
+    schemaBrief[table] = {
+      desc: def.description,
+      cols: def.columns
+    };
+  });
+
+  const prompt = `คุณคือ AI Database Architect หน้าที่ของคุณคือการวิเคราะห์คำถามภาษาไทยของผู้ใช้เกี่ยวกับระบบโรงเรียน และเลือกตารางข้อมูลในฐานข้อมูลที่เกี่ยวข้องมาสืบค้นข้อมูล
+  
+  นี่คือโครงสร้างฐานข้อมูลที่มีอยู่ในระบบ (Database Schema Map):
+  ${JSON.stringify(schemaBrief, null, 2)}
+  
+  คำถามของผู้ใช้: "${message}"
+  ปีการศึกษาปัจจุบันของโรงเรียน: "${academicYear}"
+  
+  ให้วิเคราะห์ว่าคำถามนี้ต้องการข้อมูลจริงจากตารางใดบ้างเพื่อนำมาสังเคราะห์เป็นคำตอบ โดยเขียนคำแนะนำการคิวรีข้อมูลผ่าน Supabase Client
+  
+  กฎข้อบังคับในการตัดสินใจ (STRICT RULES):
+  1. เลือกเฉพาะตารางที่ตรงประเด็นและจำเป็นเท่านั้น (สูงสุดไม่เกิน 3 ตาราง)
+  2. เขียนเงื่อนไข filters ในรูปแบบอาร์เรย์:
+     - operator ที่รองรับ: "eq" (เท่ากับ), "neq" (ไม่เท่ากับ), "gt" (มากกว่า), "lt" (น้อยกว่า), "gte", "lte", "like", "ilike"
+     - ถ้าคำถามระบุเกี่ยวกับปีการศึกษา เช่น "ปีนี้" หรือไม่ได้ระบุปีเฉพาะเจาะจง ให้กรองคอลัมน์ academic_year ด้วยปีการศึกษาปัจจุบัน "${academicYear}" เสมอ (หากตารางนั้นมีคอลัมน์ academic_year)
+     - สำหรับตาราง utilities: หากถามเรื่องน้ำประปา ให้กรอง type = 'water', ไฟฟ้า type = 'electricity', อินเทอร์เน็ต type = 'internet'
+  3. คอลัมน์ที่เลือก (select) ให้ใช้ * หรือระบุเฉพาะคอลัมน์ที่นำมาตอบคำถามจริง ๆ (ระบุคอลัมน์ที่มีอยู่จริงใน Schema เท่านั้น)
+  4. จำกัดจำนวนรายการ (limit) ไม่เกิน 20-30 รายการต่อตารางเพื่อความรวดเร็ว
+  5. หากต้องการนำเข้าข้อมูล RAG เพิ่มเติมจากคลังเอกสารโรงเรียน (PDF / Virtual Drive) ให้ตั้งค่า "need_rag": true
+  
+  ให้ตอบกลับในรูปแบบ JSON วัตถุเท่านั้น ห้ามมีเนื้อหาเกริ่นนำหรือปิดท้ายนอกเหนือจากรูปแบบ JSON ที่กำหนดเด็ดขาด!
+  
+  รูปแบบผลลัพธ์ที่ต้องการ (JSON Output Format):
+  {
+    "queries": [
+      {
+        "table": "ชื่อตาราง เช่น utilities",
+        "select": "คอลัมน์ที่ต้องการ หรือ *",
+        "filters": [
+          { "column": "ชื่อคอลัมน์", "operator": "eq หรือ ilike หรือ gt ฯลฯ", "value": "ค่าที่กรอง" }
+        ],
+        "order": { "column": "คอลัมน์จัดเรียง", "ascending": false },
+        "limit": 10
+      }
+    ],
+    "need_rag": true หรือ false
+  }`;
+
+  const model = "gemini-1.5-flash"; 
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Gemini API HTTP error ${response.status}`);
+    }
+    
+    const data = await response.json() as any;
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    
+    // ทำความสะอาด JSON string เผื่อ AI แนบ markdown tag
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    console.log("--- AI Raw Query Plan ---");
+    console.log(text);
+    
+    return JSON.parse(text);
+  } catch (err: any) {
+    console.error("Error in planDatabaseQueries:", err.message);
+    return { queries: [], need_rag: true };
+  }
+}
