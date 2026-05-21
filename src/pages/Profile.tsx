@@ -12,7 +12,8 @@ import {
   Image as ImageIcon,
   CheckCircle2, 
   MessageCircle,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 
 export default function Profile() {
@@ -22,6 +23,7 @@ export default function Profile() {
   const [selectedSignature, setSelectedSignature] = useState<File | null>(null);
   const [sigPreviewUrl, setSigPreviewUrl] = useState<string | null>(null);
   const [teacherInfo, setTeacherInfo] = useState<any>(null);
+  const [lineLink, setLineLink] = useState('');
 
   const fetchTeacherInfo = async (email: string) => {
     if (!email) return;
@@ -38,12 +40,22 @@ export default function Profile() {
     }
   };
 
+  async function fetchSettings() {
+    try {
+      const { data } = await supabase.from('settings').select('line_oa_link').maybeSingle();
+      if (data) setLineLink(data.line_oa_link || '');
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  }
+
   useEffect(() => {
     if (profile) {
       setDisplayName(profile.display_name || '');
       setSigPreviewUrl(profile.signature_url || null);
       fetchTeacherInfo(profile.email);
     }
+    fetchSettings();
   }, [profile]);
 
   async function handleUpdateProfile(e: React.FormEvent) {
