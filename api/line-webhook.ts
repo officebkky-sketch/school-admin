@@ -84,141 +84,182 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
       return;
     }
 
-    // 2. Database Context (Stats)
+    // 2. Database Context (Dynamic Database AI Solver)
     const currentYear = sets?.current_academic_year || '2569';
-    const { data: students } = await supabaseAdmin.from('students').select('class_level, gender, religion, prefix').eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
-    const { count: teacherCount } = await supabaseAdmin.from('teachers').select('*', { count: 'exact', head: true });
-    const { data: projects } = await supabaseAdmin.from('school_projects').select('project_name, planned_amount, status').eq('academic_year', currentYear);
-    const { data: utilities } = await supabaseAdmin.from('utilities').select('type, month, amount, status').eq('academic_year', currentYear);
     
-    const religionStats: any = {};
-    const classStats: any = {};
-    students?.forEach(s => {
-      const rel = s.religion || 'ไม่ระบุ';
-      religionStats[rel] = (religionStats[rel] || 0) + 1;
-      const lv = s.class_level || 'ไม่ระบุ';
-      if (!classStats[lv]) classStats[lv] = { total: 0, male: 0, female: 0 };
-      classStats[lv].total++;
-      
-      const g = s.gender || '';
-      const p = s.prefix || '';
-      if (g === 'ชาย' || g === 'ช' || g === 'Male' || p.includes('ด.ช.') || p.includes('เด็กชาย')) {
-        classStats[lv].male++;
-      } else if (g === 'หญิง' || g === 'ญ' || g === 'Female' || p.includes('ด.ญ.') || p.includes('เด็กหญิง')) {
-        classStats[lv].female++;
-      }
-    });
-
-    const projectContext = projects && projects.length > 0 
-      ? `[รายการโครงการปี ${currentYear} จากฐานข้อมูล] (${projects.length} โครงการ):\n` + projects.map(p => `- ${p.project_name} (งบ: ${p.planned_amount} บาท)`).join('\n')
-      : "ไม่พบข้อมูลโครงการในฐานข้อมูลปีนี้";
-
-    const translateUtilityType = (type: string) => {
-      switch (type) {
-        case 'electricity': return 'ค่าไฟฟ้า';
-        case 'water': return 'ค่าน้ำประปา';
-        case 'telephone': return 'ค่าโทรศัพท์';
-        case 'internet': return 'ค่าอินเทอร์เน็ต';
-        default: return type;
-      }
-    };
-
-    const utilitySummary = utilities && utilities.length > 0
-      ? utilities.map(u => `- ${translateUtilityType(u.type)} เดือน${u.month} ยอด: ${u.amount} บาท (${u.status})`).join('\n    ')
-      : "ไม่มีข้อมูลค่าสาธารณูปโภคบันทึกในปีการศึกษานี้";
-
-    // 3. Advanced Hybrid Search (Global + Private + Thai Regex)
-    let knowledgeContext = "";
+    // ดึง Schema แบบไดนามิก
+    const schemaMap = await getDynamicSchema(supabaseUrl, supabaseServiceKey);
+    
+    // แนะนำคิวรีด้วย AI (AI Step 1)
+    const queryPlan = await planDatabaseQueries(message, schemaMap, apiKey, currentYear);
+    
+    let dbContextParts: string[] = [];
+    
+    // ดึงสถิตินักเรียนและครูพื้นฐานไว้เสมอสำหรับกรณี Fallback
+    let studentsCount = 0;
+    let teachersCount = 0;
     try {
-       const embedding = await generateEmbedding(message, apiKey);
-       let matches: any[] = [];
-       
-       if (embedding) {
-          // 3.1 Search Global Knowledge (เพิ่มเป็น 10)
-          const { data: globalMatches } = await supabaseAdmin.rpc('match_knowledge', {
-            query_embedding: embedding,
-            match_threshold: 0.1,
-            match_count: 10
-          });
-          if (globalMatches) matches = [...globalMatches];
-       }
-
-       // 3.2 Thai Keyword Fallback (Regex based - เพิ่มคำย่อ)
-       if (matches.length < 10) {
-          const yearMatch = message.match(/\d{4}/g) || [];
-          const keywords = ["โครงการ", "งบประมาณ", "ระเบียบ", "แผน", "พัสดุ", "เงิน", "นักเรียน", "กิจกรรม", "โครง", "งบ"];
-          const foundKeywords = keywords.filter(k => message.includes(k));
-          const searchTerms = [...yearMatch, ...foundKeywords];
-
-          if (searchTerms.length > 0) {
-            // ค้นหาตาราง school_knowledge (ใช้ chunk_text และ document_name)
-            const globalOrQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%,document_name.ilike.%${t}%`).join(',');
+      const { count: sCount } = await supabaseAdmin.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
+      const { count: tCount } = await supabaseAdmin.from('teachers').select('*', { count: 'exact', head: true });
+      studentsCount = sCount || 0;
+      teachersCount = tCount || 0;
+    } catch (e) {
+      console.warn("Fetch fallback stats failed:", e);
+    }
+    
+    if (queryPlan && Array.isArray(queryPlan.queries) && queryPlan.queries.length > 0) {
+      for (const queryConfig of queryPlan.queries) {
+        const targetTable = queryConfig.table;
+        
+        // 1. Whitelist Verification
+        if (!schemaMap[targetTable]) {
+          console.warn(`⚠️ Skipping unsafe table query: ${targetTable} (not in schema whitelist)`);
+          continue;
+        }
+        
+        let queryBuilder = supabaseAdmin.from(targetTable).select(queryConfig.select || '*');
+        
+        // 2. Filters Whitelisting & Execution
+        if (queryConfig.filters && Array.isArray(queryConfig.filters)) {
+          for (const f of queryConfig.filters) {
+            if (!schemaMap[targetTable].columns.includes(f.column)) {
+              console.warn(`⚠️ Skip filter on unsafe/non-existent column: ${f.column}`);
+              continue;
+            }
             
-            // ค้นหาตาราง ai_knowledge_base (ใช้ content_text และ file_name ให้ตรงกับ DB)
-            const privateOrQuery = searchTerms.map(t => `content_text.ilike.%${t}%,file_name.ilike.%${t}%`).join(',');
-
-            const [{data: t1}, {data: t2}] = await Promise.all([
-               supabaseAdmin.from('school_knowledge')
-                 .select('document_name, chunk_text')
-                 .or(globalOrQuery)
-                 .limit(10),
-               supabaseAdmin.from('ai_knowledge_base')
-                 .select('file_name, content_text')
-                 .or(privateOrQuery)
-                 .eq('teacher_id', profile.id)
-                 .limit(5)
-            ]);
-
-            // แปลงข้อมูลเอกสารส่วนตัวให้อยู่ในโครงสร้างมาตรฐาน
-            const formattedPrivateMatches = (t2 || []).map((m: any) => ({
-              document_name: m.file_name,
-              chunk_text: m.content_text ? m.content_text.substring(0, 1500) : ""
-            }));
-
-            const textMatches = [...(t1 || []), ...formattedPrivateMatches];
-            const allMatches = [...matches, ...textMatches];
-            matches = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
+            const op = f.operator;
+            const col = f.column;
+            const val = f.value;
+            
+            if (op === 'eq') queryBuilder = queryBuilder.eq(col, val);
+            else if (op === 'neq') queryBuilder = queryBuilder.neq(col, val);
+            else if (op === 'gt') queryBuilder = queryBuilder.gt(col, val);
+            else if (op === 'lt') queryBuilder = queryBuilder.lt(col, val);
+            else if (op === 'gte') queryBuilder = queryBuilder.gte(col, val);
+            else if (op === 'lte') queryBuilder = queryBuilder.lte(col, val);
+            else if (op === 'like') queryBuilder = queryBuilder.like(col, val);
+            else if (op === 'ilike') queryBuilder = queryBuilder.ilike(col, val);
           }
-       }
+        }
+        
+        // 3. Order Whitelisting
+        if (queryConfig.order && queryConfig.order.column) {
+          if (schemaMap[targetTable].columns.includes(queryConfig.order.column)) {
+            queryBuilder = queryBuilder.order(queryConfig.order.column, { ascending: !!queryConfig.order.ascending });
+          }
+        }
+        
+        // 4. Limit Constraint
+        const limitVal = queryConfig.limit ? Math.min(queryConfig.limit, 30) : 20;
+        queryBuilder = queryBuilder.limit(limitVal);
+        
+        // 5. Query execution
+        try {
+          const { data, error } = await queryBuilder;
+          if (error) {
+            console.error(`Supabase Client Error querying ${targetTable}:`, error.message);
+          } else if (data && data.length > 0) {
+            const tableDesc = schemaMap[targetTable].description || targetTable;
+            // สรุปข้อมูลในรูป JSON เพื่อส่งให้ AI วิเคราะห์
+            const formattedData = JSON.stringify(data, null, 2);
+            dbContextParts.push(`[ตารางข้อมูล: ${targetTable} (${tableDesc})]\n${formattedData}`);
+          }
+        } catch (queryErr: any) {
+          console.error(`Failed to execute dynamic query for ${targetTable}:`, queryErr.message);
+        }
+      }
+    }
+    
+    // ประกอบข้อมูลทั้งหมดเป็น Context
+    const dbContext = dbContextParts.length > 0 
+      ? dbContextParts.join('\n\n')
+      : `[ข้อมูลทั่วไปของโรงเรียนปี ${currentYear}] (หมายเหตุ: คำถามไม่ได้ระบุคีย์เวิร์ดดึงตารางข้อมูลเฉพาะเจาะจง หรือไม่พบข้อมูลตามคำค้น)\n- ปีการศึกษาปัจจุบัน: ${currentYear}\n- จำนวนนักเรียนทั้งหมด: ${studentsCount} คน\n- จำนวนบุคลากรครูทั้งหมด: ${teachersCount} คน`;
 
-       if (matches.length > 0) {
-         // ส่งให้ AI อ่านสูงสุด 20 ชิ้น
-         knowledgeContext = matches.slice(0, 20).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
-       }
-    } catch (err) {
-       console.warn('Advanced Search failed:', err);
+    // 3. Advanced Hybrid Search (Global + Private + Thai Regex) - เรียกใช้เฉพาะเมื่อ need_rag ไม่ใช่ false
+    let knowledgeContext = "";
+    if (queryPlan && queryPlan.need_rag !== false) {
+      try {
+         const embedding = await generateEmbedding(message, apiKey);
+         let matches: any[] = [];
+         
+         if (embedding) {
+            // 3.1 Search Global Knowledge
+            const { data: globalMatches } = await supabaseAdmin.rpc('match_knowledge', {
+              query_embedding: embedding,
+              match_threshold: 0.1,
+              match_count: 10
+            });
+            if (globalMatches) matches = [...globalMatches];
+         }
+  
+         // 3.2 Thai Keyword Fallback (Regex based)
+         if (matches.length < 10) {
+            const yearMatch = message.match(/\d{4}/g) || [];
+            const keywords = ["โครงการ", "งบประมาณ", "ระเบียบ", "แผน", "พัสดุ", "เงิน", "นักเรียน", "กิจกรรม", "โครง", "งบ"];
+            const foundKeywords = keywords.filter(k => message.includes(k));
+            const searchTerms = [...yearMatch, ...foundKeywords];
+  
+            if (searchTerms.length > 0) {
+              // ค้นหาตาราง school_knowledge (ใช้ chunk_text และ document_name)
+              const globalOrQuery = searchTerms.map(t => `chunk_text.ilike.%${t}%,document_name.ilike.%${t}%`).join(',');
+              
+              // ค้นหาตาราง ai_knowledge_base (ใช้ content_text และ file_name ให้ตรงกับ DB)
+              const privateOrQuery = searchTerms.map(t => `content_text.ilike.%${t}%,file_name.ilike.%${t}%`).join(',');
+  
+              const [{data: t1}, {data: t2}] = await Promise.all([
+                 supabaseAdmin.from('school_knowledge')
+                   .select('document_name, chunk_text')
+                   .or(globalOrQuery)
+                   .limit(10),
+                 supabaseAdmin.from('ai_knowledge_base')
+                   .select('file_name, content_text')
+                   .or(privateOrQuery)
+                   .eq('teacher_id', profile.id)
+                   .limit(5)
+              ]);
+  
+              // แปลงข้อมูลเอกสารส่วนตัวให้อยู่ในโครงสร้างมาตรฐาน
+              const formattedPrivateMatches = (t2 || []).map((m: any) => ({
+                document_name: m.file_name,
+                chunk_text: m.content_text ? m.content_text.substring(0, 1500) : ""
+              }));
+  
+              const textMatches = [...(t1 || []), ...formattedPrivateMatches];
+              const allMatches = [...matches, ...textMatches];
+              matches = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
+            }
+         }
+  
+         if (matches.length > 0) {
+           // ส่งให้ AI อ่านสูงสุด 20 ชิ้น
+           knowledgeContext = matches.slice(0, 20).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
+         }
+      } catch (err) {
+         console.warn('Advanced Search failed:', err);
+      }
     }
 
-    const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
-    [ส่วนที่ 1: ข้อมูลสถิติ โครงการ และค่าสาธารณูปโภคจากฐานข้อมูลโดยตรง (แม่นยำสูง)]
-    - ปีการศึกษา: ${currentYear}
-    - จำนวนนักเรียน: ${students?.length || 0} คน
-    - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ชาย ${s.male} หญิง ${s.female})`).join('\n    ')}
-    - จำนวนครู: ${teacherCount || 0} คน
-    - รายการเบิกค่าสาธารณูปโภค (ค่าน้ำ/ค่าไฟ/ค่าเน็ต) ปี ${currentYear}:
-    ${utilitySummary}
-    
-    ${projectContext}
+    const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'}
+    [ส่วนที่ 1: ข้อมูลจริงจากระบบฐานข้อมูล (สืบค้นแบบไดนามิกแม่นยำสูง)]
+    ${dbContext}
 
-    [ส่วนที่ 2: ข้อมูลจากคลังปัญญา (เนื้อหาจากระเบียบ/เอกสาร)]
+    [ส่วนที่ 2: ข้อมูล RAG จากคลังปัญญาโรงเรียน (เนื้อหาข้อความจากเอกสาร PDF/Virtual Drive)]
     ${knowledgeContext || "ไม่พบเนื้อหาที่เกี่ยวข้องเพิ่มเติมในคลังปัญญา"}
 
     ผู้ถาม: คุณครู ${profile.display_name} (สิทธิ์: ${profile.role})
     คำถาม: ${message}
 
     คำแนะนำในการตอบและจัดรูปแบบคำตอบ (STRICT RULES FOR PREMIUM LINE UI):
-    1. ให้ความสำคัญกับข้อมูลจริงใน [ส่วนที่ 1] เป็นอันดับแรก
+    1. ให้ความสำคัญกับข้อมูลจริงใน [ส่วนที่ 1] เป็นอันดับแรก และวิเคราะห์ข้อมูลดิบที่ได้จากตารางเพื่อสรุปอย่างเป็นระบบ
     2. จัดรูปแบบคำตอบให้สวยงาม อ่านง่าย และเป็นระเบียบเรียบร้อยบนหน้าจอ LINE:
-       - ใช้ Emoji นำหน้าหัวข้อที่เหมาะสมเพื่อความสวยงามและเป็นมิตร (เช่น 📝, 📊, 💡, ⚠️, ✅)
+       - ใช้ Emoji นำหน้าหัวข้อที่เหมาะสมเพื่อความสวยงามและเป็นมิตร (เช่น 📝, 📊, 💡, ⚠️, ✅, 💧, ⚡)
        - จัดย่อหน้าและเว้นบรรทัด (Spacing/Line Break) ให้ดูโปร่งตา ไม่ติดกันเป็นพรืด
-       - ใช้ตัวหนา (**ข้อความ**) ในการเน้นประเด็นสำคัญ หัวข้อ หรือคีย์เวิร์ด เพื่อดึงดูดสายตา
+       - ใช้ตัวหนา (**ข้อความ**) ในการเน้นประเด็นสำคัญ หัวข้อ หรือยอดเงิน เพื่อดึงดูดสายตา
        - นำเสนอข้อมูลเป็นข้อๆ (Bullet points) หรือใช้การสรุปสั้นๆ ที่เข้าใจง่าย
        - ห้ามใช้ตารางแบบ Markdown (ที่ใช้ | และ -) เนื่องจากแสดงผลได้ไม่ดีบนอุปกรณ์เคลื่อนที่ ให้เปลี่ยนรูปแบบตารางเป็นหัวข้อย่อยและข้อมูลในแต่ละบรรทัดแทน
     3. ตอบคำถามอย่างเป็นมืออาชีพ กระชับ แต่มีรายละเอียดที่ใช้งานได้จริง (Actionable Suggestions)
-    4. หากคุณครูถามเรื่อง "โครงการ" ให้สรุปรายชื่อและงบประมาณจาก [ส่วนที่ 1] ให้ครบถ้วน
-    5. หากคุณครูถามเรื่อง "ค่าน้ำ", "ค่าไฟ", "ค่าเน็ต" หรือ "ค่าสาธารณูปโภค" ให้ประมวลผลข้อมูลและสรุปยอดเบิกจากรายการค่าสาธารณูปโภคใน [ส่วนที่ 1] ให้ชัดเจน
-    6. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยใช้เนื้อหาจาก [ส่วนที่ 2] มาสรุปเพิ่มเติม
-    7. ตอบในฐานะผู้ช่วยครูที่เป็นมิตร สุภาพ มีหางเสียง (ครับ/ค่ะ) และสร้างพลังบวกในการทำงาน`;
+    4. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ หรือคำถามเกี่ยวกับระเบียบ/ข้อบังคับ จึงค่อยใช้เนื้อหาจาก [ส่วนที่ 2] มาสรุปเพิ่มเติม
+    5. ตอบในฐานะผู้ช่วยครูที่เป็นมิตร สุภาพ มีหางเสียง (ครับ/ค่ะ) และสร้างพลังบวกในการทำงาน`;
 
     const finalAnswer = await callGemini(context, apiKey);
     await replyToLine(replyToken, finalAnswer);
