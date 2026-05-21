@@ -10,7 +10,9 @@ import {
   Loader2, 
   Upload, 
   Image as ImageIcon,
-  CheckCircle2,
+  CheckCircle2, 
+  MessageCircle,
+  ExternalLink,
   Trash2
 } from 'lucide-react';
 
@@ -21,6 +23,7 @@ export default function Profile() {
   const [selectedSignature, setSelectedSignature] = useState<File | null>(null);
   const [sigPreviewUrl, setSigPreviewUrl] = useState<string | null>(null);
   const [teacherInfo, setTeacherInfo] = useState<any>(null);
+  const [lineLink, setLineLink] = useState('');
 
   const fetchTeacherInfo = async (email: string) => {
     if (!email) return;
@@ -37,12 +40,22 @@ export default function Profile() {
     }
   };
 
+  async function fetchSettings() {
+    try {
+      const { data } = await supabase.from('settings').select('line_oa_link').maybeSingle();
+      if (data) setLineLink(data.line_oa_link || '');
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  }
+
   useEffect(() => {
     if (profile) {
       setDisplayName(profile.display_name || '');
       setSigPreviewUrl(profile.signature_url || null);
       fetchTeacherInfo(profile.email);
     }
+    fetchSettings();
   }, [profile]);
 
   async function handleUpdateProfile(e: React.FormEvent) {
@@ -132,6 +145,46 @@ export default function Profile() {
              <p className="text-[10px] text-slate-400 leading-relaxed font-bold">
                ลายเซ็นดิจิทัลของคุณจะถูกเก็บรักษาไว้อย่างปลอดภัยและจะถูกนำไปใช้เฉพาะเมื่อคุณดำเนินการผ่านระบบสารบรรณของโรงเรียนเท่านั้น
              </p>
+          </div>
+
+          {/* LINE Connection Status */}
+          <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm space-y-4">
+             <div className="flex items-center gap-3">
+                <MessageCircle size={20} className="text-[#06C755]" />
+                <p className="text-xs font-black text-slate-800 uppercase tracking-widest">การเชื่อมต่อ LINE</p>
+             </div>
+             {profile?.line_user_id ? (
+               <div className="space-y-2">
+                 <div className="flex items-center gap-2 text-green-600">
+                   <CheckCircle2 size={14} />
+                   <span className="text-[10px] font-black uppercase">เชื่อมต่อแล้ว</span>
+                 </div>
+                 <p className="text-[9px] text-slate-400 font-bold leading-relaxed">
+                   คุณสามารถสอบถามข้อมูลโรงเรียนผ่าน LINE OA ได้ทันที
+                 </p>
+               </div>
+             ) : (
+               <div className="space-y-3">
+                 <p className="text-[10px] text-slate-400 font-bold leading-relaxed italic">
+                   ยังไม่ได้เชื่อมต่อบัญชี LINE
+                 </p>
+                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-[9px] text-slate-600 font-bold leading-relaxed">
+                      วิธีเชื่อมต่อ: เพิ่มเพื่อน LINE OA ของโรงเรียนแล้วพิมพ์อีเมลของคุณส่งไปในแชท
+                    </p>
+                 </div>
+                 {lineLink && (
+                   <a 
+                     href={lineLink} 
+                     target="_blank" 
+                     rel="noreferrer"
+                     className="w-full py-3 bg-[#06C755] text-white rounded-xl font-black text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-green-100 hover:bg-[#05b34c] transition-all uppercase tracking-widest"
+                   >
+                     <ExternalLink size={14} /> เพิ่มเพื่อน LINE OA ตอนนี้
+                   </a>
+                 )}
+               </div>
+             )}
           </div>
         </div>
 

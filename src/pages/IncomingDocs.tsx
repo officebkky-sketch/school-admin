@@ -244,7 +244,9 @@ export default function IncomingDocs() {
         }
 
         console.log('Uploading to Supabase Staging...');
-        const tempPath = `temp_${Date.now()}_${mainFile.name}`;
+        // ตั้งชื่อไฟล์เป็นภาษาอังกฤษเพื่อป้องกันปัญหา Invalid Key จากชื่อไฟล์ภาษาไทยใน Supabase
+        const fileExt = mainFile.name.split('.').pop() || 'pdf';
+        const tempPath = `temp_${Date.now()}.${fileExt}`;
         file_url = await uploadToSupabase(fileToStaging, 'temp_docs', tempPath);
       }
 

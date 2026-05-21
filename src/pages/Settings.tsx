@@ -28,6 +28,7 @@ export default function Settings() {
     local_gov_name: '',
     line_channel_access_token: '',
     line_group_id: '',
+    line_oa_link: '',
     gemini_api_key: '',
     ai_cowork_api_key: ''
   });
@@ -218,6 +219,16 @@ export default function Settings() {
                     value={settings.line_group_id}
                     onChange={e => setSettings({...settings, line_group_id: e.target.value})}
                     placeholder="เช่น C1234567890abcdef..."
+                  />
+                </div>
+                <div className="col-span-full space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#06C755]">ลิงก์เพิ่มเพื่อน LINE OA (เช่น https://line.me/R/ti/p/@...)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-[#06C755]/10 focus:border-[#06C755] transition-all"
+                    value={settings.line_oa_link || ''}
+                    onChange={e => setSettings({...settings, line_oa_link: e.target.value})}
+                    placeholder="ใส่ลิงก์สำหรับให้ครูกดเพิ่มเพื่อน..."
                   />
                 </div>
               </div>

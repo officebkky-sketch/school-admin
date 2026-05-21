@@ -9,6 +9,7 @@ interface Profile {
   role: 'admin' | 'director' | 'teacher' | 'guest';
   status: string;
   signature_url?: string;
+  line_user_id?: string;
   extra_permissions?: Record<string, any>;
 }
 
