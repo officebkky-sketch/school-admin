@@ -135,10 +135,10 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
       return;
     }
 
-    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"];
+    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
     const versions = ["v1beta", "v1"];
     let finalAnswer = "";
-    let lastGoogleError = "";
+    let attemptLogs: string[] = [];
 
     for (const model of modelsToTry) {
       if (finalAnswer) break;
@@ -158,11 +158,11 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
             finalAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
             if (finalAnswer) break;
           } else {
-            lastGoogleError = `[${model} ${ver}] ${response.status}: ${data.error?.message || JSON.stringify(data)}`;
-            console.warn('Google API Error:', lastGoogleError);
+            const errMsg = data.error?.message || JSON.stringify(data);
+            attemptLogs.push(`❌ ${model} (${ver}): ${response.status} - ${errMsg.slice(0, 100)}`);
           }
         } catch (e: any) {
-          lastGoogleError = `Fetch Error: ${e.message}`;
+          attemptLogs.push(`❌ ${model} (${ver}): Fetch Error - ${e.message}`);
         }
       }
     }
@@ -170,7 +170,7 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     if (finalAnswer) {
       await replyToLine(replyToken, finalAnswer);
     } else {
-      throw new Error(`AI ทุกรุ่นปฏิเสธการทำงาน\nรายละเอียดล่าสุด: ${lastGoogleError}`);
+      throw new Error(`AI ทุกรุ่นไม่สามารถทำงานได้:\n${attemptLogs.join('\n')}`);
     }
 
   } catch (err: any) {
