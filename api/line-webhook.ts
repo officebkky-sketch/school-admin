@@ -105,22 +105,48 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
       }
     });
 
-    // 3. Knowledge Base Context (RAG / Vector Search)
+    // 3. Knowledge Base Context (RAG / Hybrid Search)
     let knowledgeContext = "";
     try {
+       // 3.1 Vector Search (Primary)
        const embedding = await generateEmbedding(message, apiKey);
+       let matches: any[] = [];
+       
        if (embedding) {
-          const { data: matches } = await supabase.rpc('match_knowledge', {
+          const { data: vectorMatches } = await supabase.rpc('match_knowledge', {
             query_embedding: embedding,
-            match_threshold: 0.1, // ลดความเข้มงวดลงเพื่อให้หาข้อมูลง่ายขึ้น
-            match_count: 10 // เพิ่มจำนวนเนื้อหาที่ดึงมา
+            match_threshold: 0.1,
+            match_count: 5
           });
-          if (matches && matches.length > 0) {
-            knowledgeContext = matches.map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
+          if (vectorMatches) matches = [...vectorMatches];
+       }
+
+       // 3.2 Text Search (Fallback/Supplement)
+       if (matches.length < 3) {
+          // Extract keywords (simple split for demo, can be improved)
+          const keywords = message.split(' ').filter(k => k.length > 2);
+          if (keywords.length > 0) {
+            const orQuery = keywords.map(k => `chunk_text.ilike.%${k}%`).join(',');
+            const { data: textMatches } = await supabase
+              .from('school_knowledge')
+              .select('document_name, chunk_text')
+              .or(orQuery)
+              .limit(5);
+            
+            if (textMatches) {
+               // Combine and deduplicate
+               const allMatches = [...matches, ...textMatches];
+               matches = allMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
+            }
           }
        }
+
+       if (matches.length > 0) {
+         // Limit to top 10 chunks to avoid exceeding context window
+         knowledgeContext = matches.slice(0, 10).map((m: any) => `[แหล่งข้อมูล: ${m.document_name}]\nเนื้อหา: ${m.chunk_text}`).join('\n---\n');
+       }
     } catch (err) {
-       console.warn('Vector Search failed:', err);
+       console.warn('Hybrid Search failed:', err);
     }
 
     const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
