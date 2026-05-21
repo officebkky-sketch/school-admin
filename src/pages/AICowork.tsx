@@ -322,7 +322,7 @@ export default function AICowork() {
 
   // Chat States
   const [messages, setMessages] = useState<any[]>([
-    { role: 'ai', text: 'สวัสดีครับ ผม AI Cowork ผู้ช่วยอัจฉริยะของคุณครู มีอะไรให้ผมช่วยสรุปหรือค้นหาข้อมูลจากคลังเอกสารของคุณครูไหมครับ?' }
+    { role: 'ai', text: 'สวัสดีค่ะ ชบาคือ "น้องชบา" ผู้ช่วยอัจฉริยะของคุณครู มีอะไรให้หนูช่วยสรุปหรือค้นหาข้อมูลในคลังเอกสารไหมคะ?' }
   ]);
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -425,13 +425,13 @@ export default function AICowork() {
 
   async function handleKnowledgeUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (profile?.role !== 'admin' && profile?.role !== 'director') {
-      alert('ขออภัยครับ เฉพาะผู้ดูแลระบบหรือผู้อำนวยการเท่านั้นที่มีสิทธิ์เพิ่มข้อมูลคลังสมองส่วนกลาง');
+      alert('ขออภัยค่ะ เฉพาะผู้ดูแลระบบหรือผู้อำนวยการเท่านั้นที่มีสิทธิ์เพิ่มข้อมูลคลังสมองส่วนกลาง');
       return;
     }
     if (!e.target.files?.length) return;
     const file = e.target.files[0];
     if (file.type !== 'application/pdf') {
-      alert('กรุณาเลือกไฟล์ PDF เท่านั้นครับ');
+      alert('กรุณาเลือกไฟล์ PDF เท่านั้นค่ะ');
       return;
     }
 
@@ -441,14 +441,14 @@ export default function AICowork() {
     try {
       const { data: settings } = await supabase.from('settings').select('gemini_api_key').single();
       const apiKey = settings?.gemini_api_key;
-      if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key ก่อนครับ');
+      if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key ก่อนค่ะ');
 
       const buffer = await file.arrayBuffer();
       await processDocumentToKnowledge(buffer, file.name, apiKey, (current, total) => {
         setProcessingStatus({ current, total, fileName: file.name });
       });
 
-      alert('AI ย่อยข้อมูลและจดจำลงสมองเรียบร้อยแล้วครับ!');
+      alert('ชบาย่อยข้อมูลและจดจำลงสมองเรียบร้อยแล้วค่ะ!');
       fetchKnowledgeFiles();
     } catch (err: any) {
       alert('เกิดข้อผิดพลาด: ' + err.message);
@@ -460,10 +460,10 @@ export default function AICowork() {
 
   async function handleDeleteKnowledge(fileName: string) {
     if (profile?.role !== 'admin' && profile?.role !== 'director') {
-      alert('ขออภัยครับ เฉพาะผู้ดูแลระบบหรือผู้อำนวยการเท่านั้นที่มีสิทธิ์ลบข้อมูลคลังสมองส่วนกลาง');
+      alert('ขออภัยค่ะ เฉพาะผู้ดูแลระบบหรือผู้อำนวยการเท่านั้นที่มีสิทธิ์ลบข้อมูลคลังสมองส่วนกลาง');
       return;
     }
-    if (!confirm(`ยืนยันการลบความรู้จากไฟล์ "${fileName}" ออกจากสมอง AI?`)) return;
+    if (!confirm(`ยืนยันการลบความรู้จากไฟล์ "${fileName}" ออกจากสมองของชบาคะ?`)) return;
     try {
       const { error } = await supabase.from('school_knowledge').delete().eq('document_name', fileName);
       if (error) throw error;
@@ -511,7 +511,7 @@ export default function AICowork() {
   }
 
   async function handleDeleteFile(id: string, url: string) {
-    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบเอกสารนี้?')) return;
+    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบเอกสารนี้คะ?')) return;
     try {
       await deleteFileFromDrive(url);
       await supabase.from('ai_knowledge_base').delete().eq('id', id);
@@ -533,7 +533,7 @@ export default function AICowork() {
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       const currentYear = settings?.current_academic_year || '2569';
       
-      if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ก่อนใช้งาน');
+      if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ก่อนนะคะ');
 
       // 1. วางแผนสืบค้นข้อมูลฐานข้อมูลแบบไดนามิก (Dynamic Database AI Solver)
       let dbContextParts: string[] = [];
@@ -762,58 +762,27 @@ export default function AICowork() {
         ? privateMatches.map((m: any) => `[อ้างอิงเอกสารส่วนตัวของคุณครู: ${m.file_name}]\n${m.snippet}`).join('\n\n')
         : "ไม่พบข้อมูลที่ตรงกันในเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)";
 
-      // 5. สร้าง Prompt สำหรับ Gemini
-      const isWorksheet = userMsg.includes('ใบงาน') || userMsg.includes('ฝึกหัด') || userMsg.includes('ข้อสอบ');
-      const isMemo = userMsg.includes('บันทึกข้อความ') || userMsg.includes('โครงการ') || userMsg.includes('ร่าง');
-      const isAnalysis = userMsg.includes('วิเคราะห์') || userMsg.includes('เสนอแนะ') || userMsg.includes('สรุป');
-      const isSocial = userMsg.includes('โพสต์') || userMsg.includes('ประชาสัมพันธ์') || userMsg.includes('Facebook');
-      const isCreative = userMsg.includes('กิจกรรม') || userMsg.includes('เกม') || userMsg.includes('สร้างสรรค์');
-
-      const prompt = `คุณคือ AI Cowork ผู้ช่วยครูอัจฉริยะของโรงเรียนบ้านควนโคกยา
+      const prompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา (ห้ามใช้ดอกจัน * เด็ดขาด)
       
-      [ความสามารถพิเศษที่ต้องใช้ในครั้งนี้]
-      ${isWorksheet ? '- ทำหน้าที่เป็น: "ครูวิชาการเชี่ยวชาญด้านการออกแบบสื่อการสอน"' : ''}
-      ${isMemo ? '- ทำหน้าที่เป็น: "ผู้เชี่ยวชาญงานสารบรรณและธุรการโรงเรียน"' : ''}
-      ${isAnalysis ? '- ทำหน้าที่เป็น: "นักวิเคราะห์ข้อมูลและที่ปรึกษาผู้บริหารโรงเรียน"' : ''}
-      ${isSocial ? '- ทำหน้าที่เป็น: "นักประชาสัมพันธ์และคอนเทนต์ครีเอเตอร์มือโปร"' : ''}
-      ${isCreative ? '- ทำหน้าที่เป็น: "นักออกแบบการเรียนรู้เชิงสร้างสรรค์ (Learning Designer)"' : ''}
-
-      [ส่วนที่ 1: ข้อมูลจริงจากระบบฐานข้อมูล (สืบค้นด้วย Dynamic Query Solver มีความแม่นยำสูง)]
+      [ส่วนที่ 1: ข้อมูลฐานข้อมูล]
       ${dbContext}
 
-      [ส่วนที่ 2: ข้อมูลจากคลังปัญญาโรงเรียน (ส่วนกลาง)]
+      [ส่วนที่ 2: คลังปัญญา]
       ${knowledgeContext}
 
-      [ส่วนที่ 3: ข้อมูลจากเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)]
-      * รายชื่อไฟล์ทั้งหมดใน Virtual Drive ของครูผู้นี้ (เรียงจากใหม่สุดไปเก่าสุด):
-      ${personalDocsList}
-      
-      * เนื้อหาจากไฟล์ที่เกี่ยวข้องหรือค้นพบ (Snippet):
-      ${privateContext}
+      [ส่วนที่ 3: เอกสารส่วนตัว]
+      * รายชื่อไฟล์: ${personalDocsList}
+      * เนื้อหาที่เกี่ยวข้อง: ${privateContext}
 
-      คำถามของคุณครู: ${userMsg}
+      คำถามของคุณครู ${profile?.display_name}: "${userMsg}"
 
-      คำแนะนำและกฎการตอบคำถามแบบ Hybrid (Hybrid Prompt System):
-      * การตัดสินใจเลือกรูปแบบคำตอบ:
-        - หากคำถามเป็นการสั่งให้สร้างชิ้นงานเฉพาะทาง เช่น ออกแบบใบงาน/ข้อสอบ, ร่างจดหมายราชการ/บันทึกข้อความ, วิเคราะห์สถิติข้อมูลเชิงลึก, ร่างโพสต์ Facebook/PR หรือออกแบบกิจกรรมการเรียนรู้/เกม ให้บังคับใช้ "กฎเหล็กการตอบสำหรับงานเฉพาะทาง (STRICT RULES)" อย่างเข้มงวดและครบถ้วนตามรูปแบบที่กำหนด
-        - หากไม่ใช่คำถามเฉพาะทาง (เช่น เป็นการถามคำถามทั่วไป, ขอสรุปสาระสำคัญ, สอบถามสถิติทั่วไป, ปรึกษาวิธีปฏิบัติการสอน หรือพูดคุยทั่วไป) ให้ใช้ "กฎทั่วไปสำหรับการตอบคำถามทั่วไป" เพื่อให้คำตอบที่สั้น กระชับ สลวย ตรงประเด็น ทันใจ โดยไม่ต้องใช้โครงสร้างเอกสารหรือหัวข้อย่อยที่ซับซ้อนเกินความจำเป็น
+      กฎเหล็ก (STRICT RULES):
+      1. ห้ามใช้เครื่องหมายดอกจัน (*) เด็ดขาด (ห้ามมีเครื่องหมาย * ในคำตอบแม้แต่อันเดียว)
+      2. แทนตัวว่า "ชบา/หนู" และใช้ "ค่ะ/นะคะ" ห้ามมี "ครับ" หรือ "AI Cowork"
+      3. ห้ามเกริ่นนำ ห้ามทวนคำถาม ให้ตอบผลลัพธ์สุดท้ายทันที
+      4. เขียนให้กระชับ ติดกัน ไม่เว้นบรรทัดห่างเกินไป 
 
-      [กฎทั่วไปสำหรับการตอบคำถามทั่วไป (ถอดแบบจากเวอร์ชัน 1.0.6)]
-      1. หากคำถามเกี่ยวกับ "จำนวน" หรือ "สถิติ" ของโรงเรียน ให้วิเคราะห์และตอบโดยอ้างอิงจากตัวเลขและข้อมูลจริงใน [ส่วนที่ 1] อย่างแม่นยำ
-      2. หากคำถามเกี่ยวกับ "ระเบียบ" หรือ "วิธีปฏิบัติ" ส่วนกลาง ให้ใช้ข้อมูลอ้างอิงคลังกลางจาก [ส่วนที่ 2] ในการตอบ
-      3. หากคำถามเกี่ยวกับ "เอกสารหรือไฟล์ส่วนตัว" ให้ตรวจสอบและใช้ข้อมูลจาก [ส่วนที่ 3]
-      4. หากคุณครูถามถึง "เอกสารล่าสุด" หรือขอสรุปไฟล์ล่าสุด ให้ตรวจสอบไฟล์ล่าสุดจาก [ส่วนที่ 3] และสรุปเนื้อหาหลักให้ชัดเจน ครอบคลุมสาระสำคัญ
-      5. จัดรูปแบบคำตอบให้อ่านง่ายที่สุด โดยใช้ Markdown (## หัวข้อ, **ตัวหนา**, รายการข้อ) เพื่อเน้นข้อมูลสำคัญ
-      6. หากไม่พบข้อมูลในฐานข้อมูล คลังกลาง หรือเอกสารส่วนตัว ให้ระบุอย่างชัดเจนว่า "ไม่พบข้อมูลนี้ในระบบของโรงเรียน" และให้คำแนะนำหรือวิเคราะห์เพิ่มเติมตามหลักการทั่วไป
-      7. ใช้ภาษาไทยที่สุภาพ เป็นทางการแต่มีความเป็นกันเอง มีหางเสียง (ครับ/ค่ะ) เสมอ
-
-      [กฎเหล็กการตอบสำหรับงานเฉพาะทาง (STRICT RULES FOR SPECIALIZED WORK)]
-      1. ออกแบบใบงาน/แบบฝึกหัด/ข้อสอบ: ออกแบบโครงสร้างใบงานให้ชัดเจน (ชื่อ-นามสกุล, ชั้น, เลขที่, คำชี้แจง, โจทย์คำถาม) และต้องแยกเฉลย (Answer Key) ไว้ส่วนท้ายสุดเสมอ
-      2. ร่างบันทึกข้อความ/โครงการ: ร่างข้อความตามแบบฟอร์มหนังสือราชการอย่างสละสลวย (ส่วนราชการ, ที่, วันที่, เรื่อง, คำขึ้นต้น, เนื้อหาภาคเหตุ-ภาคประสงค์-ภาคสรุป)
-      3. วิเคราะห์ข้อมูลเชิงลึก: อ้างอิงตัวเลขสถิติจริงจาก [ส่วนที่ 1] พร้อมเสนอข้อเสนอแนะเชิงรุก (Actionable Advice) อย่างน้อย 3 ข้อที่เป็นรูปธรรม
-      4. ร่างโพสต์ประชาสัมพันธ์/Facebook PR: เขียนเนื้อหาดึงดูด น่าติดตาม (Engagement) มีอีโมจิสร้างสรรค์ และติดแฮชแท็ก (#) ของโรงเรียน
-      5. ออกแบบกิจกรรม/เกมการเรียนรู้: กำหนดรายละเอียดกิจกรรม (ขั้นตอน How to play, อุปกรณ์, เกณฑ์ประเมินผล) เน้นการเรียนรู้แบบ Active Learning
-      6. จัดรูปแบบให้สวยงาม มีช่องว่างที่อ่านง่าย ไม่บีบอัดข้อความยาวเกินไป`;
+      ตอบอย่างเฉลียวฉลาด นอบน้อม และเข้าเรื่องทันทีค่ะ`;
 
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
@@ -867,7 +836,7 @@ export default function AICowork() {
       
       setMessages(prev => [...prev, { role: 'ai', text: aiResponseText }]);
     } catch (err: any) {
-      setMessages(prev => [...prev, { role: 'ai', text: `ขออภัยครับ เกิดข้อผิดพลาด: ${err.message}` }]);
+      setMessages(prev => [...prev, { role: 'ai', text: `ขออภัยค่ะ เกิดข้อผิดพลาด: ${err.message}` }]);
     } finally {
       setIsThinking(false);
     }
@@ -906,13 +875,13 @@ export default function AICowork() {
                    <Sparkles size={20} />
                 </div>
                 <div>
-                   <h3 className="font-black text-slate-800 text-sm">Gemini AI Assistant</h3>
+                   <h3 className="font-black text-slate-800 text-sm">น้องชบา (Nong Chaba)</h3>
                    <p className="text-[10px] text-green-500 font-bold uppercase tracking-widest flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> Online
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> พร้อมช่วยงานค่ะ
                    </p>
                 </div>
              </div>
-             <button onClick={() => setMessages([{ role: 'ai', text: 'รีเซ็ตการสนทนาเรียบร้อยครับ มีอะไรให้ช่วยไหมครับ?' }])} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
+             <button onClick={() => setMessages([{ role: 'ai', text: 'รีเซ็ตการสนทนาเรียบร้อยค่ะ มีอะไรให้ชบาช่วยไหมคะ?' }])} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
                 <RefreshCw size={18} />
              </button>
           </div>
@@ -1024,7 +993,7 @@ export default function AICowork() {
                 <div className="bg-white p-5 rounded-[28px] rounded-tl-none border border-slate-100 shadow-sm">
                   <div className="flex items-center gap-2">
                      <Loader2 size={20} className="animate-spin text-brand-primary" />
-                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI กำลังวิเคราะห์คลังปัญญา...</span>
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ชบากำลังวิเคราะห์คลังปัญญา...</span>
                   </div>
                 </div>
               </div>
@@ -1075,7 +1044,7 @@ export default function AICowork() {
                   type="text" 
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder="พิมพ์คำถามของคุณครูที่นี่ (เช่น ช่วยสรุประเบียบพัสดุในคลังให้หน่อย)..." 
+                  placeholder="พิมพ์คำถามถึงน้องชบาที่นี่นะคะ (เช่น ช่วยสรุประเบียบพัสดุให้หน่อย)..." 
                   className="w-full pl-6 pr-14 py-4 bg-white border border-slate-200 rounded-[24px] font-bold text-slate-700 outline-hidden focus:ring-4 focus:ring-brand-primary/5 focus:border-brand-primary transition-all shadow-sm"
                 />
                 <button type="submit" className="absolute right-2 top-2 w-10 h-10 bg-brand-primary text-white rounded-full flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all">
@@ -1141,7 +1110,7 @@ export default function AICowork() {
                 {loading ? (
                   <div className="flex flex-col items-center justify-center h-64 text-slate-300">
                      <Loader2 className="animate-spin mb-4" size={40} />
-                     <p className="font-bold uppercase tracking-widest text-[10px]">กำลังโหลดคลังเอกสาร...</p>
+                     <p className="font-bold uppercase tracking-widest text-[10px]">ชบากำลังโหลดคลังเอกสาร...</p>
                   </div>
                 ) : files.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1167,7 +1136,7 @@ export default function AICowork() {
                   <div className="flex flex-col items-center justify-center py-20 text-slate-300 border-2 border-dashed border-slate-100 rounded-[40px]">
                      <FolderOpen size={64} className="mb-4 opacity-20" />
                      <p className="font-black uppercase tracking-[0.2em] text-sm">ไม่มีเอกสารในหมวดหมู่นี้</p>
-                     <p className="text-[10px] font-bold mt-1 text-slate-400">อัปโหลดไฟล์แรกของคุณครูเพื่อเริ่มให้ AI ช่วยวิเคราะห์</p>
+                     <p className="text-[10px] font-bold mt-1 text-slate-400">อัปโหลดไฟล์แรกของคุณครูเพื่อเริ่มให้ชบาช่วยวิเคราะห์นะคะ</p>
                   </div>
                 )}
              </div>
@@ -1187,7 +1156,7 @@ export default function AICowork() {
             <div className="flex gap-3">
               <label className={`bg-brand-primary text-white px-8 py-4 rounded-2xl font-black text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-green-100 transition-all active:scale-95 ${isProcessing ? 'opacity-50 pointer-events-none' : 'hover:bg-green-700'}`}>
                 <input type="file" className="hidden" accept="application/pdf" onChange={handleKnowledgeUpload} />
-                <UploadCloud size={20} /> สอนงาน AI (ป้อน PDF)
+                <UploadCloud size={20} /> สอนงานชบา (ป้อน PDF)
               </label>
             </div>
           </div>
@@ -1198,7 +1167,7 @@ export default function AICowork() {
                   <div className="flex items-center gap-3">
                      <Loader2 className="animate-spin" size={24} />
                      <div>
-                        <p className="font-black text-lg">AI กำลังอ่านและจดจำเนื้อหา...</p>
+                        <p className="font-black text-lg">ชบากำลังอ่านและจดจำเนื้อหาค่ะ...</p>
                         <p className="text-blue-100 text-xs font-bold uppercase tracking-widest">ไฟล์: {processingStatus.fileName}</p>
                      </div>
                   </div>
@@ -1210,7 +1179,7 @@ export default function AICowork() {
                <div className="h-3 bg-white/20 rounded-full overflow-hidden shadow-inner">
                   <div className="h-full bg-white transition-all duration-300" style={{ width: `${(processingStatus.current / processingStatus.total) * 100}%` }}></div>
                </div>
-               <p className="text-[10px] font-black uppercase mt-4 tracking-widest text-center opacity-80">* กรุณาอย่าปิดหน้านี้จนกว่าการประมวลผลจะเสร็จสิ้น *</p>
+               <p className="text-[10px] font-black uppercase mt-4 tracking-widest text-center opacity-80">* กรุณาอย่าปิดหน้านี้จนกว่าชบาจะทำงานเสร็จนะคะ *</p>
             </div>
           )}
 
@@ -1228,7 +1197,7 @@ export default function AICowork() {
                   </div>
                   <h4 className="font-black text-slate-800 text-lg line-clamp-2 mb-2" title={file.document_name}>{file.document_name}</h4>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <CheckCircle2 size={14} className="text-green-500" /> จดจำเข้าระบบแล้ว
+                    <CheckCircle2 size={14} className="text-green-500" /> จดจำเข้าระบบแล้วค่ะ
                   </p>
                   <div className="mt-6 pt-6 border-t border-slate-100 flex justify-between items-center text-[10px] font-black text-slate-400 uppercase">
                     <span>วันที่จดจำ: {new Date(file.created_at).toLocaleDateString('th-TH')}</span>
@@ -1239,8 +1208,8 @@ export default function AICowork() {
               {knowledgeFiles.length === 0 && !loading && (
                 <div className="col-span-full py-20 flex flex-col items-center justify-center text-slate-300 border-4 border-dashed border-slate-50 rounded-[40px]">
                    <BrainCircuit size={80} className="mb-6 opacity-10" />
-                   <p className="text-xl font-black uppercase tracking-[0.2em]">สมอง AI ยังว่างเปล่า</p>
-                   <p className="text-sm font-bold mt-2 text-slate-400 max-w-sm text-center">เริ่มสอนงาน AI โดยการอัปโหลดระเบียบหรือคู่มือการทำงานของโรงเรียน เพื่อให้ AI ช่วยตอบคำถามและร่างเอกสารได้แม่นยำขึ้น</p>
+                   <p className="text-xl font-black uppercase tracking-[0.2em]">สมองชบายังว่างเปล่าค่ะ</p>
+                   <p className="text-sm font-bold mt-2 text-slate-400 max-w-sm text-center">เริ่มสอนงานชบาโดยการอัปโหลดระเบียบหรือคู่มือการทำงานของโรงเรียนนะคะ เพื่อให้ชบาช่วยตอบคำถามและร่างเอกสารได้แม่นยำขึ้น</p>
                 </div>
               )}
             </div>
