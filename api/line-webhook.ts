@@ -137,7 +137,7 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
     const result = await model.generateContent(context);
     const response = await result.response;
     const text = response.text();
