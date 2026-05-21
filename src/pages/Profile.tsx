@@ -10,10 +10,11 @@ import {
   Loader2, 
   Upload, 
   Image as ImageIcon,
-  CheckCircle2,
-  Trash2,
-  MessageCircle
-} from 'lucide-react';
+  CheckCircle2, 
+  Shield,
+  MessageCircle,
+  ExternalLink
+  } from 'lucide-react';
 
 export default function Profile() {
   const { user, profile, refreshProfile } = useAuth();
@@ -232,6 +233,21 @@ export default function Profile() {
                  </p>
               </div>
             </div>
+
+            <button 
+              type="submit" 
+              disabled={isSaving}
+              className="w-full py-5 bg-brand-primary text-white rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50"
+            >
+              {isSaving ? <Loader2 className="animate-spin" /> : <Save />} บันทึกการเปลี่ยนแปลง
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+     </div>
 
             <button 
               type="submit" 
