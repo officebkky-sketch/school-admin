@@ -21,53 +21,54 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const events = req.body.events;
+  try {
+    const events = req.body.events || [];
 
-  for (const event of events) {
-    if (event.type === 'message' && event.message.type === 'text') {
-      const userId = event.source.userId;
-      const userMessage = event.message.text.trim();
+    for (const event of events) {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userId = event.source.userId;
+        const userMessage = event.message.text.trim();
 
-      // 1. Check if user is already bound
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('line_user_id', userId)
-        .maybeSingle();
+        // 1. Check if user is already bound
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('line_user_id', userId)
+          .maybeSingle();
 
-      if (profile) {
-        // --- AI QUERY LOGIC (Placeholder for now) ---
-        await replyToLine(event.replyToken, `สวัสดีครับคุณครู ${profile.display_name} มีอะไรให้ AI Cowork ช่วยไหมครับ? (ระบบกำลังพัฒนาระบบสอบถามข้อมูล)`);
-      } else {
-        // 2. Not bound yet. Check if the message is an email
-        if (userMessage.includes('@')) {
-          const { data: foundUser } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('email', userMessage)
-            .maybeSingle();
-
-          if (foundUser) {
-            // Bind the user
-            const { error: updateError } = await supabase
+        if (profile) {
+          await replyToLine(event.replyToken, `สวัสดีครับคุณครู ${profile.display_name} มีอะไรให้ AI Cowork ช่วยไหมครับ? (ระบบกำลังพัฒนาระบบสอบถามข้อมูล)`);
+        } else {
+          // 2. Not bound yet. Check if the message is an email
+          if (userMessage.includes('@')) {
+            const { data: foundUser } = await supabase
               .from('profiles')
-              .update({ line_user_id: userId })
-              .eq('id', foundUser.id);
+              .select('*')
+              .eq('email', userMessage)
+              .maybeSingle();
 
-            if (updateError) {
-              await replyToLine(event.replyToken, 'เกิดข้อผิดพลาดในการผูกบัญชี กรุณาลองใหม่อีกครั้ง หรือติดต่อแอดมินครับ');
+            if (foundUser) {
+              const { error: updateError } = await supabase
+                .from('profiles')
+                .update({ line_user_id: userId })
+                .eq('id', foundUser.id);
+
+              if (updateError) {
+                await replyToLine(event.replyToken, 'เกิดข้อผิดพลาดในการผูกบัญชี กรุณาลองใหม่อีกครั้งครับ');
+              } else {
+                await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบ AI Cowork ครับ`);
+              }
             } else {
-              await replyToLine(event.replyToken, `ยืนยันตัวตนสำเร็จ! ยินดีต้อนรับคุณครู ${foundUser.display_name} เข้าสู่ระบบ AI Cowork ครับ`);
+              await replyToLine(event.replyToken, 'ขออภัยครับ ไม่พบอีเมลนี้ในระบบโรงเรียน กรุณาตรวจสอบอีเมลและส่งมาใหม่ครับ');
             }
           } else {
-            await replyToLine(event.replyToken, 'ขออภัยครับ ไม่พบอีเมลนี้ในระบบโรงเรียน กรุณาตรวจสอบอีเมลและพิมพ์ส่งมาใหม่อีกครั้งครับ');
+            await replyToLine(event.replyToken, 'สวัสดีครับ ผม AI Cowork ผู้ช่วยอัจฉริยะ\n\nเพื่อเข้าถึงข้อมูลโรงเรียนได้อย่างปลอดภัย รบกวนคุณครูพิมพ์ **อีเมล** ที่ใช้ลงทะเบียนในระบบเพื่อยืนยันตัวตนก่อนครับ');
           }
-        } else {
-          // Greeting for new user
-          await replyToLine(event.replyToken, 'สวัสดีครับ ผม AI Cowork ผู้ช่วยอัจฉริยะ\n\nเพื่อเข้าถึงข้อมูลโรงเรียนได้อย่างปลอดภัย รบกวนคุณครูพิมพ์ **อีเมล** ที่ใช้ลงทะเบียนในระบบเพื่อยืนยันตัวตนก่อนครับ');
         }
       }
     }
+  } catch (err) {
+    console.error('Webhook error:', err);
   }
 
   return res.status(200).json({ message: 'OK' });
@@ -76,15 +77,19 @@ export default async function handler(req: any, res: any) {
 async function replyToLine(replyToken: string, message: string) {
   if (!LINE_ACCESS_TOKEN) return;
   
-  await fetch('https://api.line.me/v2/bot/message/reply', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${LINE_ACCESS_TOKEN}`
-    },
-    body: JSON.stringify({
-      replyToken: replyToken,
-      messages: [{ type: 'text', text: message }]
-    })
-  });
+  try {
+    await fetch('https://api.line.me/v2/bot/message/reply', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LINE_ACCESS_TOKEN}`
+      },
+      body: JSON.stringify({
+        replyToken: replyToken,
+        messages: [{ type: 'text', text: message }]
+      })
+    });
+  } catch (e) {
+    console.error('Error replying to LINE:', e);
+  }
 }
