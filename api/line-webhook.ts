@@ -88,6 +88,7 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     const currentYear = sets?.current_academic_year || '2569';
     const { data: students } = await supabaseAdmin.from('students').select('class_level, gender, religion, prefix').eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
     const { count: teacherCount } = await supabaseAdmin.from('teachers').select('*', { count: 'exact', head: true });
+    const { data: projects } = await supabaseAdmin.from('school_projects').select('project_name, planned_amount, status').eq('academic_year', currentYear);
     
     const religionStats: any = {};
     const classStats: any = {};
@@ -159,22 +160,24 @@ async function handleFullAIQuery(replyToken: string, message: string, profile: a
     }
 
     const context = `คุณคือ AI Cowork ผู้ช่วยอัจฉริยะของ${sets?.school_name || 'โรงเรียน'} 
-    [ข้อมูลสถิติปัจจุบัน (ปี ${currentYear})]
-    - จำนวนนักเรียนทั้งหมด: ${students?.length || 0} คน
-    - สรุปศาสนา: ${Object.entries(religionStats).map(([r, c]) => `${r} ${c} คน`).join(', ')}
+    [ส่วนที่ 1: ข้อมูลสถิติและโครงการจากฐานข้อมูลโดยตรง (แม่นยำสูง)]
+    - ปีการศึกษา: ${currentYear}
+    - จำนวนนักเรียน: ${students?.length || 0} คน
     - สรุปรายชั้น: ${Object.entries(classStats).map(([lv, s]: any) => `ชั้น ${lv} ${s.total} คน (ช ${s.male} ญ ${s.female})`).join('\n    ')}
-    - จำนวนครู: ${teacherCount || 0} คน
+    ${projectContext}
 
-    [ข้อมูลจากคลังปัญญา (ส่วนกลาง + ส่วนตัว)]
-    ${knowledgeContext || "ไม่พบข้อมูลที่เกี่ยวข้องในคลังปัญญา"}
+    [ส่วนที่ 2: ข้อมูลจากคลังปัญญา (เนื้อหาจากระเบียบ/เอกสาร)]
+    ${knowledgeContext || "ไม่พบเนื้อหาที่เกี่ยวข้องเพิ่มเติมในคลังปัญญา"}
 
     ผู้ถาม: คุณครู ${profile.display_name} (สิทธิ์: ${profile.role})
     คำถาม: ${message}
 
-    คำแนะนำในการตอบ:
-    1. วิเคราะห์ข้อมูลจากทั้ง "สถิติ" และ "คลังปัญญา" ให้ครบถ้วน
-    2. ตอบให้กระชับ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji
-    3. หากไม่พบข้อมูลจริงๆ ให้ขอให้คุณครูอัปโหลดแผนปฏิบัติการหรือระเบียบเพิ่มในคอมพิวเตอร์`;
+    คำแนะนำในการตอบ (STRICT RULES):
+    1. ให้ความสำคัญกับข้อมูลใน [ส่วนที่ 1] เป็นอันดับแรก เพราะเป็นข้อมูลจริงล่าสุดจากฐานข้อมูล
+    2. หากคุณครูถามเรื่อง "โครงการ" ให้สรุปจากรายการโครงการใน [ส่วนที่ 1] ให้ครบถ้วน
+    3. หากข้อมูลใน [ส่วนที่ 1] ไม่เพียงพอ จึงค่อยนำเนื้อหาจาก [ส่วนที่ 2] มาเสริม
+    4. ตอบให้เป็นมืออาชีพ มีประเด็น เสนอแนะเชิงรุก และใช้ Emoji ให้เหมาะสม
+    5. ตอบให้กระชับเหมาะกับหน้าจอ LINE`;
 
     const finalAnswer = await callGemini(context, apiKey);
     await replyToLine(replyToken, finalAnswer);
