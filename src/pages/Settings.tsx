@@ -28,6 +28,7 @@ export default function Settings() {
     local_gov_name: '',
     line_channel_access_token: '',
     line_group_id: '',
+    line_oa_link: '',
     gemini_api_key: '',
     ai_cowork_api_key: ''
   });

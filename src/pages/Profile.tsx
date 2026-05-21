@@ -161,6 +161,16 @@ export default function Profile() {
                       วิธีเชื่อมต่อ: เพิ่มเพื่อน LINE OA ของโรงเรียนแล้วพิมพ์อีเมลของคุณส่งไปในแชท
                     </p>
                  </div>
+                 {lineLink && (
+                   <a 
+                     href={lineLink} 
+                     target="_blank" 
+                     rel="noreferrer"
+                     className="w-full py-3 bg-[#06C755] text-white rounded-xl font-black text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-green-100 hover:bg-[#05b34c] transition-all uppercase tracking-widest"
+                   >
+                     <ExternalLink size={14} /> เพิ่มเพื่อน LINE OA ตอนนี้
+                   </a>
+                 )}
                </div>
              )}
           </div>
