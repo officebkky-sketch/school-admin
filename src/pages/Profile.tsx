@@ -11,10 +11,9 @@ import {
   Upload, 
   Image as ImageIcon,
   CheckCircle2, 
-  Shield,
   MessageCircle,
   ExternalLink
-  } from 'lucide-react';
+} from 'lucide-react';
 
 export default function Profile() {
   const { user, profile, refreshProfile } = useAuth();
