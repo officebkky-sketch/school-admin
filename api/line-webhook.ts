@@ -76,7 +76,7 @@ async function handleAIQuery(replyToken: string, message: string, profile: any) 
   try {
     // 1. Fetch Context Data
     const { data: sets } = await supabase.from('settings').select('*').single();
-    const { data: students } = await supabase.from('students').select('class_level, gender, religion').eq('academic_year', sets?.current_academic_year || '2569').eq('graduation_status', 'ปกติ');
+    const { data: students } = await supabase.from('students').select('class_level, gender, religion, prefix').eq('academic_year', sets?.current_academic_year || '2569').eq('graduation_status', 'ปกติ');
     const { count: teacherCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
     const { data: recentDocs } = await supabase.from('incoming_docs').select('subject, doc_number, doc_date').order('created_at', { ascending: false }).limit(5);
 
