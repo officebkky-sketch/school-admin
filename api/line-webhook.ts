@@ -9,6 +9,14 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
 export default async function handler(req: any, res: any) {
+  if (req.method === 'GET') {
+    return res.status(200).json({ 
+      message: 'AI Cowork LINE Webhook is ONLINE',
+      status: 'ready',
+      time: new Date().toISOString()
+    });
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
