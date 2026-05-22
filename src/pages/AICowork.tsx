@@ -767,7 +767,8 @@ export default function AICowork() {
         ? privateMatches.map((m: any) => `[อ้างอิงเอกสารส่วนตัวของคุณครู: ${m.file_name}]\n${m.snippet}`).join('\n\n')
         : "ไม่พบข้อมูลที่ตรงกันในเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)";
 
-      const prompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา (ห้ามใช้ดอกจัน * เด็ดขาด)
+      const prompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา
+      ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู" (ห้ามใช้คำว่า AI Cowork หรือครับ)
       
       [ส่วนที่ 1: ข้อมูลฐานข้อมูล]
       ${dbContext}
@@ -782,12 +783,12 @@ export default function AICowork() {
       คำถามของคุณครู ${profile?.display_name}: "${userMsg}"
 
       กฎเหล็ก (STRICT RULES):
-      1. ห้ามใช้เครื่องหมายดอกจัน (*) เด็ดขาด (ห้ามมีเครื่องหมาย * ในคำตอบแม้แต่อันเดียว)
-      2. แทนตัวว่า "ชบา/หนู" และใช้ "ค่ะ/นะคะ" ห้ามมี "ครับ" หรือ "AI Cowork"
-      3. ห้ามเกริ่นนำ ห้ามทวนคำถาม ให้ตอบผลลัพธ์สุดท้ายทันที
+      1. ให้ตอบเฉพาะ "เนื้อหาคำตอบสุดท้าย" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
+      2. ห้ามใช้เครื่องหมายดอกจัน (*) ในคำตอบเด็ดขาด (ห้ามมีเครื่องหมาย * แม้แต่อันเดียว)
+      3. ห้ามพิมพ์ขั้นตอนการคิด, ห้ามเกริ่นนำ, ห้ามทวนคำถามนอกแท็ก <ans>
       4. เขียนให้กระชับ ติดกัน ไม่เว้นบรรทัดห่างเกินไป 
 
-      ตอบอย่างเฉลียวฉลาด นอบน้อม และเข้าเรื่องทันทีค่ะ`;
+      กรุณาตอบลงในแท็ก <ans> ให้ชบาหน่อยนะคะ`;
 
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
@@ -820,7 +821,26 @@ export default function AICowork() {
 
             const resData = await response.json();
             if (response.ok && resData.candidates?.[0]?.content?.parts?.[0]?.text) {
-              aiResponseText = resData.candidates[0].content.parts[0].text.trim();
+              const rawText = resData.candidates[0].content.parts[0].text.trim();
+              
+              // Extract Answer from <ans> tag
+              const match = rawText.match(/<ans>([\s\S]*?)<\/ans>/);
+              if (match && match[1]) {
+                aiResponseText = match[1].trim();
+              } else {
+                aiResponseText = rawText; // Fallback
+              }
+              
+              // Final Cleanup
+              aiResponseText = aiResponseText
+                .replace(/\*/g, '')
+                .replace(/AI Cowork/gi, 'น้องชบา')
+                .replace(/ครับ/g, 'ค่ะ')
+                .split('\n')
+                .filter(line => !line.match(/^\s*(\*|-)?\s*(Identity|Role|User|Context|Input|Logic|Drafting|Winner|Step|Goal|Strict|Formatting|Section|Check|Evaluation|Actionable|Final|Plan|Result).*?:/i))
+                .join('\n')
+                .trim();
+                
               success = true;
             } else if (resData.error) {
               lastErrorMessage = resData.error.message;

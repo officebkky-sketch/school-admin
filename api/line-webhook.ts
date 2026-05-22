@@ -44,25 +44,37 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
 
     const currentYear = sets?.current_academic_year || '2569';
     
-    // 1. Quick Data Fetch (Direct check common tables)
+    // 1. Smart Data Fetch (Check common school tables)
     let contextData = "";
-    if (message.includes('โครงการ') || message.includes('งบ')) {
-      const { data } = await supabaseAdmin.from('school_projects').select('project_name, planned_amount').eq('academic_year', currentYear).order('planned_amount', { ascending: true }).limit(20);
+    const msg = message.toLowerCase();
+    
+    if (msg.includes('โครงการ') || msg.includes('งบ')) {
+      const { data } = await supabaseAdmin.from('school_projects').select('project_name, planned_amount, spent_amount, status').eq('academic_year', currentYear).limit(10);
       if (data) contextData = `รายการโครงการ: ${JSON.stringify(data)}`;
-    } else if (message.includes('นักเรียน') || message.includes('กี่คน')) {
-      const { count } = await supabaseAdmin.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
+    } else if (msg.includes('นักเรียน') || msg.includes('กี่คน')) {
+      const { count } = await supabaseAdmin.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
       contextData = `จำนวนนักเรียนปัจจุบัน: ${count} คน`;
+    } else if (msg.includes('หนังสือรับ') || msg.includes('จดหมาย')) {
+      const { data } = await supabaseAdmin.from('incoming_docs').select('doc_number, subject, from_agency, doc_date').order('doc_date', { ascending: false }).limit(5);
+      if (data) contextData = `หนังสือรับล่าสุด: ${JSON.stringify(data)}`;
+    } else if (msg.includes('หนังสือส่ง')) {
+      const { data } = await supabaseAdmin.from('outgoing_docs').select('doc_number, subject, to_agency, doc_date').order('doc_date', { ascending: false }).limit(5);
+      if (data) contextData = `หนังสือส่งล่าสุด: ${JSON.stringify(data)}`;
+    } else if (msg.includes('บันทึก') || msg.includes('เมโม่')) {
+      const { data } = await supabaseAdmin.from('memos').select('memo_number, subject, requester, memo_date').order('memo_date', { ascending: false }).limit(5);
+      if (data) contextData = `บันทึกข้อความล่าสุด: ${JSON.stringify(data)}`;
     }
 
     // 2. High-Speed Direct Prompting with Extraction Tag
-    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยครูเพศหญิงของโรงเรียนบ้านควนโคกยา
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยครูเพศหญิงของโรงเรียนบ้านควนโคกยา (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
+ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู"
 กฎเหล็ก:
-- ตอบเฉพาะ "เนื้อหาสุดท้าย" ที่จะส่งให้คุณครู โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
-- ห้ามพิมพ์ขั้นตอนการคิด ห้ามแนะนำตัว ห้ามพิมพ์หัวข้อ Identity/Role/Logic ใดๆ ทั้งสิ้น
-- ห้ามใช้ดอกจัน (*) และห้ามพูดคำว่า "ครับ" (ให้ใช้ค่ะ/นะคะ)
-- ตอบสั้น กระชับ ใช้ Emoji และเว้นบรรทัดให้สวยงาม`;
+- ตอบเฉพาะ "คำตอบสุดท้ายที่จะส่งให้ครู" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
+- ห้ามพิมพ์ขั้นตอนการคิด (Thinking), ห้ามทวนคำถาม, ห้ามเกริ่นนำใดๆ นอกแท็ก <ans>
+- ห้ามใช้ดอกจัน (*) ในคำตอบเด็ดขาด
+- ใช้ Emoji ให้ดูเป็นมิตรและเว้นบรรทัดให้อ่านง่ายบนมือถือ`;
 
-    const userPrompt = `ข้อมูลโรงเรียน: ${contextData || 'ไม่มีข้อมูลเสริม'}\nคำถามของคุณครู: "${message}"\nตอบลงในแท็ก <ans> ค่ะ`;
+    const userPrompt = `ข้อมูลฐานข้อมูลโรงเรียน: ${contextData || 'ไม่พบข้อมูลที่เกี่ยวข้องในฐานข้อมูลด่วน'}\nปีการศึกษา: ${currentYear}\nคำถามของคุณครู: "${message}"\nกรุณาตอบในแท็ก <ans> ให้ชบาหน่อยนะคะ`;
 
     const rawResponse = await callGemini(systemPrompt, userPrompt, apiKey);
     
@@ -72,7 +84,7 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
     if (match && match[1]) {
       finalAnswer = match[1].trim();
     } else {
-      // Fallback if tag is missing
+      // Fallback if tag is missing but try to clean it
       finalAnswer = rawResponse;
     }
 
@@ -82,7 +94,7 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
       .replace(/AI Cowork/gi, 'น้องชบา')
       .replace(/ครับ/g, 'ค่ะ')
       .split('\n')
-      .filter(line => !line.match(/^\s*(Identity|Role|User|Context|Input|Logic|Drafting|Winner|Step|Goal|Strict|Formatting|Section|Check|Evaluation|Actionable|Final).*?:/i))
+      .filter(line => !line.match(/^\s*(\*|-)?\s*(Identity|Role|User|Context|Input|Logic|Drafting|Winner|Step|Goal|Strict|Formatting|Section|Check|Evaluation|Actionable|Final|Plan|Result).*?:/i))
       .join('\n')
       .trim();
 
