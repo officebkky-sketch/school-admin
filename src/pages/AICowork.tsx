@@ -158,7 +158,7 @@ const DEFAULT_SCHEMA_MAP: Record<string, { description: string; columns: string[
     columns: ["id", "display_name", "email", "role", "status", "created_at"]
   },
   students: {
-    description: "ข้อมูลประวัตินักเรียน ชั้นเรียน ห้องเรียน และรายละเอียดผู้ปกครอง",
+    description: "ข้อมูลประวัตินักเรียน ชั้นเรียน ห้องเรียน และรายละเอียดผู้ปกครอง (เพศใช้ 'ช' หรือ 'ญ', สถานะใช้ 'กำลังศึกษา' หรือ 'ปกติ')",
     columns: ["id", "academic_year", "class_level", "room", "student_id", "gender", "prefix", "first_name", "last_name", "graduation_status", "religion"]
   },
   incoming_docs: {
@@ -241,9 +241,13 @@ async function planDatabaseQueries(message: string, schemaMap: Record<string, an
   2. เขียนเงื่อนไข filters ในรูปแบบอาร์เรย์:
      - operator ที่รองรับ: "eq" (เท่ากับ), "neq" (ไม่เท่ากับ), "gt" (มากกว่า), "lt" (น้อยกว่า), "gte", "lte", "like", "ilike"
      - ถ้าคำถามระบุเกี่ยวกับปีการศึกษา เช่น "ปีนี้" หรือไม่ได้ระบุปีเฉพาะเจาะจง ให้กรองคอลัมน์ academic_year ด้วยปีการศึกษาปัจจุบัน "${academicYear}" เสมอ (หากตารางนั้นมีคอลัมน์ academic_year)
+     - สำหรับตาราง students:
+        - หากถามถึง "ชาย" ให้ใช้ filters: [{"column": "gender", "operator": "eq", "value": "ช"}]
+        - หากถามถึง "หญิง" ให้ใช้ filters: [{"column": "gender", "operator": "eq", "value": "ญ"}]
+        - สำหรับ graduation_status ให้ใช้ "กำลังศึกษา" หรือ "ปกติ"
      - สำหรับตาราง utilities: หากถามเรื่องน้ำประปา/ค่าน้ำ ให้กรอง type = 'water', ไฟฟ้า/ค่าไฟ type = 'electricity', อินเทอร์เน็ต/ค่าเน็ต type = 'internet'
   3. คอลัมน์ที่เลือก (select) ให้ใช้ * หรือระบุเฉพาะคอลัมน์ที่นำมาตอบคำถามจริง ๆ (ระบุคอลัมน์ที่มีอยู่จริงใน Schema เท่านั้น)
-  4. จำกัดจำนวนรายการ (limit) ไม่เกิน 20-30 รายการต่อตารางเพื่อความรวดเร็ว
+  4. จำกัดจำนวนรายการ (limit) ไม่เกิน 50 รายการต่อตาราง (หากขอรายชื่อนักเรียนให้ใช้ limit 50 เพื่อให้ได้ครบ)
   5. หากต้องการนำเข้าข้อมูล RAG เพิ่มเติมจากคลังเอกสารโรงเรียน (PDF / Virtual Drive) ให้ตั้งค่า "need_rag": true
   
   ให้ตอบกลับในรูปแบบ JSON วัตถุเท่านั้น ห้ามมีเนื้อหาเกริ่นนำหรือปิดท้ายนอกเหนือจากรูปแบบ JSON ที่กำหนดเด็ดขาด!
@@ -549,7 +553,7 @@ export default function AICowork() {
       let fallbackStudentCount = 0;
       let fallbackTeacherCount = 0;
       try {
-        const { count: sCount } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).eq('graduation_status', 'ปกติ');
+        const { count: sCount } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
         const { count: tCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
         fallbackStudentCount = sCount || 0;
         fallbackTeacherCount = tCount || 0;
@@ -623,7 +627,7 @@ export default function AICowork() {
         .from('students')
         .select('class_level, gender, prefix, first_name, last_name, graduation_status, religion')
         .eq('academic_year', currentYear)
-        .eq('graduation_status', 'ปกติ');
+        .in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
 
       const religionStats: Record<string, number> = {};
       const studentSummary = studentStats?.reduce((acc: any, curr: any) => {
@@ -636,16 +640,17 @@ export default function AICowork() {
 
         const gender = (curr.gender || '').trim();
         const prefix = (curr.prefix || '').trim();
-        const isMale = gender === 'ชาย' || gender.toLowerCase() === 'male' || 
+        const isMale = gender === 'ชาย' || gender === 'ช' || gender.toLowerCase() === 'male' || 
                        prefix === 'ด.ช.' || prefix === 'เด็กชาย' || prefix === 'นาย';
-        const isFemale = gender === 'หญิง' || gender.toLowerCase() === 'female' || 
+        const isFemale = gender === 'หญิง' || gender === 'ญ' || gender.toLowerCase() === 'female' || 
                          prefix === 'ด.ญ.' || prefix === 'เด็กหญิง' || prefix === 'นางสาว' || prefix === 'นาง';
         
         if (isMale) acc[level].male++;
         else if (isFemale) acc[level].female++;
         
-        if (acc[level].names.length < 20) {
-          acc[level].names.push(`${curr.prefix || ''}${curr.first_name} ${curr.last_name}`);
+        if (acc[level].names.length < 30) {
+          const genderIcon = isMale ? ' (ชาย)' : (isFemale ? ' (หญิง)' : '');
+          acc[level].names.push(`${curr.prefix || ''}${curr.first_name} ${curr.last_name}${genderIcon}`);
         }
         return acc;
       }, {});
