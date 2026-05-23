@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 declare const process: any;
+declare const Buffer: any;
 const supabaseAdmin = createClient(process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY!);
 
 export default async function handler(req: any, res: any) {
