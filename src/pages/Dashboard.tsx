@@ -38,30 +38,42 @@ export default function Dashboard() {
           .select('current_academic_year')
           .single();
         
-        const currentYear = settings?.current_academic_year || '2568';
+        const currentYear = settings?.current_academic_year || '2569';
 
-        // 1. Total Students
-        const { count: studentCount } = await supabase
+        // 1. ดึงสถิติรวมผ่าน RPC (ประสิทธิภาพสูง)
+        let dashboardStats: any = null;
+        try {
+          const { data: rpcData, error: rpcError } = await supabase.rpc('get_dashboard_stats', {
+            target_year: currentYear,
+            today_date: today
+          });
+          if (!rpcError) dashboardStats = rpcData;
+        } catch (e) {}
+
+        // 2. Fetch ดั้งเดิมสำหรับข้อมูลอื่นๆ และ Fallback
+        const { count: studentCount } = !dashboardStats ? await supabase
           .from('students')
           .select('*', { count: 'exact', head: true })
           .eq('academic_year', currentYear)
-          .or('graduation_status.ilike.%กำลังศึกษา%,graduation_status.eq.ปกติ');
+          .or('graduation_status.ilike.%กำลังศึกษา%,graduation_status.eq.ปกติ') : { count: dashboardStats.total_students };
 
-        // 2. Incoming Today
-        const { count: incomingCount } = await supabase
+        const { count: incomingCount } = !dashboardStats ? await supabase
           .from('incoming_docs')
           .select('*', { count: 'exact', head: true })
-          .eq('doc_date', today);
+          .eq('doc_date', today) : { count: dashboardStats.incoming_today };
 
-        // 3. Attendance Today
-        const { data: attendanceData } = await supabase
-          .from('attendance')
-          .select('summary')
-          .eq('date', today);
-        
-        const totalPresent = attendanceData?.reduce((sum, record: any) => sum + (record.summary?.present || 0), 0) || 0;
+        let totalPresent = 0;
+        if (dashboardStats) {
+          totalPresent = dashboardStats.present_today;
+        } else {
+          const { data: attendanceData } = await supabase
+            .from('attendance')
+            .select('summary')
+            .eq('date', today);
+          totalPresent = attendanceData?.reduce((sum, record: any) => sum + (record.summary?.present || 0), 0) || 0;
+        }
 
-        // 4. Duty Teachers
+        // 4. Duty Teachers (ดึงแยกเพราะต้องการ Object รายคน)
         const { data: duties } = await supabase
           .from('teacher_duties')
           .select('teachers(*)')

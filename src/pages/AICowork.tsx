@@ -20,9 +20,19 @@ import {
   CheckCircle2,
   FileSearch,
   Megaphone,
-  Gamepad2
+  Gamepad2,
+  BookOpen
 } from 'lucide-react';
-import { extractTextFromPdf, getAvailableModels, processDocumentToKnowledge, searchKnowledge } from '../lib/aiService';
+import { 
+  extractTextFromPdf, 
+  getAvailableModels, 
+  processDocumentToKnowledge, 
+  searchKnowledge,
+  callGeminiAPI,
+  truncateContext,
+  processPrivateDocumentToKnowledge,
+  searchPrivateKnowledge
+} from '../lib/aiService';
 import { uploadFileToDrive, deleteFileFromDrive } from '../lib/storage';
 
 // Standard Folders for Knowledge Base (Thai School Admin Standard)
@@ -226,88 +236,40 @@ async function planDatabaseQueries(message: string, schemaMap: Record<string, an
     };
   });
 
-  const prompt = `คุณคือ AI Database Architect หน้าที่ของคุณคือการวิเคราะห์คำถามภาษาไทยของผู้ใช้เกี่ยวกับระบบโรงเรียน และเลือกตารางข้อมูลในฐานข้อมูลที่เกี่ยวข้องมาสืบค้นข้อมูล
+  const systemInstruction = `คุณคือ AI Database Architect ผู้เชี่ยวชาญการวิเคราะห์ความหมายภาษาไทยเพื่อการสืบค้นข้อมูลโรงเรียน
   
-  นี่คือโครงสร้างฐานข้อมูลที่มีอยู่ในระบบ (Database Schema Map):
-  ${JSON.stringify(schemaBrief, null, 2)}
+  โครงสร้างฐานข้อมูล (Schema): ${JSON.stringify(schemaBrief)}
+  ปีการศึกษาปัจจุบัน: ${academicYear}
   
-  คำถามของผู้ใช้: "${message}"
-  ปีการศึกษาปัจจุบันของโรงเรียน: "${academicYear}"
+  หน้าที่: วิเคราะห์ว่าคำถามของผู้ใช้ต้องการข้อมูลจากตารางใด โดยตอบเป็นรูปแบบ JSON Object
   
-  ให้วิเคราะห์ว่าคำถามนี้ต้องการข้อมูลจริงจากตารางใดบ้างเพื่อนำมาสังเคราะห์เป็นคำตอบ โดยเขียนคำแนะนำการคิวรีข้อมูลผ่าน Supabase Client
-  
-  กฎข้อบังคับในการตัดสินใจ (STRICT RULES):
-  1. เลือกเฉพาะตารางที่ตรงประเด็นและจำเป็นเท่านั้น (สูงสุดไม่เกิน 3 ตาราง)
-  2. เขียนเงื่อนไข filters ในรูปแบบอาร์เรย์:
-     - operator ที่รองรับ: "eq" (เท่ากับ), "neq" (ไม่เท่ากับ), "gt" (มากกว่า), "lt" (น้อยกว่า), "gte", "lte", "like", "ilike"
-     - ถ้าคำถามระบุเกี่ยวกับปีการศึกษา เช่น "ปีนี้" หรือไม่ได้ระบุปีเฉพาะเจาะจง ให้กรองคอลัมน์ academic_year ด้วยปีการศึกษาปัจจุบัน "${academicYear}" เสมอ (หากตารางนั้นมีคอลัมน์ academic_year)
-     - สำหรับตาราง students:
-        - หากถามถึง "ชาย" ให้ใช้ filters: [{"column": "gender", "operator": "eq", "value": "ช"}]
-        - หากถามถึง "หญิง" ให้ใช้ filters: [{"column": "gender", "operator": "eq", "value": "ญ"}]
-        - สำหรับ graduation_status ให้ใช้ "กำลังศึกษา" หรือ "ปกติ"
-     - สำหรับตาราง utilities: หากถามเรื่องน้ำประปา/ค่าน้ำ ให้กรอง type = 'water', ไฟฟ้า/ค่าไฟ type = 'electricity', อินเทอร์เน็ต/ค่าเน็ต type = 'internet'
-  3. คอลัมน์ที่เลือก (select) ให้ใช้ * หรือระบุเฉพาะคอลัมน์ที่นำมาตอบคำถามจริง ๆ (ระบุคอลัมน์ที่มีอยู่จริงใน Schema เท่านั้น)
-  4. จำกัดจำนวนรายการ (limit) ไม่เกิน 50 รายการต่อตาราง (หากขอรายชื่อนักเรียนให้ใช้ limit 50 เพื่อให้ได้ครบ)
-  5. หากต้องการนำเข้าข้อมูล RAG เพิ่มเติมจากคลังเอกสารโรงเรียน (PDF / Virtual Drive) ให้ตั้งค่า "need_rag": true
-  
-  ให้ตอบกลับในรูปแบบ JSON วัตถุเท่านั้น ห้ามมีเนื้อหาเกริ่นนำหรือปิดท้ายนอกเหนือจากรูปแบบ JSON ที่กำหนดเด็ดขาด!
-  
-  รูปแบบผลลัพธ์ที่ต้องการ (JSON Output Format):
-  {
-    "queries": [
-      {
-        "table": "ชื่อตาราง เช่น utilities",
-        "select": "คอลัมน์ที่ต้องการ หรือ *",
-        "filters": [
-          { "column": "ชื่อคอลัมน์", "operator": "eq หรือ ilike หรือ gt ฯลฯ", "value": "ค่าที่กรอง" }
-        ],
-        "order": { "column": "คอลัมน์จัดเรียง", "ascending": false },
-        "limit": 10
-      }
-    ],
-    "need_rag": true
-  }`;
+  กฎเหล็ก:
+  1. หากถามถึง "โครงการ" "งบประมาณ" หรือ "แผนงาน" ต้องเลือกตาราง school_projects เป็นอันดับแรก
+  2. หากถามถึง "พัสดุ" "จัดซื้อ" หรือ "รายการของ" ต้องเลือกตาราง procurement_projects หรือ procurement_items
+  3. หากถามถึง "นักเรียน" "คน" หรือ "รายชื่อ" ต้องเลือกตาราง students
+  4. หากถามถึง "สถิติ" "มาเรียน" หรือ "ขาดลา" ต้องเลือกตาราง attendance
+  5. หากตารางมีคอลัมน์ academic_year ให้ใส่ฟิลเตอร์กรองปี "${academicYear}" เสมอ เว้นแต่ผู้ใช้จะระบุปีอื่น
+  6. รูปแบบ JSON: { "queries": [{ "table": "...", "select": "*", "filters": [{"column": "...", "operator": "eq", "value": "..."}] }], "need_rag": boolean }`;
 
-  let modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro", "gemini-flash-latest"];
+  const prompt = `คำถามของผู้ใช้: "${message}"`;
+
   try {
-     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-     if (listRes.ok) {
-        const listData = await listRes.json() as any;
-        const found = listData.models
-          ?.filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-          .map((m: any) => m.name.replace('models/', ''));
-        if (found && found.length > 0) modelsToTry = found;
-     }
-  } catch (e) { /* fallback */ }
-
-  const versions = ["v1beta", "v1"];
-  for (const model of modelsToTry) {
-    for (const ver of versions) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseMimeType: "application/json"
-            }
-          })
-        });
-        
-        if (response.ok) {
-          const data = await response.json() as any;
-          let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-          text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-          return JSON.parse(text);
-        }
-      } catch (err: any) {
-        console.error(`Error with model ${model} in planning:`, err.message);
-      }
-    }
+    const res = await callGeminiAPI(prompt, apiKey, {
+      systemInstruction,
+      temperature: 0.1,
+      responseMimeType: "application/json"
+    });
+    
+    let text = res.text.replace(/```json/g, "").replace(/```/g, "").trim();
+    const result = JSON.parse(text);
+    
+    // ตรวจสอบโครงสร้างคำตอบ
+    if (!result.queries) result.queries = [];
+    return result;
+  } catch (err: any) {
+    console.error(`Planning failed:`, err.message);
+    return { queries: [], need_rag: true };
   }
-  return { queries: [], need_rag: true };
 }
 
 export default function AICowork() {
@@ -317,6 +279,7 @@ export default function AICowork() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [searchQuery, setSearchTerm] = useState('');
 
   // Intelligence Hub States
@@ -404,15 +367,27 @@ export default function AICowork() {
   async function fetchKnowledgeFiles() {
     setLoading(true);
     try {
-      // ดึงชื่อไฟล์ที่ไม่ซ้ำกันจากคลังปัญญา
+      // 1. ลองดึงผ่าน View ใหม่ (ประสิทธิภาพสูงสุด)
+      const { data: viewData, error: viewError } = await supabase
+        .from('unique_knowledge_docs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!viewError && viewData) {
+        setKnowledgeFiles(viewData);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Fallback: หากยังไม่ได้สร้าง View ให้ดึงแบบเดิมแต่เพิ่มขีดจำกัด
       const { data, error } = await supabase
         .from('school_knowledge')
         .select('document_name, created_at')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(2000);
       
       if (error) throw error;
       
-      // Filter unique filenames
       const uniqueFiles = data.reduce((acc: any[], current) => {
         const x = acc.find(item => item.document_name === current.document_name);
         if (!x) return acc.concat([current]);
@@ -421,7 +396,7 @@ export default function AICowork() {
 
       setKnowledgeFiles(uniqueFiles);
     } catch (err) {
-      console.error(err);
+      console.error('Fetch knowledge files failed:', err);
     } finally {
       setLoading(false);
     }
@@ -443,9 +418,9 @@ export default function AICowork() {
     setProcessingStatus({ current: 0, total: 0, fileName: file.name });
 
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key').single();
-      const apiKey = settings?.gemini_api_key;
-      if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key ก่อนค่ะ');
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+      if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key หรือ AI Cowork API Key ก่อนค่ะ');
 
       const buffer = await file.arrayBuffer();
       await processDocumentToKnowledge(buffer, file.name, apiKey, (current, total) => {
@@ -481,34 +456,64 @@ export default function AICowork() {
     if (!e.target.files?.length || !selectedFolder) return;
     setIsUploading(true);
     const file = e.target.files[0];
+    setUploadProgress('กำลังอัปโหลดเอกสารไปยังคลังส่วนตัว...');
     try {
       const folderName = KNOWLEDGE_FOLDERS.find(f => f.id === selectedFolder)?.name || 'อื่นๆ';
       
-      // 1. Upload to Google Drive Storage via GAS
+      let buffer: ArrayBuffer | null = null;
+      if (file.type === 'application/pdf') {
+        buffer = await file.arrayBuffer();
+      }
+
       const customName = `${Date.now()}_${file.name.split('.')[0]}`;
       const publicUrl = await uploadFileToDrive(file, `kb_${user?.id}_${selectedFolder}`, customName);
 
-      // 2. Extract Text (if PDF)
+      setUploadProgress('อัปโหลดไฟล์เสร็จสิ้น กำลังถอดความข้อความ...');
       let extractedText = "";
-      if (file.type === 'application/pdf') {
-        const buffer = await file.arrayBuffer();
+      if (buffer) {
         extractedText = await extractTextFromPdf(buffer);
       }
 
-      // 3. Save to DB
-      await supabase.from('ai_knowledge_base').insert([{
-        teacher_id: user?.id,
-        folder_id: selectedFolder,
-        folder_name: folderName,
-        file_name: file.name,
-        file_url: publicUrl,
-        file_type: file.type.split('/')[1],
-        content_text: extractedText
-      }]);
+      const { data: dbData, error: insertErr } = await supabase
+        .from('ai_knowledge_base')
+        .insert([{
+          teacher_id: user?.id,
+          folder_id: selectedFolder,
+          folder_name: folderName,
+          file_name: file.name,
+          file_url: publicUrl,
+          file_type: file.type.split('/')[1],
+          content_text: extractedText
+        }])
+        .select('id')
+        .single();
 
+      if (insertErr) throw insertErr;
+
+      if (buffer && dbData?.id) {
+        setUploadProgress('กำลังสกัดคำและคำนวณเวกเตอร์ความรู้สำหรับสืบค้น (RAG)...');
+        const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+        const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+        if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key หรือ AI Cowork API Key ก่อนสร้างความรู้คลังส่วนตัวนะคะ');
+        
+        await processPrivateDocumentToKnowledge(
+          buffer, 
+          file.name, 
+          dbData.id, 
+          user?.id || '', 
+          apiKey,
+          (current, total) => {
+            setUploadProgress(`กำลังย่อยเอกสารส่วนตัว: หน้าที่ ${current} จาก ${total}...`);
+          }
+        );
+      }
+
+      setUploadProgress('ประมวลผลและเพิ่มคลังเอกสารส่วนตัวเสร็จสมบูรณ์!');
+      setTimeout(() => setUploadProgress(null), 3000);
       fetchFiles();
     } catch (err: any) {
-      alert('Upload failed: ' + err.message);
+      alert('Upload and indexing failed: ' + err.message);
+      setUploadProgress(null);
     } finally {
       setIsUploading(false);
     }
@@ -539,327 +544,178 @@ export default function AICowork() {
       
       if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ก่อนนะคะ');
 
+      let searchQuery = userMsg;
+
+      // Query Condensation: หากมีประวัติการสนทนา ให้สร้าง Standalone Query
+      const historyForCondensation = messages.filter(m => 
+        m.text !== 'สวัสดีค่ะ ชบาคือ "น้องชบา" ผู้ช่วยอัจฉริยะของคุณครู มีอะไรให้หนูช่วยสรุปหรือค้นหาข้อมูลในคลังเอกสารไหมคะ?' && 
+        m.text !== 'รีเซ็ตการสนทนาเรียบร้อยค่ะ มีอะไรให้ชบาช่วยไหมคะ?'
+      ).slice(-4);
+
+      if (historyForCondensation.length > 0) {
+        const condensationPrompt = `ภารกิจ: วิเคราะห์ประวัติการสนทนาและคำถามล่าสุดของผู้ใช้ จากนั้นสร้างคำถามที่สมบูรณ์และเป็นคำถามเดี่ยว (Standalone Query) สำหรับนำไปใช้สืบค้นในฐานข้อมูลหรือคลังเอกสาร RAG โดยต้องไม่เปลี่ยนความหมายเดิม และรักษาชื่อเฉพาะ ข้อมูลตัวเลข หรือคำสำคัญไว้
+        
+ประวัติการสนทนา:
+${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : 'คำตอบ'}: ${m.text}`).join('\n')}
+คำถามล่าสุด: ${userMsg}
+
+ตอบกลับเฉพาะข้อความที่เป็นคำถามเดี่ยว (Standalone Query) ในภาษาไทยเท่านั้น ห้ามอธิบายเพิ่มเติม ห้ามมีเครื่องหมายคำพูด ห้ามขึ้นต้นด้วย "คำถามเดี่ยว:"`;
+
+        try {
+          const condensedRes = await callGeminiAPI(condensationPrompt, apiKey, {
+            temperature: 0.2
+          });
+          const condensedQuery = condensedRes.text.trim();
+          if (condensedQuery) {
+            console.log("Original query:", userMsg);
+            console.log("Condensed query:", condensedQuery);
+            searchQuery = condensedQuery;
+          }
+        } catch (condenseErr) {
+          console.warn("Failed to condense query, using original:", condenseErr);
+        }
+      }
+
       // 1. วางแผนสืบค้นข้อมูลฐานข้อมูลแบบไดนามิก (Dynamic Database AI Solver)
       let dbContextParts: string[] = [];
       let queryPlan = { queries: [] as any[], need_rag: true };
       
       try {
-        queryPlan = await planDatabaseQueries(userMsg, DEFAULT_SCHEMA_MAP, apiKey, currentYear);
+        queryPlan = await planDatabaseQueries(searchQuery, DEFAULT_SCHEMA_MAP, apiKey, currentYear);
       } catch (planErr) {
         console.error("Failed to plan database queries:", planErr);
       }
 
-      // ดึงสถิตินักเรียนและครูพื้นฐานไว้เสมอสำหรับกรณี Fallback หรือประกอบคำตอบเพิ่มเติม
-      let fallbackStudentCount = 0;
-      let fallbackTeacherCount = 0;
+      // ดึงสถิตินักเรียนและครูพื้นฐาน (Fallback)
+      let fallbackStats = "";
       try {
         const { count: sCount } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
         const { count: tCount } = await supabase.from('teachers').select('*', { count: 'exact', head: true });
-        fallbackStudentCount = sCount || 0;
-        fallbackTeacherCount = tCount || 0;
-      } catch (e) {
-        console.warn("Fetch fallback stats failed:", e);
-      }
+        fallbackStats = `สถิติพื้นฐาน: นักเรียน ${sCount || 0} คน, ครู ${tCount || 0} คน (ปีการศึกษา ${currentYear})`;
+      } catch (e) {}
 
-      if (queryPlan && Array.isArray(queryPlan.queries) && queryPlan.queries.length > 0) {
-        for (const queryConfig of queryPlan.queries) {
-          const targetTable = queryConfig.table;
-          
-          // ตรวจสอบ whitelist ป้องกัน SQL injection/unsafe table access
-          if (!DEFAULT_SCHEMA_MAP[targetTable]) {
-            console.warn(`⚠️ Skipping unsafe table query: ${targetTable}`);
-            continue;
-          }
-          
-          let queryBuilder: any = supabase.from(targetTable).select(queryConfig.select || '*');
-          
-          // กรองข้อมูล (Filters)
-          if (queryConfig.filters && Array.isArray(queryConfig.filters)) {
-            for (const f of queryConfig.filters) {
-              if (!DEFAULT_SCHEMA_MAP[targetTable].columns.includes(f.column)) {
-                console.warn(`⚠️ Skip filter on unsafe/non-existent column: ${f.column}`);
-                continue;
+      if (queryPlan.queries && Array.isArray(queryPlan.queries)) {
+        for (const q of queryPlan.queries) {
+          if (!DEFAULT_SCHEMA_MAP[q.table]) continue;
+          let query = supabase.from(q.table).select(q.select || '*');
+          if (q.filters) {
+            for (const f of q.filters) {
+              if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
+                // @ts-ignore
+                query = query[f.operator](f.column, f.value);
               }
-              
-              const op = f.operator;
-              const col = f.column;
-              const val = f.value;
-              
-              if (op === 'eq') queryBuilder = queryBuilder.eq(col, val);
-              else if (op === 'neq') queryBuilder = queryBuilder.neq(col, val);
-              else if (op === 'gt') queryBuilder = queryBuilder.gt(col, val);
-              else if (op === 'lt') queryBuilder = queryBuilder.lt(col, val);
-              else if (op === 'gte') queryBuilder = queryBuilder.gte(col, val);
-              else if (op === 'lte') queryBuilder = queryBuilder.lte(col, val);
-              else if (op === 'like') queryBuilder = queryBuilder.like(col, val);
-              else if (op === 'ilike') queryBuilder = queryBuilder.ilike(col, val);
             }
           }
-          
-          // จัดเรียง (Order)
-          if (queryConfig.order && queryConfig.order.column) {
-            if (DEFAULT_SCHEMA_MAP[targetTable].columns.includes(queryConfig.order.column)) {
-              queryBuilder = queryBuilder.order(queryConfig.order.column, { ascending: !!queryConfig.order.ascending });
-            }
-          }
-          
-          // จำกัดจำนวนรายการ (Limit)
-          const limitVal = queryConfig.limit ? Math.min(queryConfig.limit, 30) : 20;
-          queryBuilder = queryBuilder.limit(limitVal);
-          
-          // รันคิวรี
-          try {
-            const { data, error } = await queryBuilder;
-            if (error) {
-              console.error(`Supabase Client Error querying ${targetTable}:`, error.message);
-            } else if (data && data.length > 0) {
-              const tableDesc = DEFAULT_SCHEMA_MAP[targetTable].description || targetTable;
-              dbContextParts.push(`[ตารางข้อมูล: ${targetTable} (${tableDesc})]\n${JSON.stringify(data, null, 2)}`);
-            }
-          } catch (queryErr: any) {
-            console.error(`Failed to execute dynamic query for ${targetTable}:`, queryErr.message);
+          const { data } = await query.limit(Math.min(q.limit || 100, 300));
+          if (data?.length) {
+            dbContextParts.push(`[ข้อมูลตาราง: ${q.table}]\n${JSON.stringify(data, null, 2)}`);
           }
         }
       }
 
-      // ดึงสถิติตามแบบเดิมเพื่อใช้ใน Prompt สถิตินักเรียน
-      const { data: studentStats } = await supabase
-        .from('students')
-        .select('class_level, gender, prefix, first_name, last_name, graduation_status, religion')
-        .eq('academic_year', currentYear)
-        .in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
-
-      const religionStats: Record<string, number> = {};
-      const studentSummary = studentStats?.reduce((acc: any, curr: any) => {
-        const level = curr.class_level || 'ไม่ระบุ';
-        if (!acc[level]) acc[level] = { total: 0, male: 0, female: 0, names: [] };
-        acc[level].total++;
-        
-        const rel = curr.religion || 'ไม่ระบุ';
-        religionStats[rel] = (religionStats[rel] || 0) + 1;
-
-        const gender = (curr.gender || '').trim();
-        const prefix = (curr.prefix || '').trim();
-        const isMale = gender === 'ชาย' || gender === 'ช' || gender.toLowerCase() === 'male' || 
-                       prefix === 'ด.ช.' || prefix === 'เด็กชาย' || prefix === 'นาย';
-        const isFemale = gender === 'หญิง' || gender === 'ญ' || gender.toLowerCase() === 'female' || 
-                         prefix === 'ด.ญ.' || prefix === 'เด็กหญิง' || prefix === 'นางสาว' || prefix === 'นาง';
-        
-        if (isMale) acc[level].male++;
-        else if (isFemale) acc[level].female++;
-        
-        if (acc[level].names.length < 30) {
-          const genderIcon = isMale ? ' (ชาย)' : (isFemale ? ' (หญิง)' : '');
-          acc[level].names.push(`${curr.prefix || ''}${curr.first_name} ${curr.last_name}${genderIcon}`);
-        }
-        return acc;
-      }, {});
-
-      const staticDbContext = `
-      สถิติทั่วไปในฐานข้อมูล (เฉพาะนักเรียนสถานะปกติ ปีการศึกษา ${currentYear}):
-      - จำนวนนักเรียนปัจจุบัน: ${fallbackStudentCount || studentStats?.length || 0} คน
-      - สรุปแยกตามศาสนา: ${Object.entries(religionStats).map(([r, c]) => `${r} ${c} คน`).join(', ')}
-      - รายละเอียดรายชั้น: ${Object.entries(studentSummary || {}).map(([lv, s]: any) => 
-          `ชั้น ${lv}: ${s.total} คน (ชาย ${s.male}, หญิง ${s.female}) [รายชื่อ: ${s.names.join(', ')}${s.total > 20 ? ' ...และคนอื่นๆ' : ''}]`
-        ).join('\n      - ')}
-      - จำนวนบุคลากรครูทั้งหมด: ${fallbackTeacherCount || 0} คน
-      `;
-
-      const dbContext = dbContextParts.length > 0
-        ? `${dbContextParts.join('\n\n')}\n\n---\n${staticDbContext}`
-        : staticDbContext;
-
-      // 2. ค้นหาข้อมูลจาก "สมองอัจฝริยะ" (Vector Search จากไฟล์ PDF ของคลังกลาง)
-      let matches: any[] = [];
-      let globalKeywordMatches: any[] = [];
-
+      // 2. ค้นหาคลังปัญญา (RAG ส่วนกลาง)
+      let knowledgeContext = "";
       if (queryPlan.need_rag !== false && (searchSource === 'all' || searchSource === 'global')) {
-        // --- 2.1 Vector Search (semantic) ---
-        try {
-          matches = await searchKnowledge(userMsg, apiKey, 5);
-        } catch (searchErr) {
-          console.error('Error searching global knowledge (vector):', searchErr);
-        }
-
-        // --- 2.2 Keyword Search (fallback/hybrid) ---
-        try {
-          const keywords = userMsg.toLowerCase().split(/[\s,，.、?？!！]+/g).filter(w => w.length > 1);
-          if (keywords.length > 0) {
-            let kwQuery = supabase
-              .from('school_knowledge')
-              .select('document_name, page_number, chunk_text');
-            
-            const filters = keywords.slice(0, 3).map(kw => `chunk_text.ilike.%${kw}%`).join(',');
-            const { data: kwData } = await kwQuery.or(filters).limit(5);
-            
-            if (kwData) {
-              globalKeywordMatches = kwData.map(d => ({
-                document_name: d.document_name,
-                page_number: d.page_number,
-                chunk_text: d.chunk_text,
-                is_keyword_match: true
-              }));
-            }
-          }
-        } catch (kwErr) {
-          console.error('Error searching global knowledge (keywords):', kwErr);
-        }
-      }
-      
-      // 3. ค้นหาและดึงรายการข้อมูลจาก "เอกสารส่วนตัว" (Virtual Drive)
-      let privateMatches: any[] = [];
-      let personalDocsList = "ไม่มีเอกสารอัปโหลดในห้องส่วนตัว";
-      
-      try {
-        const { data: personalDocs } = await supabase
-          .from('ai_knowledge_base')
-          .select('file_name, folder_name, created_at, content_text')
-          .eq('teacher_id', user?.id)
-          .order('created_at', { ascending: false });
-
-        if (personalDocs && personalDocs.length > 0) {
-          personalDocsList = personalDocs.map((doc, idx) => 
-            `- [ลำดับที่ ${idx + 1}] ชื่อไฟล์: ${doc.file_name} (อัปโหลดเมื่อ: ${new Date(doc.created_at).toLocaleString('th-TH')}, โฟลเดอร์: ${doc.folder_name})`
-          ).join('\n');
-
-          if (searchSource === 'all' || searchSource === 'private') {
-            // ค้นหาแบบ Keyword
-            privateMatches = searchPersonalDocs(userMsg, personalDocs);
-
-            // คืนค่าระบบช่วยเหลือ RAG จากรุ่น 1.0.6:
-            // หากค้นหาคำสำคัญไม่เจอบนไฟล์ส่วนตัว แต่คุณครูถามถึงของล่าสุด หรือขอสรุป/วิเคราะห์ หรือในไดรฟ์มีไฟล์เดียว
-            // ให้ดึงไฟล์ล่าสุดเพียง 1 ไฟล์มาเป็น Context เพื่อเพิ่มความแม่นยำสูงสุด (ไม่นำไฟล์อื่นๆ ที่ไม่เกี่ยวมาปะปน)
-            const isAskingForLatest = userMsg.includes('ล่าสุด') || userMsg.includes('เพิ่ง') || userMsg.includes('พึ่ง') || userMsg.includes('อันใหม่') || userMsg.includes('ใหม่สุด') || userMsg.includes('อัพเดท') || userMsg.includes('อัปเดต');
-            const isAskingForSummaryOrInfo = userMsg.includes('สรุป') || userMsg.includes('วิเคราะห์') || userMsg.includes('อ่าน') || userMsg.includes('คืออะไร') || userMsg.includes('ข้อมูล');
-            const hasOnlyOneDoc = personalDocs.length === 1;
-
-            if (privateMatches.length === 0 && (isAskingForLatest || isAskingForSummaryOrInfo || hasOnlyOneDoc)) {
-              const latestDoc = personalDocs[0];
-              const snippet = latestDoc.content_text 
-                ? latestDoc.content_text.substring(0, 1500) 
-                : "(ไฟล์นี้ไม่มีเนื้อหาข้อความหรือไม่ได้เป็น PDF)";
-              
-              privateMatches.push({
-                file_name: latestDoc.file_name,
-                snippet: snippet,
-                score: 100
-              });
-            }
+        let matches = await searchKnowledge(searchQuery, apiKey, 12);
+        
+        const fileRefMatch = searchQuery.match(/(\d+[\/_]\d+|ว\s?\d+|ระเบียบ\s?\d+)/i) || userMsg.match(/(\d+[\/_]\d+|ว\s?\d+|ระเบียบ\s?\d+)/i);
+        if (fileRefMatch) {
+          const keyword = fileRefMatch[0];
+          const cleanKw = keyword.replace(/\//g, '_');
+          const { data: deepMatches } = await supabase
+            .from('school_knowledge')
+            .select('document_name, page_number, chunk_text')
+            .or(`document_name.ilike.%${keyword}%,document_name.ilike.%${cleanKw}%,chunk_text.ilike.%${keyword}%,chunk_text.ilike.%${cleanKw}%`)
+            .limit(10);
+          
+          if (deepMatches?.length) {
+            const combinedMatches = [...deepMatches.map(m => ({...m, similarity: 1})), ...matches];
+            matches = combinedMatches.filter((v, i, a) => a.findIndex(t => (t.chunk_text === v.chunk_text)) === i);
           }
         }
-      } catch (privateSearchErr) {
-        console.error('Error searching personal documents:', privateSearchErr);
+
+        knowledgeContext = matches.map((m: any) => `[คลังกลาง: ${m.document_name} หน้า ${m.page_number}]\n${m.chunk_text}`).join('\n\n');
       }
 
-      // 4. จัดรูปแบบบริบททั้งหมด
-      const combinedGlobalMatches = [...matches];
-      globalKeywordMatches.forEach(kwm => {
-        if (!combinedGlobalMatches.find(m => m.chunk_text === kwm.chunk_text)) {
-          combinedGlobalMatches.push(kwm);
+      // 3. ค้นหาเอกสารส่วนตัว (Private Knowledge RAG)
+      let privateContext = "";
+      if (searchSource === 'all' || searchSource === 'private') {
+        try {
+          const privateMatches = await searchPrivateKnowledge(searchQuery, user?.id || '', apiKey, 10);
+          if (privateMatches && privateMatches.length > 0) {
+            privateContext = privateMatches.map((m: any) => `[ไฟล์ส่วนตัว: ${m.document_name} หน้า ${m.page_number}]\n${m.chunk_text}`).join('\n\n');
+          } else {
+            // Fallback: ค้นหาจากเนื้อหาไฟล์ดิบดั้งเดิมแบบ Keyword Search
+            const { data: personalDocs } = await supabase
+              .from('ai_knowledge_base')
+              .select('*')
+              .eq('teacher_id', user?.id)
+              .order('created_at', { ascending: false });
+
+            if (personalDocs?.length) {
+              const pMatches = searchPersonalDocs(searchQuery, personalDocs);
+              if (pMatches.length === 0 && (searchQuery.includes('ล่าสุด') || personalDocs.length === 1)) {
+                const latest = personalDocs[0];
+                privateContext = `[ไฟล์ล่าสุด: ${latest.file_name}]\n${latest.content_text?.substring(0, 1500)}`;
+              } else {
+                privateContext = pMatches.map(m => `[ไฟล์ส่วนตัว: ${m.file_name}]\n${m.snippet}`).join('\n\n');
+              }
+            }
+          }
+        } catch (privErr) {
+          console.error("Private search error:", privErr);
         }
+      }
+
+      // 4. สร้างประวัติการสนทนาย้อนหลังเสริมเป็น Context
+      const historyForPrompt = messages.filter(m => 
+        m.text !== 'สวัสดีค่ะ ชบาคือ "น้องชบา" ผู้ช่วยอัจฉริยะของคุณครู มีอะไรให้หนูช่วยสรุปหรือค้นหาข้อมูลในคลังเอกสารไหมคะ?' && 
+        m.text !== 'รีเซ็ตการสนทนาเรียบร้อยค่ะ มีอะไรให้ชบาช่วยไหมคะ?'
+      ).slice(-5);
+
+      let historyContext = "";
+      if (historyForPrompt.length > 0) {
+        historyContext = `ประวัติการสนทนาล่าสุดของเซสชันนี้:\n` + 
+          historyForPrompt.map(m => `- ${m.role === 'user' ? 'คุณครู' : 'น้องชบา'}: ${m.text}`).join('\n') + 
+          `\n\n`;
+      }
+
+      // 5. สร้าง Prompt และเรียก AI
+      const systemInstruction = `คุณคือ "น้องชบา" ผู้ช่วยอัจฉริยะโรงเรียนบ้านควนโคกยา
+      บุคลิก: สุภาพ ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู"
+      กฎการตอบ:
+      - ตอบเฉพาะความจริงจากบริบทที่ให้เท่านั้น ห้ามมโนข้อมูลเอง
+      - หากนำข้อมูลมาจาก 'บริบทคลังปัญญา' หรือ 'บริบทเอกสารส่วนตัว' มาตอบ ให้เขียนระบุแหล่งอ้างอิงเอกสารต้นฉบับและหน้า (ถ้ามี) ไว้ท้ายข้อมูลหรือส่วนที่เกี่ยวข้องเสมอ เช่น "(อ้างอิงจากคลังกลาง: [ชื่อเอกสาร] หน้า [หน้า])" หรือ "(อ้างอิงจากไฟล์ส่วนตัว: [ชื่อไฟล์] หน้า [หน้า])" เพื่อให้ผู้ใช้สามารถตรวจสอบความถูกต้องได้
+      - หากไม่พบข้อมูล ให้แจ้งสุภาพว่า "ชบาหาข้อมูลส่วนนี้ไม่พบค่ะ"
+      - ห้ามใช้เครื่องหมายดอกจัน (*) ในคำตอบ
+      - จัดรูปแบบให้อ่านง่าย ใช้แท็ก <ans>...</ans> หุ้มคำตอบสุดท้าย`;
+
+      const prompt = `บริบทฐานข้อมูล:
+      ${fallbackStats}
+      ${truncateContext(dbContextParts.join('\n\n'), 4000)}
+
+      บริบทคลังปัญญา:
+      ${truncateContext(knowledgeContext, 4000)}
+
+      บริบทเอกสารส่วนตัว:
+      ${truncateContext(privateContext, 4000)}
+
+      ${historyContext}คำถามปัจจุบันของคุณครู: "${userMsg}"
+      
+      ตอบในแท็ก <ans> เท่านั้นนะคะ`;
+
+      const res = await callGeminiAPI(prompt, apiKey, {
+        systemInstruction,
+        temperature: 0.7
       });
 
-      const knowledgeContext = combinedGlobalMatches.length > 0 
-        ? combinedGlobalMatches.map((m: any) => `[อ้างอิงคลังกลาง: ${m.document_name} หน้า ${m.page_number}${m.is_keyword_match ? ' - ค้นหาพบจากคำสำคัญ' : ''}]\n${m.chunk_text}`).join('\n\n')
-        : "ไม่พบข้อมูลที่ตรงกันโดยตรงในคลังปัญญาโรงเรียน (ส่วนกลาง)";
-
-      const privateContext = privateMatches.length > 0
-        ? privateMatches.map((m: any) => `[อ้างอิงเอกสารส่วนตัวของคุณครู: ${m.file_name}]\n${m.snippet}`).join('\n\n')
-        : "ไม่พบข้อมูลที่ตรงกันในเอกสารส่วนตัวของคุณครู (ห้องส่วนตัว)";
-
-      const prompt = `คุณคือ "น้องชบา" ผู้ช่วยเพศหญิงของโรงเรียนบ้านควนโคกยา
-      ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู" (ห้ามใช้คำว่า AI Cowork หรือครับ)
+      let finalAnswer = res.text;
+      const match = finalAnswer.match(/<ans>([\s\S]*?)<\/ans>/);
+      if (match) finalAnswer = match[1].trim();
       
-      [ส่วนที่ 1: ข้อมูลฐานข้อมูล]
-      ${dbContext}
-
-      [ส่วนที่ 2: คลังปัญญา]
-      ${knowledgeContext}
-
-      [ส่วนที่ 3: เอกสารส่วนตัว]
-      * รายชื่อไฟล์: ${personalDocsList}
-      * เนื้อหาที่เกี่ยวข้อง: ${privateContext}
-
-      คำถามของคุณครู ${profile?.display_name}: "${userMsg}"
-
-      กฎเหล็ก (STRICT RULES):
-      1. ให้ตอบเฉพาะ "เนื้อหาคำตอบสุดท้าย" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
-      2. ห้ามใช้เครื่องหมายดอกจัน (*) ในคำตอบเด็ดขาด (ห้ามมีเครื่องหมาย * แม้แต่อันเดียว)
-      3. ห้ามพิมพ์ขั้นตอนการคิด, ห้ามเกริ่นนำ, ห้ามทวนคำถามนอกแท็ก <ans>
-      4. เขียนให้กระชับ ติดกัน ไม่เว้นบรรทัดห่างเกินไป 
-
-      กรุณาตอบลงในแท็ก <ans> ให้ชบาหน่อยนะคะ`;
-
-      let modelsToTry = await getAvailableModels(apiKey);
-      if (modelsToTry.length === 0) {
-        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
-      }
-
-      const apiVersions = ["v1beta", "v1"];
-      let aiResponseText = "";
-      let success = false;
-      let lastErrorMessage = "";
-
-      for (const modelName of modelsToTry) {
-        if (success) break;
-        for (const version of apiVersions) {
-          if (success) break;
-          try {
-            const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey.trim()}`;
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                  temperature: 0.7,
-                  topP: 0.95,
-                  maxOutputTokens: 2048,
-                }
-              })
-            });
-
-            const resData = await response.json();
-            if (response.ok && resData.candidates?.[0]?.content?.parts?.[0]?.text) {
-              const rawText = resData.candidates[0].content.parts[0].text.trim();
-              
-              // Extract Answer from <ans> tag
-              const match = rawText.match(/<ans>([\s\S]*?)<\/ans>/);
-              if (match && match[1]) {
-                aiResponseText = match[1].trim();
-              } else {
-                aiResponseText = rawText; // Fallback
-              }
-              
-              // Final Cleanup
-              aiResponseText = aiResponseText
-                .replace(/\*/g, '')
-                .replace(/AI Cowork/gi, 'น้องชบา')
-                .replace(/ครับ/g, 'ค่ะ')
-                .split('\n')
-                .filter(line => !line.match(/^\s*(\*|-)?\s*(Identity|Role|User|Context|Input|Logic|Drafting|Winner|Step|Goal|Strict|Formatting|Section|Check|Evaluation|Actionable|Final|Plan|Result).*?:/i))
-                .join('\n')
-                .trim();
-                
-              success = true;
-            } else if (resData.error) {
-              lastErrorMessage = resData.error.message;
-              console.warn(`AICowork: Model ${modelName} (${version}) failed:`, lastErrorMessage);
-            } else if (resData.candidates?.[0]?.finishReason) {
-              lastErrorMessage = `AI ปฏิเสธการตอบคำถาม (สาเหตุ: ${resData.candidates[0].finishReason})`;
-            }
-          } catch (fetchErr: any) {
-            lastErrorMessage = fetchErr.message;
-            console.error(`AICowork: Fetch error with ${modelName} (${version}):`, fetchErr);
-          }
-        }
-      }
-
-      if (!success) {
-        throw new Error(lastErrorMessage || 'ไม่สามารถติดต่อ AI ได้ในขณะนี้ โปรดตรวจสอบ API Key ของคุณ');
-      }
+      finalAnswer = finalAnswer.replace(/\*/g, '').replace(/AI Cowork/gi, 'น้องชบา').replace(/ครับ/g, 'ค่ะ');
       
-      setMessages(prev => [...prev, { role: 'ai', text: aiResponseText }]);
+      setMessages(prev => [...prev, { role: 'ai', text: finalAnswer }]);
     } catch (err: any) {
       setMessages(prev => [...prev, { role: 'ai', text: `ขออภัยค่ะ เกิดข้อผิดพลาด: ${err.message}` }]);
     } finally {
@@ -966,15 +822,54 @@ export default function AICowork() {
                         const parts = cleanLine.split(/(\*\*.*?\*\*)/g);
                         const renderedContent = parts.map((part, pIdx) => {
                           if (part.startsWith('**') && part.endsWith('**')) {
-                            // สไตล์ตัวหนาพรีเมียมสีเหลืองทองครีม สวยงามนำสายตา อ่านง่าย สบายตา
                             return (
-                              <strong key={pIdx} className={`${msg.role === 'user' ? 'text-white' : 'bg-amber-50 text-slate-900 px-1.5 py-0.5 rounded-md border border-amber-100 font-bold mx-0.5 shadow-2xs'}`}>
+                              <strong key={pIdx} className={`${msg.role === 'user' ? 'text-white' : 'bg-amber-50 text-amber-900 px-1.5 py-0.5 rounded-md border border-amber-200 font-black mx-0.5 shadow-sm'}`}>
                                 {part.slice(2, -2)}
                               </strong>
                             );
                           }
-                          return part;
+                          
+                          // Parse citations in non-bold parts: (อ้างอิงจาก...)
+                          const citationRegex = /(\(อ้างอิงจาก[^)]+\))/g;
+                          const subParts = part.split(citationRegex);
+                          return subParts.map((subPart, sIdx) => {
+                            if (subPart.startsWith('(อ้างอิงจาก') && subPart.endsWith(')')) {
+                              const citationContent = subPart.slice(1, -1); // e.g. "อ้างอิงจากคลังกลาง: ระเบียบการลาปี 2568 หน้า 5"
+                              const cleanContent = citationContent.replace(/^อ้างอิงจาก/, '').trim();
+                              return (
+                                <span key={`${pIdx}-${sIdx}`} className="group relative inline-block mx-1 cursor-help align-middle">
+                                  <span className="inline-flex items-center justify-center bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 text-[9px] font-bold px-1.5 py-0.5 rounded border border-emerald-200 transition-colors shadow-sm gap-0.5">
+                                    <BookOpen size={9} />
+                                    <span>อ้างอิง</span>
+                                  </span>
+                                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-slate-950/95 backdrop-blur text-white text-[11px] font-medium rounded-xl py-2 px-3 w-56 whitespace-normal break-words z-50 shadow-2xl border border-white/10 text-center leading-relaxed">
+                                    {cleanContent}
+                                    <span className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-950/95"></span>
+                                  </span>
+                                </span>
+                              );
+                            }
+                            return subPart;
+                          });
                         });
+
+                        // เพิ่มการรองรับตารางแบบง่าย (Simple Table Support)
+                        if (trimmedLine.startsWith('|') && trimmedLine.endsWith('|')) {
+                          const cells = trimmedLine.split('|').filter(c => c.trim() !== '' || trimmedLine.indexOf('|'+c+'|') !== -1);
+                          return (
+                            <div key={index} className="overflow-x-auto my-2">
+                              <table className="min-w-full border-collapse border border-slate-200 text-xs">
+                                <tbody>
+                                  <tr className={msg.role === 'user' ? 'bg-white/10' : 'bg-slate-50'}>
+                                    {cells.map((cell, cIdx) => (
+                                      <td key={cIdx} className="border border-slate-200 px-3 py-2 font-bold">{cell.trim()}</td>
+                                    ))}
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        }
                         
                         if (isBullet) {
                           let bulletIndicator = <span className={`${msg.role === 'user' ? 'bg-white' : 'bg-brand-primary'} mt-2 min-w-[6px] h-[6px] rounded-full`}></span>;
@@ -1132,10 +1027,17 @@ export default function AICowork() {
                         {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} อัปโหลดไฟล์
                      </label>
                    )}
-                </div>
-             </div>
+                 </div>
+              </div>
 
-             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              {uploadProgress && (
+                <div className="mx-8 mt-4 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-3 text-emerald-800 text-xs font-bold animate-in fade-in duration-300">
+                  <Loader2 size={16} className="animate-spin text-brand-primary" />
+                  <span>{uploadProgress}</span>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 {loading ? (
                   <div className="flex flex-col items-center justify-center h-64 text-slate-300">
                      <Loader2 className="animate-spin mb-4" size={40} />
@@ -1180,7 +1082,7 @@ export default function AICowork() {
               <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3 tracking-tight">
                 <BrainCircuit size={32} className="text-brand-primary" /> Intelligence Hub
               </h3>
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">คลังปัญญาโรงเรียน (ระบบอ่านและจดจำเนื้อหาอัตโนมัติ)</p>
+              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">คลังปัญญาโรงเรียน (ระบบอ่านและจดจำเนื้อหาอัตโนมัติ) ใช้ความสามารถของ Gemma 4 จัดการ</p>
             </div>
             <div className="flex gap-3">
               <label className={`bg-brand-primary text-white px-8 py-4 rounded-2xl font-black text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-green-100 transition-all active:scale-95 ${isProcessing ? 'opacity-50 pointer-events-none' : 'hover:bg-green-700'}`}>

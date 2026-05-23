@@ -30,6 +30,7 @@ export default function CustomStudentPrint() {
     teacherName: '',
     directorName: '',
     schoolLogo: '',
+    schoolName: import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา',
   });
 
   const [selectedColumns, setSelectedColumns] = useState({
@@ -47,13 +48,14 @@ export default function CustomStudentPrint() {
     // Fetch Current Year from Settings
     const { data: settings } = await supabase
       .from('settings')
-      .select('current_academic_year, school_logo_url, director_name')
+      .select('school_name, current_academic_year, school_logo_url, director_name')
       .order('updated_at', { ascending: false })
       .maybeSingle();
 
     if (settings) {
       setConfig(prev => ({ 
         ...prev, 
+        schoolName: settings.school_name || prev.schoolName,
         academicYear: settings.current_academic_year || prev.academicYear,
         schoolLogo: settings.school_logo_url || '',
         directorName: settings.director_name || prev.directorName
@@ -171,7 +173,7 @@ export default function CustomStudentPrint() {
             ${logoHtml}
             <div class="header">
               <h1 style="margin:0; font-size: 20pt; font-weight: bold;">${config.reportTitle}</h1>
-              <p style="margin:5px 0; font-size: 16pt;">โรงเรียนบ้านควนโคกยา ปีการศึกษา ${toThaiDigits(config.academicYear)}</p>
+              <p style="margin:5px 0; font-size: 16pt;">${config.schoolName} ปีการศึกษา ${toThaiDigits(config.academicYear)}</p>
               ${config.classLevel !== 'ทั้งหมด' ? `<p style="margin:0; font-size: 16pt;">ระดับชั้น ${config.classLevel} ${config.room !== 'ทั้งหมด' ? `ห้อง ${toThaiDigits(config.room)}` : ''}</p>` : ''}
             </div>
             <table><thead>${headers}</thead><tbody>${htmlRows}</tbody></table>

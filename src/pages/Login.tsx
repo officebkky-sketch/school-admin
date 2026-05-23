@@ -10,7 +10,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
+  const [schoolName, setSchoolName] = useState(import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา');
 
   useEffect(() => {
     async function fetchSchoolName() {
@@ -91,7 +91,7 @@ export default function Login() {
             </button>
           )}
           <div className="bg-white w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg p-2 overflow-hidden">
-            <img src="logo.png" alt="School Logo" className="w-full h-full object-contain" />
+            <img src={import.meta.env.VITE_SCHOOL_LOGO_PATH || "logo.png"} alt="School Logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold">{isSignUp ? 'ลงทะเบียนผู้ใช้งาน' : 'ระบบบริหารจัดการข้อมูลโรงเรียน'}</h1>
           <p className="text-green-100/80 mt-1">{schoolName}</p>

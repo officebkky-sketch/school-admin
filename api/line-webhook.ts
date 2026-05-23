@@ -34,6 +34,17 @@ export default async function handler(req: any, res: any) {
           }
         }
       }
+      
+      if (event.type === 'message' && event.message.type === 'image') {
+        const userId = event.source.userId;
+        const messageId = event.message.id;
+        const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('line_user_id', userId).maybeSingle();
+        if (profile) {
+          await handleReceiptOCR(event.replyToken, messageId, profile);
+        } else {
+          await replyToLine(event.replyToken, 'สวัสดีค่ะ รบกวนยืนยันตัวตนด้วยการกรอกอีเมลของคุณครูก่อนเริ่มส่งใบเสร็จให้ชบาสแกนนะคะ 🌸');
+        }
+      }
     }
   } catch (err) { console.error(err); }
   return res.status(200).json({ message: 'OK' });
@@ -265,11 +276,32 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       }
     },
     {
-      keys: ['โครงการ', 'งบประมาณ', 'งบ', 'เงินงบ'],
+      keys: ['โครงการ', 'งบประมาณ', 'งบ', 'เงินงบ', 'สถิติ', 'สรุป', 'ผลสัมฤทธิ์', 'จัดซื้อจัดจ้าง', 'พัสดุ', 'ซื้อจ้าง'],
       fetch: async () => {
-        const { data } = await supabase.from('school_projects').select('project_name, planned_amount, spent_amount, status, budget_allocations(budget_type, category_name)').eq('academic_year', currentYear).limit(15);
+        const { data: projects } = await supabase.from('school_projects').select('project_name, planned_amount, spent_amount, status, budget_allocations(budget_type, category_name)').eq('academic_year', currentYear);
         const { data: budget } = await supabase.from('budget_allocations').select('id, budget_type, category_name, amount, spent_amount, remaining_amount').eq('academic_year', currentYear);
-        return `ข้อมูลโครงการ ปี ${currentYear} (เชื่อมโยงแหล่งงบประมาณแล้ว): ${JSON.stringify(data)}\nข้อมูลแหล่งงบประมาณ: ${JSON.stringify(budget)}`;
+        const { data: procurement } = await supabase.from('procurement_projects').select('project_name, total_amount, status, procurement_type').eq('academic_year', currentYear);
+        
+        // คำนวณสรุปตัวเลขสถิติเพื่อให้ AI ทำข้อมูลผลสัมฤทธิ์
+        const totalAllocated = budget?.reduce((sum: number, b: any) => sum + (b.amount || 0), 0) || 0;
+        const totalSpent = budget?.reduce((sum: number, b: any) => sum + (b.spent_amount || 0), 0) || 0;
+        const totalRemaining = budget?.reduce((sum: number, b: any) => sum + (b.remaining_amount || 0), 0) || 0;
+        
+        const procCount = procurement?.length || 0;
+        const procFinished = procurement?.filter((p: any) => p.status === 'approved' || p.status === 'completed')?.length || 0;
+        const procSpent = procurement?.reduce((sum: number, p: any) => sum + (Number(p.total_amount) || 0), 0) || 0;
+
+        return `สถิติสรุปงบประมาณและพัสดุ ปีการศึกษา ${currentYear}:
+- ยอดงบประมาณรวมที่ได้รับการจัดสรร: ${totalAllocated.toLocaleString()} บาท
+- งบประมาณที่ใช้ไปแล้วสะสม: ${totalSpent.toLocaleString()} บาท
+- งบประมาณคงเหลือสุทธิ: ${totalRemaining.toLocaleString()} บาท
+- จำนวนโครงการจัดซื้อจัดจ้างทั้งหมด: ${procCount} รายการ
+- โครงการจัดซื้อจัดจ้างที่อนุมัติ/สำเร็จแล้ว: ${procFinished} รายการ
+- ยอดจัดซื้อจัดจ้างรวม: ${procSpent.toLocaleString()} บาท
+
+ข้อมูลโครงการทั้งหมด: ${JSON.stringify(projects)}
+ข้อมูลแหล่งงบประมาณ: ${JSON.stringify(budget)}
+ข้อมูลการจัดซื้อจัดจ้างในระบบ: ${JSON.stringify(procurement)}`;
       }
     },
     {
@@ -430,5 +462,89 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
     console.error(`[LINE WEBHOOK] Error fetching school_knowledge:`, err);
   }
 
+  return "";
+}
+
+async function handleReceiptOCR(replyToken: string, messageId: string, _profile: any) {
+  try {
+    await replyToLine(replyToken, "ชบากำลังดึงรูปภาพใบเสร็จของคุณครูและใช้ AI สแกนอ่านรายละเอียดให้อยู่นะคะ สักครู่เดียวค่ะ... 🌸⚡");
+    
+    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    if (!token) throw new Error("LINE_CHANNEL_ACCESS_TOKEN not configured");
+
+    // 1. ดาวน์โหลด Content ของรูปภาพ
+    const response = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error(`LINE image fetch returned HTTP ${response.status}`);
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Image = Buffer.from(arrayBuffer).toString('base64');
+
+    // 2. ดึง API Key
+    const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key').single();
+    const apiKey = sets?.gemini_api_key;
+    if (!apiKey) {
+      await replyToLine(replyToken, "ระบบยังไม่ได้ตั้งค่า API Key ในโรงเรียนค่ะ รบกวนคุณครูตั้งค่า API Key ในหน้าตั้งค่าก่อนนะคะ 🌸");
+      return;
+    }
+
+    // 3. เรียก Gemini Multimodal OCR
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยฝ่ายพัสดุและงบประมาณโรงเรียนบ้านควนโคกยา
+ภารกิจ: วิเคราะห์สแกนรูปภาพใบเสร็จ/บิลค่าใช้จ่ายนี้ และสรุปผลออกมาในรูปแบบราชการที่เข้าใจง่าย
+กฎเหล็ก:
+- ตอบข้อมูลสกัดออกมาให้ชัดเจนดังนี้:
+  1. ชื่อร้านค้า / ผู้ขาย
+  2. วันที่ในใบเสร็จ
+  3. รายการสินค้าพัสดุ (ระบุเป็นหัวข้อย่อย: ชื่อสินค้า, จำนวน, หน่วย, ราคาต่อหน่วย, ราคารวม)
+  4. ยอดเงินรวมทั้งสิ้น (บาท)
+- ให้คำแนะนำท้ายข้อความว่า "คุณครูสามารถนำข้อมูลที่ชบาสแกนนี้ไปกดเพิ่มรายการจัดซื้อจัดจ้างใหม่ในหน้าระบบพัสดุได้ทันทีเลยนะคะ 🌸"
+- ห้ามใช้คำพูดไม่สุภาพ และตอบอย่างนอบน้อมค่ะ/นะคะ เท่านั้น`;
+
+    const userPrompt = "ชบาส่งรูปใบเสร็จให้ค่ะ รบกวนสแกนอ่านให้ชบาหน่อยนะคะ";
+    const ocrResult = await callGeminiMultimodal(systemPrompt, userPrompt, base64Image, 'image/jpeg', apiKey);
+    
+    if (ocrResult) {
+      await replyToLine(replyToken, ocrResult);
+    } else {
+      await replyToLine(replyToken, "ขออภัยนะคะชบาไม่สามารถวิเคราะห์ข้อมูลจากภาพใบเสร็จนี้ได้ค่ะ รบกวนคุณครูช่วยตรวจสอบความคมชัดและส่งเข้ามาใหม่อีกครั้งนะคะ 🙏🌸");
+    }
+  } catch (err: any) {
+    console.error("[LINE OCR ERROR]", err);
+    await replyToLine(replyToken, `เกิดข้อผิดพลาดในการสแกนสกัดใบเสร็จค่ะ: ${err.message}`);
+  }
+}
+
+async function callGeminiMultimodal(system: string, user: string, base64Data: string, mimeType: string, apiKey: string): Promise<string> {
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
+  for (const model of models) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: system }] },
+          contents: [{
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType, data: base64Data } },
+              { text: user }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 2048
+          }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text;
+      }
+    } catch (e) {
+      console.error(`[LINE MULTIMODAL ERROR] ${model}:`, e);
+    }
+  }
   return "";
 }

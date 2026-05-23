@@ -66,7 +66,7 @@ type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'student
 function App() {
   const { user, profile, loading, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
+  const [schoolName, setSchoolName] = useState(import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา');
   
   // Update State
   const [updateStatus, setUpdateStatus] = useState<{ type: string; message: string; version?: string } | null>(null);
@@ -93,7 +93,19 @@ function App() {
   }, []);
 
   const handleRestart = () => {
-    if (ipcRenderer) ipcRenderer.send('restart-app');
+    const confirmRestart = window.confirm('ระบบพร้อมอัปเดตแล้วค่ะ คุณครูต้องการเริ่มระบบใหม่ตอนนี้เลยไหมคะ? \n(กรุณาตรวจสอบว่าบันทึกข้อมูลที่ค้างไว้เรียบร้อยแล้วนะคะ)');
+    
+    if (confirmRestart) {
+      // ล้าง Cache หรือ Session ที่อาจตกค้างก่อน Restart
+      try {
+        sessionStorage.clear();
+        console.log('Session storage cleared before restart');
+      } catch (e) {
+        console.error('Failed to clear session storage:', e);
+      }
+      
+      if (ipcRenderer) ipcRenderer.send('restart-app');
+    }
   };
 
   useEffect(() => {
@@ -132,7 +144,7 @@ function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col sticky top-0 h-screen overflow-y-auto scrollbar-hide shrink-0 shadow-sm">
         <div className="p-6 border-b border-slate-50 flex items-center gap-3 bg-white">
-          <img src="logo.png" alt="School Logo" className="w-12 h-12 object-contain" />
+          <img src={import.meta.env.VITE_SCHOOL_LOGO_PATH || "logo.png"} alt="School Logo" className="w-12 h-12 object-contain" />
           <div>
             <h1 className="font-black text-slate-800 text-xs tracking-tighter">{schoolName}</h1>
             <p className="text-[9px] text-brand-primary font-black uppercase tracking-widest">ระบบบริหารจัดการข้อมูลโรงเรียน</p>
@@ -198,7 +210,7 @@ function App() {
             <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tighter leading-tight">
               Smart School Admin © 2026<br/>
               <span className="text-brand-primary">Phairot Makkaew & Gemini AI</span><br/>
-              โรงเรียนบ้านควนโคกยา
+              {schoolName}
             </p>
           </div>
         </div>

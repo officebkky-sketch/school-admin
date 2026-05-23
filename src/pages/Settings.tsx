@@ -257,9 +257,9 @@ export default function Settings() {
                 className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 transition-all"
                 value={settings.gemini_api_key}
                 onChange={e => setSettings({...settings, gemini_api_key: e.target.value})}
-                placeholder="ใส่ Gemini API Key หลัก..."
+                placeholder="ใส่ Gemini API Key หลัก (หากมีหลายคีย์ ให้คั่นด้วยเครื่องหมายจุลภาค , )"
               />
-              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">ใช้สำหรับการสรุปเนื้อหาหนังสือราชการ (งานสารบรรณ)</p>
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">ใช้สำหรับการสรุปเนื้อหาหนังสือราชการ (งานสารบรรณ) *รองรับการใส่หลายคีย์คั่นด้วยเครื่องหมายจุลภาคเพื่อกระจายโหลดและป้องกัน Rate Limit</p>
             </div>
 
             <div className="space-y-1.5 pt-4 border-t border-slate-50">
@@ -269,9 +269,9 @@ export default function Settings() {
                 className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-green-100 focus:border-brand-primary transition-all"
                 value={settings.ai_cowork_api_key}
                 onChange={e => setSettings({...settings, ai_cowork_api_key: e.target.value})}
-                placeholder="ใส่ API Key แยกสำหรับ AI Cowork (ถ้ามี)..."
+                placeholder="ใส่ API Key แยกสำหรับ AI Cowork (หากมีหลายคีย์ ให้คั่นด้วยเครื่องหมายจุลภาค , )"
               />
-              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase italic">* แนะนำให้แยก Key เพื่อไม่ให้กระทบงานสารบรรณเมื่อคุณครูใช้งานพร้อมกันจำนวนมาก</p>
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase italic">* แนะนำให้แยก Key หรือใส่หลายคีย์คั่นด้วยเครื่องหมายจุลภาค ( , ) เพื่อกระจายการทำงานไม่ให้กระทบงานสารบรรณเมื่อคุณครูใช้งานพร้อมกันจำนวนมาก</p>
             </div>
           </div>
 

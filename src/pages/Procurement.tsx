@@ -57,6 +57,7 @@ export default function Procurement() {
   const [isDocumentCenterOpen, setIsDocumentCenterOpen] = useState(false);
   const [selectedProcurement, setSelectedProcurement] = useState<any>(null);
   const [activeDocId, setActiveDocId] = useState<string>('request');
+  const [pastVendors, setPastVendors] = useState<any[]>([]);
 
   const PROCUREMENT_DOCS = [
     { id: 'request', name: 'รายงานขอซื้อขอจ้าง', icon: <FileText size={18} />, description: 'เอกสารเริ่มต้นขออนุมัติจัดซื้อจัดจ้าง' },
@@ -99,7 +100,14 @@ export default function Procurement() {
       name: '',
       address: '',
       tax_id: ''
-    }
+    },
+    doc_number: '',
+    order_number: '',
+    po_number: '',
+    po_date: new Date().toISOString().split('T')[0],
+    delivery_date: new Date().toISOString().split('T')[0],
+    inspection_date: new Date().toISOString().split('T')[0],
+    payment_approval_date: new Date().toISOString().split('T')[0]
   });
 
   const [procurementItems, setProcurementItems] = useState<any[]>([
@@ -153,13 +161,29 @@ export default function Procurement() {
   async function fetchInitialData() {
     try {
       // ดึงข้อมูลพื้นฐานที่ต้องใช้ในหลายส่วนเพียงครั้งเดียว
-      const [budRes, teachRes] = await Promise.all([
+      const [budRes, teachRes, procRes] = await Promise.all([
         supabase.from('budget_allocations').select('*'),
-        supabase.from('teachers').select('*').order('first_name')
+        supabase.from('teachers').select('*').order('first_name'),
+        supabase.from('procurement_projects').select('vendor_info').order('created_at', { ascending: false })
       ]);
 
       if (budRes.data) setBudgets(budRes.data);
       if (teachRes.data) setTeachers(teachRes.data);
+
+      if (procRes.data) {
+        const uniqueVendors: any[] = [];
+        const seenNames = new Set();
+        procRes.data.forEach((p: any) => {
+          if (p.vendor_info && p.vendor_info.name && p.vendor_info.name.trim() !== '') {
+            const nameNormalized = p.vendor_info.name.trim().toLowerCase();
+            if (!seenNames.has(nameNormalized)) {
+              seenNames.add(nameNormalized);
+              uniqueVendors.push(p.vendor_info);
+            }
+          }
+        });
+        setPastVendors(uniqueVendors);
+      }
     } catch (err) {
       console.error('Initial Fetch Error:', err);
     }
@@ -227,7 +251,22 @@ export default function Procurement() {
 
       if (window.confirm(`AI ค้นพบโครงการทั้งหมด ${extracted.length} รายการ ยืนยันการนำเข้าหรือไม่?`)) {
         for (const p of extracted) {
-          const matchedBudget = budgets.find(b => p.budget_type?.toLowerCase().includes(b.budget_type?.toLowerCase()) || b.category_name?.includes(p.budget_type));
+          // การจับคู่งบประมาณที่ฉลาดและยืดหยุ่นขึ้น
+          const matchedBudget = budgets.find(b => {
+            const bt = b.budget_type?.toLowerCase() || '';
+            const cn = b.category_name?.toLowerCase() || '';
+            const pbt = p.budget_type?.toLowerCase() || '';
+            
+            if (pbt.includes('อุดหนุน') || pbt.includes('รายหัว') || pbt.includes('เรียนฟรี')) {
+              return bt.includes('อุดหนุน');
+            }
+            if (pbt.includes('รายได้') || pbt.includes('บำรุง')) {
+              return bt.includes('รายได้') || cn.includes('รายได้');
+            }
+            
+            return pbt.includes(bt) || bt.includes(pbt) || cn.includes(pbt) || pbt.includes(cn);
+          });
+
           await supabase.from('school_projects').insert([{
             project_name: p.project_name,
             academic_year: '2569',
@@ -398,7 +437,14 @@ export default function Procurement() {
       head_officer_id: procurement.head_officer_id || '',
       committees: initialCommittees,
       document_set_id: procurement.document_set_id || 'material_egp',
-      vendor_info: procurement.vendor_info || { name: '', address: '', tax_id: '' }
+      vendor_info: procurement.vendor_info || { name: '', address: '', tax_id: '' },
+      doc_number: procurement.doc_number || '',
+      order_number: procurement.order_number || '',
+      po_number: procurement.po_number || '',
+      po_date: procurement.po_date || new Date().toISOString().split('T')[0],
+      delivery_date: procurement.delivery_date || new Date().toISOString().split('T')[0],
+      inspection_date: procurement.inspection_date || new Date().toISOString().split('T')[0],
+      payment_approval_date: procurement.payment_approval_date || new Date().toISOString().split('T')[0]
     });
 
     // ดึงรายการสินค้าเดิม
@@ -446,7 +492,14 @@ export default function Procurement() {
         vendor_info: newProcurement.vendor_info,
         total_amount: procurementItems.reduce((sum, item) => sum + (Number(item.total_price) || 0), 0),
         status: 'draft',
-        created_by: user.id
+        created_by: user.id,
+        doc_number: newProcurement.doc_number || null,
+        order_number: newProcurement.order_number || null,
+        po_number: newProcurement.po_number || null,
+        po_date: newProcurement.po_date || null,
+        delivery_date: newProcurement.delivery_date || null,
+        inspection_date: newProcurement.inspection_date || null,
+        payment_approval_date: newProcurement.payment_approval_date || null
       };
 
       let mainId = selectedProcurementId;
@@ -477,7 +530,52 @@ export default function Procurement() {
 
       await supabase.from('procurement_items').insert(itemsToInsert);
       
+      // ส่งแจ้งเตือน Line Proactive Alert หลังบันทึกข้อมูลจัดซื้อสำเร็จ
+      const notifyLineUsers = async () => {
+        try {
+          const usersToNotify: { userId: string, msg: string }[] = [];
+          
+          const officer = teachers.find(t => t.id === newProcurement.officer_id);
+          if (officer && officer.line_user_id) {
+            usersToNotify.push({
+              userId: officer.line_user_id,
+              msg: `📢 แจ้งเตือนงานพัสดุ:\nคุณครูได้รับการบันทึกข้อมูลในโครงการ "${newProcurement.project_name}" เป็น "เจ้าหน้าที่พัสดุ" เรียบร้อยแล้วค่ะ 🌸\nเลขที่บันทึกข้อความ: ${newProcurement.doc_number || '-'}`
+            });
+          }
+
+          const headOfficer = teachers.find(t => t.id === newProcurement.head_officer_id);
+          if (headOfficer && headOfficer.line_user_id) {
+            usersToNotify.push({
+              userId: headOfficer.line_user_id,
+              msg: `📢 แจ้งเตือนงานพัสดุ:\nคุณครูได้รับการบันทึกข้อมูลในโครงการ "${newProcurement.project_name}" เป็น "หัวหน้าเจ้าหน้าที่พัสดุ" เรียบร้อยแล้วค่ะ 🌸\nเลขที่บันทึกข้อความ: ${newProcurement.doc_number || '-'}`
+            });
+          }
+
+          newProcurement.committees.forEach(c => {
+            const commTeacher = teachers.find(t => t.id === c.teacher_id);
+            if (commTeacher && commTeacher.line_user_id) {
+              usersToNotify.push({
+                userId: commTeacher.line_user_id,
+                msg: `📢 แจ้งเตือนแต่งตั้งกรรมการ:\nแต่งตั้งคุณครูเป็น "${c.role || 'ผู้ตรวจรับพัสดุ'}" สำหรับโครงการ "${newProcurement.project_name}" แล้วนะคะ 🌸\nเลขที่คำสั่ง: ที่ ${newProcurement.order_number || '-'}`
+              });
+            }
+          });
+
+          for (const user of usersToNotify) {
+            await fetch('/api/line-notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lineUserId: user.userId, message: user.msg })
+            }).catch(err => console.error("Line notify fetch err:", err));
+          }
+        } catch (err) {
+          console.error("Line notification trigger err:", err);
+        }
+      };
+
       alert(isEditingProcurement ? 'อัปเดตข้อมูลเรียบร้อยแล้วครับ' : 'บันทึกข้อมูลจัดซื้อเรียบร้อยแล้วครับ');
+      notifyLineUsers();
+
       setIsAddingProcurement(false);
       setIsEditingProcurement(false);
       setSelectedProcurementId(null);
@@ -683,7 +781,14 @@ export default function Procurement() {
                       head_officer_id: '',
                       committees: [{ teacher_id: '', role: 'ประธานกรรมการ' }],
                       document_set_id: 'material_egp',
-                      vendor_info: { name: '', address: '', tax_id: '' }
+                      vendor_info: { name: '', address: '', tax_id: '' },
+                      doc_number: '',
+                      order_number: '',
+                      po_number: '',
+                      po_date: new Date().toISOString().split('T')[0],
+                      delivery_date: new Date().toISOString().split('T')[0],
+                      inspection_date: new Date().toISOString().split('T')[0],
+                      payment_approval_date: new Date().toISOString().split('T')[0]
                     });
                     setProcurementItems([{ item_name: '', quantity: 1, unit: 'รายการ', price_per_unit: 0, total_price: 0 }]);
                     setIsAddingProcurement(true);
@@ -852,7 +957,11 @@ export default function Procurement() {
                   </select>
                   <input type="text" placeholder="ชื่อรายการที่จัดซื้อ (เช่น ซื้อวัสดุสำนักงาน 5 รายการ)..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.project_name} onChange={e => setNewProcurement({...newProcurement, project_name: e.target.value})} />
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:bg-white transition-all" value={newProcurement.procurement_type} onChange={e => setNewProcurement({...newProcurement, procurement_type: e.target.value})}>
+                      <option value="ซื้อ">ประเภท: ซื้อ</option>
+                      <option value="จ้าง">ประเภท: จ้าง</option>
+                    </select>
                     <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.document_set_id} onChange={e => setNewProcurement({...newProcurement, document_set_id: e.target.value})}>
                       {DOCUMENT_SETS.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
                     </select>
@@ -988,11 +1097,77 @@ export default function Procurement() {
               </div>
 
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest ml-2">4. ข้อมูลร้านค้า / ผู้ขาย (ถ้ามี)</label>
+                <div className="flex items-center justify-between px-2">
+                  <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest">4. ข้อมูลร้านค้า / ผู้ขาย (ถ้ามี)</label>
+                  {pastVendors.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-bold text-slate-400">เลือกร้านค้าแนะนำ:</span>
+                      <select 
+                        className="px-4 py-1.5 bg-green-50 border border-green-100 rounded-full font-bold text-[10px] outline-none text-brand-primary cursor-pointer hover:bg-green-100 transition-colors"
+                        value=""
+                        onChange={e => {
+                          const selectedName = e.target.value;
+                          const vendor = pastVendors.find(v => v.name === selectedName);
+                          if (vendor) {
+                            setNewProcurement({
+                              ...newProcurement,
+                              vendor_info: {
+                                name: vendor.name,
+                                address: vendor.address || '',
+                                tax_id: vendor.tax_id || ''
+                              }
+                            });
+                          }
+                        }}
+                      >
+                        <option value="">-- ดึงจากประวัติจัดซื้อเดิม --</option>
+                        {pastVendors.map((v, i) => (
+                          <option key={i} value={v.name}>{v.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <input type="text" placeholder="ชื่อร้านค้า..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.name} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, name: e.target.value}})} />
                   <input type="text" placeholder="ที่อยู่ร้านค้า..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.address} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, address: e.target.value}})} />
                   <input type="text" placeholder="เลขที่เสียภาษี / บัตรประชาชน..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.tax_id} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, tax_id: e.target.value}})} />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest ml-2">5. เลขที่หนังสือและวันที่ดำเนินการสำคัญ</label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">เลขที่บันทึกข้อความ (ขอซื้อ/ขอจ้าง)</label>
+                    <input type="text" placeholder="เช่น มค 72404/..." className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.doc_number} onChange={e => setNewProcurement({...newProcurement, doc_number: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">เลขที่คำสั่ง (แต่งตั้งกรรมการ)</label>
+                    <input type="text" placeholder="เช่น 45/2569" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.order_number} onChange={e => setNewProcurement({...newProcurement, order_number: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">เลขที่สั่งซื้อ/สั่งจ้าง (PO)</label>
+                    <input type="text" placeholder="เช่น 12/2569" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.po_number} onChange={e => setNewProcurement({...newProcurement, po_number: e.target.value})} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">วันที่สั่งซื้อ/สั่งจ้าง (PO)</label>
+                    <input type="date" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.po_date} onChange={e => setNewProcurement({...newProcurement, po_date: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">วันที่ส่งมอบพัสดุ</label>
+                    <input type="date" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.delivery_date} onChange={e => setNewProcurement({...newProcurement, delivery_date: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">วันที่ตรวจรับพัสดุ</label>
+                    <input type="date" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.inspection_date} onChange={e => setNewProcurement({...newProcurement, inspection_date: e.target.value})} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">วันที่อนุมัติจ่ายเงิน</label>
+                    <input type="date" className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.payment_approval_date} onChange={e => setNewProcurement({...newProcurement, payment_approval_date: e.target.value})} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1059,7 +1234,7 @@ export default function Procurement() {
                  <div className="max-w-2xl mx-auto space-y-6">
                     <div className="bg-white p-12 rounded-[40px] shadow-xl border border-slate-100 min-h-[600px] relative">
                        <div className="absolute top-8 right-8 opacity-10">
-                          <img src="logo.png" alt="Watermark" className="w-20 h-20" />
+                           <img src={import.meta.env.VITE_SCHOOL_LOGO_PATH || "logo.png"} alt="Watermark" className="w-20 h-20" />
                        </div>
                        <h4 className="text-center font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-4 mb-8">ตัวอย่างเนื้อหาที่ AI ร่าง</h4>
                        

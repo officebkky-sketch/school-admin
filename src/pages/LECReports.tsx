@@ -29,6 +29,7 @@ export default function LECReports() {
     reportDate: new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }),
     localGovName: '',
     schoolLogo: '',
+    schoolName: import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา',
   });
 
   const fetchInitialData = async () => {
@@ -55,7 +56,8 @@ export default function LECReports() {
           localGovName: sets.local_gov_name || prev.localGovName,
           teacherName: sets.teacher_name || prev.teacherName || '', // Support teacher_name if added to DB
           teacherPhone: sets.phone_number || prev.teacherPhone,
-          schoolLogo: sets.school_logo_url || ''
+          schoolLogo: sets.school_logo_url || '',
+          schoolName: sets.school_name || prev.schoolName
         }));
       }
     } catch (err) {
@@ -199,7 +201,7 @@ export default function LECReports() {
               <h3 style="margin:0; font-size: 20pt; font-weight: bold;">แบบบัญชีสรุปข้อมูลจำนวนนักเรียนของสถานศึกษาสังกัดหน่วยงานอื่น</h3>
               <p style="margin:2px 0; font-size: 14pt;">เพื่อใช้ในการตรวจสอบและพิจารณาจัดสรรงบประมาณอุดหนุนด้านการศึกษาขององค์กรปกครองส่วนท้องถิ่น</p>
               <p style="margin:2px 0; font-size: 14pt;">ประจำปีการศึกษา ${toThaiDigits(config.academicYear)} (ครั้งที่ ${toThaiDigits(config.term)})</p>
-              <p style="margin:2px 0; font-size: 14pt;">โรงเรียนบ้านควนโคกยา สังกัด สำนักงานเขตพื้นที่การศึกษาประถมศึกษาพัทลุง เขต ๒</p>
+              <p style="margin:2px 0; font-size: 14pt;">${config.schoolName} สังกัด สำนักงานเขตพื้นที่การศึกษาประถมศึกษาพัทลุง เขต ๒</p>
               <p style="margin:2px 0; font-size: 14pt;">เพื่อจัดส่งให้ ${config.localGovName || '................................................'}</p>
             </div>
             <table>
@@ -258,7 +260,7 @@ export default function LECReports() {
             <h3 style="margin:0; font-size: 20pt; font-weight: bold;">แบบรับรองรายชื่อนักเรียนของสถานศึกษาสังกัดหน่วยงานอื่น</h3>
             <p style="margin:2px 0; font-size: 14pt;">เพื่อใช้ในการตรวจสอบและพิจารณาจัดสรรงบประมาณอุดหนุนด้านการศึกษาขององค์กรปกครองส่วนท้องถิ่น</p>
             <p style="margin:2px 0; font-size: 14pt;">ประจำปีการศึกษา ${toThaiDigits(config.academicYear)} (ครั้งที่ ${toThaiDigits(config.term)})</p>
-            <p style="margin:2px 0; font-size: 14pt;">โรงเรียนบ้านควนโคกยา สังกัด สำนักงานเขตพื้นที่การศึกษาประถมศึกษาพัทลุง เขต ๒</p>
+            <p style="margin:2px 0; font-size: 14pt;">${config.schoolName} สังกัด สำนักงานเขตพื้นที่การศึกษาประถมศึกษาพัทลุง เขต ๒</p>
             <p style="margin:2px 0; font-size: 14pt;">เพื่อจัดส่งให้ ${config.localGovName || '................................................'}</p>
           </div>
           <table><thead><tr><th>ลำดับ</th><th>เลขประจำตัว</th><th>คำนำหน้าชื่อ ชื่อ - สกุล</th><th>เลขประชาชน</th><th>ระดับชั้น</th></tr></thead><tbody>${tableRows}</tbody></table>

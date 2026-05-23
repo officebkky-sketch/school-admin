@@ -16,7 +16,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "build:koko": "tsc -b && vite build --mode koko && electron-builder --config electron-builder-koko.json",
+    "build:school2": "tsc -b && vite build --mode school2 && electron-builder --config electron-builder-school2.json"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

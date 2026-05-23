@@ -40,6 +40,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (userId: string) => {
     try {
+      // ลองดึงจาก Cache ก่อนเพื่อความรวดเร็ว (Optimistic UI)
+      const cachedProfile = localStorage.getItem(`profile_${userId}`);
+      if (cachedProfile && !profile) {
+        setProfile(JSON.parse(cachedProfile));
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -48,6 +54,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!error && data) {
         setProfile(data);
+        // เก็บเข้า Cache
+        localStorage.setItem(`profile_${userId}`, JSON.stringify(data));
       }
     } catch (err) {
       console.error('Error fetching profile:', err);

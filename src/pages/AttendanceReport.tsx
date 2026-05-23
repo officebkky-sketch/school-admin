@@ -46,39 +46,62 @@ export default function AttendanceReport() {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      let query = supabase.from('attendance').select('*');
+      let startDate = selectedDate;
+      let endDate = selectedDate;
 
-      if (viewMode === 'daily') {
-        query = query.eq('date', selectedDate);
-      } else if (viewMode === 'monthly') {
-        const startOfMonth = `${selectedMonth}-01`;
+      if (viewMode === 'monthly') {
+        startDate = `${selectedMonth}-01`;
         const lastDay = new Date(new Date(selectedMonth).getFullYear(), new Date(selectedMonth).getMonth() + 1, 0).getDate();
-        const endOfMonth = `${selectedMonth}-${lastDay}`;
-        query = query.gte('date', startOfMonth).lte('date', endOfMonth);
-      } else {
+        endDate = `${selectedMonth}-${lastDay}`;
+      } else if (viewMode === 'weekly') {
         const date = new Date(selectedDate);
         const day = date.getDay();
         const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-        const monday = new Date(new Date(selectedDate).setDate(diff)).toISOString().split('T')[0];
-        const sunday = new Date(new Date(selectedDate).setDate(diff + 6)).toISOString().split('T')[0];
-        query = query.gte('date', monday).lte('date', sunday);
+        startDate = new Date(new Date(selectedDate).setDate(diff)).toISOString().split('T')[0];
+        endDate = new Date(new Date(selectedDate).setDate(diff + 6)).toISOString().split('T')[0];
       }
 
-      const { data, error } = await query.order('date', { ascending: true }).order('class_level', { ascending: true });
-      if (error) throw error;
-
-      setReportData(data || []);
-      
-      const stats = (data || []).reduce((acc, curr) => ({
-        present: acc.present + (curr.summary?.present || 0),
-        absent: acc.absent + (curr.summary?.absent || 0),
-        late: acc.late + (curr.summary?.late || 0),
-      }), { present: 0, absent: 0, late: 0 });
-
-      setSummary({
-        ...stats,
-        total: stats.present + stats.absent + stats.late
+      // 1. ดึงสรุปผลผ่าน RPC (ประสิทธิภาพสูง)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_attendance_summary', {
+        start_date: startDate,
+        end_date: endDate
       });
+
+      if (!rpcError && rpcData && rpcData.length > 0) {
+        const res = rpcData[0];
+        setSummary({
+          present: Number(res.total_present),
+          absent: Number(res.total_absent),
+          late: Number(res.total_late),
+          total: Number(res.total_present) + Number(res.total_absent) + Number(res.total_late)
+        });
+      }
+
+      // 2. ดึงข้อมูลดิบมาแสดงในตารางตามปกติ
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('*')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true })
+        .order('class_level', { ascending: true });
+
+      if (error) throw error;
+      setReportData(data || []);
+
+      // หาก RPC ล้มเหลว (เช่น ยังไม่ได้สร้าง) ให้ใช้การคำนวณฝั่ง Client เป็น Fallback
+      if (rpcError) {
+        const stats = (data || []).reduce((acc, curr) => ({
+          present: acc.present + (curr.summary?.present || 0),
+          absent: acc.absent + (curr.summary?.absent || 0),
+          late: acc.late + (curr.summary?.late || 0),
+        }), { present: 0, absent: 0, late: 0 });
+
+        setSummary({
+          ...stats,
+          total: stats.present + stats.absent + stats.late
+        });
+      }
     } catch (err) {
       console.error('Fetch Report Error:', err);
     } finally {
@@ -127,7 +150,7 @@ export default function AttendanceReport() {
                     viewMode === 'monthly' ? `ประจำเดือน ${toThaiMonth(selectedMonth)}` : '';
 
     const origin = window.location.origin;
-    const logoSrc = settings?.school_logo_url || `${origin}/logo.png`;
+    const logoSrc = settings?.school_logo_url || `${origin}${import.meta.env.VITE_SCHOOL_LOGO_PATH || '/logo.png'}`;
 
     const html = `
       <html>
