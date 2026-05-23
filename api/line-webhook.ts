@@ -8,23 +8,24 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
   // 0. รองรับการส่งแจ้งเตือนจาก Electron (Client-side push requests)
-  const { lineUserId, message } = req.body;
-  if (lineUserId && message) {
+  const { lineUserId, message, payload } = req.body;
+  if ((lineUserId && message) || payload) {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
       return res.status(500).json({ message: 'LINE Channel Access Token not configured on server' });
     }
     try {
+      const bodyToSend = payload ? payload : {
+        to: lineUserId,
+        messages: [{ type: 'text', text: message.substring(0, 5000) }]
+      };
       const response = await fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          to: lineUserId,
-          messages: [{ type: 'text', text: message.substring(0, 5000) }]
-        })
+        body: JSON.stringify(bodyToSend)
       });
       if (response.ok) {
         return res.status(200).json({ success: true, message: 'Notification sent successfully' });

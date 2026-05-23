@@ -84,66 +84,21 @@ export async function sendLineNotification(message: string, specificToId?: strin
       };
     }
 
-    const payload = JSON.stringify(payloadObj);
-    const isElectron = typeof window !== 'undefined' && window.process && (window.process as any).type === 'renderer';
+    // ส่งข้อมูลไปประมวลผลที่ Vercel server (เพื่อ bypass CORS และใช้ Token ที่ถูกต้อง)
+    const response = await fetch('https://school-admin-psi.vercel.app/api/line-webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: payloadObj })
+    });
 
-    if (isElectron) {
-      return new Promise((resolve, reject) => {
-        try {
-          const https = (window as any).require('https');
-          const options = {
-            hostname: 'api.line.me',
-            port: 443,
-            path: '/v2/bot/message/push',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${channelAccessToken}`,
-              'Content-Length': Buffer.byteLength(payload)
-            }
-          };
-
-          const req = https.request(options, (res: any) => {
-            let data = '';
-            res.on('data', (chunk: any) => data += chunk);
-            res.on('end', () => {
-              if (res.statusCode >= 200 && res.statusCode < 300) {
-                resolve(JSON.parse(data));
-              } else {
-                reject(new Error(`LINE API Error: ${res.statusCode}`));
-              }
-            });
-          });
-
-          req.on('error', (e: any) => reject(e));
-          req.write(payload);
-          req.end();
-        } catch (nodeErr) {
-          doFetch(channelAccessToken, payload).then(resolve).catch(reject);
-        }
-      });
-    } else {
-      return await doFetch(channelAccessToken, payload);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.message || 'Failed to send notification via Vercel');
     }
+
+    return await response.json();
   } catch (error: any) {
     console.error('LINE Notification Error:', error);
+    throw error;
   }
-}
-
-async function doFetch(token: string, body: string) {
-  const response = await fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: body,
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.message || 'Failed to send via Fetch');
-  }
-
-  return await response.json();
 }
