@@ -562,7 +562,7 @@ export default function Procurement() {
           });
 
           for (const user of usersToNotify) {
-            await fetch('https://school-admin-psi.vercel.app/api/line-notify', {
+            await fetch('https://school-admin-psi.vercel.app/api/line-webhook', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ lineUserId: user.userId, message: user.msg })
