@@ -222,7 +222,7 @@ function App() {
               Smart School Admin © 2026<br/>
               <span className="text-brand-primary">Phairot Makkaew & Gemini AI</span><br/>
               {schoolName}<br/>
-              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.0.9'}</span>
+              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.1.0'}</span>
             </p>
           </div>
         </div>

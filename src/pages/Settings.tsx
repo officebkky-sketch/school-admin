@@ -426,7 +426,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.0.9'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.0'}
               </span>
             </div>
           </div>
@@ -437,10 +437,22 @@ export default function Settings() {
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary"></div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-800">v1.0.9</span>
+                  <span className="text-xs font-bold text-slate-800">v1.1.0</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 พ.ค. 2569)</span>
                 </div>
                 <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงเลย์เอาต์รายงาน LEC-2 ให้แสดงผล 25 รายชื่อต่อหน้า และแสดงช่องลงลายมือชื่อที่ส่วนท้ายในทุกหน้ากระดาษ</li>
+                  <li>แก้ไขปัญหาฟอนต์ TH Sarabun New ในโหมดจัดพิมพ์รายงานให้กลับมาคมชัดสวยงาม ไม่หนาเข้มและไม่ล้นกรอบตาราง</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">v1.0.9</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-400 mt-1 space-y-1">
                   <li>แก้ไขตัวหนังสือ/ตัวเข้ม ในรายงานสรุปและรายชื่อผู้ปกครองระบบเงินเรียนฟรี (15 ปี) และรายงาน LEC</li>
                   <li>แยกความแตกต่างฟอนต์สำหรับงานพิมพ์เอกสารออกเป็น TH Sarabun New Print ป้องกันความสับสนน้ำหนักฟอนต์</li>
                 </ul>
