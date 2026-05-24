@@ -92,6 +92,17 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleChangeTab = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setActiveTab(customEvent.detail as Tab);
+      }
+    };
+    window.addEventListener('change-tab', handleChangeTab);
+    return () => window.removeEventListener('change-tab', handleChangeTab);
+  }, []);
+
   const handleRestart = () => {
     const confirmRestart = window.confirm('ระบบพร้อมอัปเดตแล้วค่ะ คุณครูต้องการเริ่มระบบใหม่ตอนนี้เลยไหมคะ? \n(กรุณาตรวจสอบว่าบันทึกข้อมูลที่ค้างไว้เรียบร้อยแล้วนะคะ)');
     
@@ -210,7 +221,8 @@ function App() {
             <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tighter leading-tight">
               Smart School Admin © 2026<br/>
               <span className="text-brand-primary">Phairot Makkaew & Gemini AI</span><br/>
-              {schoolName}
+              {schoolName}<br/>
+              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.0.8'}</span>
             </p>
           </div>
         </div>

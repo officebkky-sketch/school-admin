@@ -4,6 +4,19 @@
 
 ---
 
+## 📅 วันเสาร์ที่ 23 พฤษภาคม 2569
+
+### ✅ ตรวจสอบและอัปเดตสถานะโค้ดปัจจุบัน (Verified in Codebase)
+จากการวิเคราะห์ซอร์สโค้ดและระบบปัจจุบัน พบว่าฟังก์ชันใน **ระยะที่ 2 (การเชื่อมต่อสมองเข้ากับงานพัสดุ)** และ **ระยะที่ 3 (ยกระดับความฉลาด)** ได้รับการพัฒนาและมีอยู่จริงในโค้ดเบสแล้ว:
+1.  **Auto-Project Extraction:** ปุ่ม `AI สกัดแผนงาน` ในหน้าพัสดุ ([Procurement.tsx](file:///C:/Users/Phairot M/Desktop/school-admin-v2/src/pages/Procurement.tsx)) ทำงานร่วมกับ `extractProjectsFromKnowledge` ใน ([aiService.ts](file:///C:/Users/Phairot M/Desktop/school-admin-v2/src/lib/aiService.ts)) โดยใช้ Hybrid Search (Vector + Text) ในการสกัดโครงการและนำเข้าอย่างแม่นยำ
+2.  **Budget Linkage:** ระบบสามารถจับคู่โครงการที่สกัดได้กับงบประมาณ `budget_allocations` อัตโนมัติและบันทึกลงตาราง `school_projects`
+3.  **Smart Vendor Suggestion:** ระบบดึงประวัติร้านค้าเดิม (`pastVendors` จากโครงการพัสดุที่เคยบันทึก) มาแสดงในแบบ Dropdown เพื่อออโต้ฟิลข้อมูลชื่อ ที่อยู่ และเลขผู้เสียภาษี
+4.  **OCR Integration:** มีฟังก์ชัน `extractTextFromImage` และ fallback OCR ผ่าน Gemini 1.5 Flash สำหรับไฟล์สแกน/รูปภาพใบเสร็จแล้ว
+5.  **Context Refinement:** ปรับแต่งระบบ Prompt ของ "น้องชบา" ([AICowork.tsx](file:///C:/Users/Phairot M/Desktop/school-admin-v2/src/pages/AICowork.tsx)) ให้แสดงการอ้างอิงแหล่งที่มาของเอกสารและเลขหน้าอ้างอิงชัดเจน
+6.  **Drafting System:** สามารถกดให้ AI ร่างเนื้อหาเอกสารขอซื้อ/ขอจ้างแต่ละใบอ้างอิงประเด็นสำคัญและโครงการ และดึงข้อมูลส่งต่อเข้าระบบพิมพ์ PDF ([ProcurementDocGenerator.ts](file:///C:/Users/Phairot M/Desktop/school-admin-v2/src/lib/ProcurementDocGenerator.ts)) ได้เรียบร้อย
+
+---
+
 ## 📅 วันอังคารที่ 19 พฤษภาคม 2569
 
 ### ✅ ภารกิจที่สำเร็จแล้ว (Completed)

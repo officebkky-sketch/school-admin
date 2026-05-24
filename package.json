@@ -1,7 +1,7 @@
 {
   "name": "school-admin-v2",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "ระบบบริหารจัดการข้อมูลโรงเรียน",
   "author": "Phairot มากแก้ว",
   "repository": {
@@ -18,7 +18,8 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "build:koko": "tsc -b && vite build --mode koko && electron-builder --config electron-builder-koko.json",
-    "build:school2": "tsc -b && vite build --mode school2 && electron-builder --config electron-builder-school2.json"
+    "build:school2": "tsc -b && vite build --mode school2 && electron-builder --config electron-builder-school2.json",
+    "start": "npm run electron:dev"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

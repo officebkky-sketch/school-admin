@@ -9,9 +9,9 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
   // 0. รองรับการส่งแจ้งเตือนจาก Electron (Client-side push requests)
-  const { lineUserId, message, payload } = req.body;
+  const { lineUserId, message, payload, token: clientToken } = req.body;
   if ((lineUserId && message) || payload) {
-    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const token = clientToken || process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
       return res.status(500).json({ message: 'LINE Channel Access Token not configured on server' });
     }

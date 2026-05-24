@@ -20,7 +20,8 @@ import {
   Calendar,
   FileBadge,
   Sparkles,
-  Users
+  Users,
+  FileCheck
 } from 'lucide-react';
 
 type ProcurementTab = 'overview' | 'projects' | 'transfers' | 'vendors' | 'assets';
@@ -455,6 +456,111 @@ export default function Procurement() {
     setIsAddingProcurement(true);
   }
 
+  async function handleCreateOrderFromProcurement(procurement: any) {
+    if (!confirm(`คุณต้องการสร้างร่างคำสั่งแต่งตั้งคณะกรรมการจัดซื้อจัดจ้างสำหรับโครงการ "${procurement.project_name}" ใช่หรือไม่?`)) return;
+    
+    try {
+      // 1. ตรวจสอบว่าเคยสร้างคำสั่งสำหรับโครงการนี้ไว้แล้วหรือยัง
+      const { data: existingOrder } = await supabase
+        .from('orders')
+        .select('id, order_number')
+        .eq('status', 'pending')
+        .contains('remark', `"source_procurement_id":"${procurement.id}"`)
+        .maybeSingle();
+
+      if (existingOrder) {
+        if (confirm(`โครงการนี้เคยสร้างร่างคำสั่งไว้แล้ว (สถานะรออนุมัติ) ต้องการสลับไปยังหน้าคำสั่งเพื่อดูร่างนั้นทันทีหรือไม่?`)) {
+          window.dispatchEvent(new CustomEvent('change-tab', { detail: 'orders' }));
+        }
+        return;
+      }
+
+      // ดึงข้อมูลการตั้งค่าโรงเรียน
+      const { data: settings } = await supabase.from('settings').select('*').single();
+      const schoolName = settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
+      const directorName = settings?.director_name || '';
+
+      // ดึงข้อมูลกรรมการ
+      const savedCommittees = procurement.committee_json || [];
+
+      // 2. สร้างโครงร่างเนื้อหาคำสั่ง
+      const projectType = procurement.procurement_type || 'ซื้อ';
+      const buyMethod = procurement.method || 'เฉพาะเจาะจง';
+      const totalAmountText = Number(procurement.total_amount || 0).toLocaleString();
+
+      const orderContent = `ด้วย ${schoolName} มีความประสงค์จะดำเนินการจัด${projectType}พัสดุ ${procurement.project_name} โดยวิธี${buyMethod} เป็นเงินทั้งสิ้น ${totalAmountText} บาท (${bahtText(procurement.total_amount || 0)}) เพื่อให้เป็นไปตามกฎระเบียบและแนวทางปฏิบัติภาครัฐ\nอาศัยอำนาจตามความในมาตรา ๓๙ แห่งพระราชบัญญัติระเบียบบริหารราชการกระทรวงศึกษาธิการ พ.ศ. ๒๕๔๖ และมาตรา ๒๗ แห่งพระราชบัญญัติระเบียบข้าราชการครูและบุคลากรทางการศึกษา พ.ศ. ๒๕๔๗ จึงขอแต่งตั้งคณะกรรมการจัดซื้อจัดจ้างและตรวจรับพัสดุสำหรับโครงการดังกล่าว โดยมีรายชื่อและบทบาทหน้าที่ดังต่อไปนี้`;
+
+      const extraData = {
+        content: orderContent,
+        committees: savedCommittees,
+        legal_refs: [
+          "พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. 2560",
+          "ระเบียบกระทรวงการคลังว่าด้วยการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. 2560"
+        ],
+        source_procurement_id: procurement.id,
+        sign_name: directorName,
+        sign_position: `ผู้อำนวยการ${schoolName}`
+      };
+
+      // 3. แทรกข้อมูลร่างคำสั่งในตาราง orders
+      const { error } = await supabase.from('orders').insert([{
+        order_number: 'รออนุมัติ',
+        subject: `แต่งตั้งคณะกรรมการจัดซื้อจัดจ้างและตรวจรับพัสดุ โครงการ ${procurement.project_name}`,
+        issuer: schoolName,
+        order_date: new Date().toISOString().split('T')[0],
+        remark: JSON.stringify(extraData),
+        status: 'pending',
+        created_by: user?.id
+      }]);
+
+      if (error) throw error;
+
+      alert('สร้างร่างคำสั่งแต่งตั้งคณะกรรมการในงานสารบรรณสำเร็จแล้ว! ระบบกำลังนำท่านไปยังหน้าทะเบียนคำสั่ง');
+      // สั่งเปลี่ยนหน้า Tab ไปยังหน้า 'orders'
+      window.dispatchEvent(new CustomEvent('change-tab', { detail: 'orders' }));
+
+    } catch (err: any) {
+      console.error(err);
+      alert('สร้างคำสั่งไม่สำเร็จ: ' + err.message);
+    }
+  }
+
+  function bahtText(num: number): string {
+    if (!num || isNaN(num)) return 'ศูนย์บาทถ้วน';
+    const thaiNums = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+    const thaiPositions = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน', 'ล้าน'];
+    
+    let str = Math.floor(num).toString();
+    let text = '';
+    const len = str.length;
+    
+    for (let i = 0; i < len; i++) {
+      const digit = parseInt(str.charAt(i));
+      const pos = len - i - 1;
+      if (digit !== 0) {
+        if (pos % 6 === 1 && digit === 1) {
+          text += 'เอ็ด';
+        } else if (pos % 6 === 1 && digit === 2) {
+          text += 'ยี่';
+        } else if (pos % 6 === 0 && digit === 1 && i > 0) {
+          text += 'เอ็ด';
+        } else {
+          text += thaiNums[digit];
+        }
+        text += thaiPositions[pos % 6];
+      }
+      if (pos % 6 === 0 && pos > 0) {
+        text += 'ล้าน';
+      }
+    }
+    
+    text = text.replace('หนึ่งสิบ', 'สิบ');
+    text = text.replace('สองสิบ', 'ยี่สิบ');
+    text = text.replace('สิบหนึ่ง', 'สิบเอ็ด');
+    
+    return text + 'บาทถ้วน';
+  }
+
   async function handleAddProcurement() {
     if (!user) {
       alert('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ครับ');
@@ -810,6 +916,7 @@ export default function Procurement() {
                                <td className="px-8 py-5 text-center"><span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[9px] font-black uppercase tracking-widest">ฉบับร่าง</span></td>
                                <td className="px-8 py-5 text-right flex justify-end gap-2">
                                  <button onClick={() => handleOpenDocumentCenter(p)} className="p-2 text-brand-primary hover:bg-green-50 rounded-lg transition-all active:scale-90" title="จัดการเอกสาร"><FileText size={18} /></button>
+                                 <button onClick={() => handleCreateOrderFromProcurement(p)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all active:scale-90" title="ร่างคำสั่งแต่งตั้ง (งานสารบรรณ)"><FileCheck size={18} /></button>
                                  <button onClick={() => openEditProcurementModal(p)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all active:scale-90" title="แก้ไขข้อมูล"><Edit2 size={16} /></button>
                                  <button onClick={() => handleDeleteProcurement(p.id, p.project_name)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
                                </td>

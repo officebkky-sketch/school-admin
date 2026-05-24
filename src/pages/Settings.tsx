@@ -10,7 +10,8 @@ import {
   ImageIcon,
   Upload,
   Send,
-  Sparkles
+  Sparkles,
+  Info
 } from 'lucide-react';
 
 export default function Settings() {
@@ -404,6 +405,76 @@ export default function Settings() {
           </button>
         </div>
       </form>
+
+      {/* Section: About & Changelog */}
+      <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
+        <div className="p-8 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+          <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center text-blue-600 shadow-sm">
+            <Info size={24} />
+          </div>
+          <div>
+            <h3 className="font-black text-slate-800 text-lg uppercase tracking-tight">เกี่ยวกับระบบ (About System)</h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Version info & update history</p>
+          </div>
+        </div>
+        <div className="p-8 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-slate-50 rounded-3xl">
+            <div>
+              <h4 className="font-black text-slate-800 text-md">Smart School Admin (V2)</h4>
+              <p className="text-xs text-slate-500 font-bold mt-1">ระบบบริหารจัดการข้อมูลโรงเรียนบ้านควนโคกยา</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
+              <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
+                {import.meta.env.VITE_APP_VERSION || '1.0.8'}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="font-black text-slate-800 text-sm border-l-4 border-brand-primary pl-3 uppercase tracking-tight">ประวัติการปรับปรุง (Changelog)</h4>
+            <div className="space-y-3 pl-4">
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.0.8</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เปลี่ยนระบบ GAS_URL และ LINE_TOKEN ให้รองรับ Environment Variables</li>
+                  <li>แก้ไขประเภทข้อมูลประวัติและข้อมูลส่วนตัวผู้เสนอเอกสารส่งออนไลน์</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">v1.0.7</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(23 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ระบบสกัดโครงการพัสดุอัจฉริยะ (AI Project Extraction)</li>
+                  <li>เชื่อมโยงข้อมูลโครงการและแผนงบประมาณ (Budget Linkage)</li>
+                  <li>ระบบแนะนำร้านค้าจัดซื้อจากประวัติในระบบ (Smart Vendor Suggestion)</li>
+                  <li>ระบบ Multimodal OCR สแกนบิลและวิเคราะห์เอกสารใบเสร็จด้วย AI</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">v1.0.6</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(19 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงการแสดงผลและข้อมูลรายงานเรียนฟรี LEC-1 และ LEC-2</li>
+                  <li>พัฒนาระบบถัวจ่ายงบประมาณแยกโครงการ (Budget Share)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

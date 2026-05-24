@@ -88,7 +88,10 @@ export async function sendLineNotification(message: string, specificToId?: strin
     const response = await fetch('https://school-admin-psi.vercel.app/api/line-webhook', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload: payloadObj })
+      body: JSON.stringify({ 
+        payload: payloadObj,
+        token: channelAccessToken
+      })
     });
 
     if (!response.ok) {
