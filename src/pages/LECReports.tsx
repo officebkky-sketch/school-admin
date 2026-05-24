@@ -157,12 +157,12 @@ export default function LECReports() {
           <title>แบบ LEC-1 ปี ${config.academicYear}</title>
           <style>
             @font-face {
-              font-family: 'TH Sarabun New';
+              font-family: 'TH Sarabun New Print';
               src: url(data:font/truetype;charset=utf-8;base64,${FONT_BASE64}) format('truetype');
               font-weight: normal; font-style: normal;
             }
             @font-face {
-              font-family: 'TH Sarabun New';
+              font-family: 'TH Sarabun New Print';
               src: url(data:font/truetype;charset=utf-8;base64,${FONT_BOLD_BASE64}) format('truetype');
               font-weight: bold; font-style: normal;
             }
@@ -171,7 +171,7 @@ export default function LECReports() {
               body { background: white; }
               .no-print-btn { display: none !important; }
             }
-            .sarabun { font-family: 'TH Sarabun New', sans-serif; color: black; line-height: 1.1; }
+            .sarabun { font-family: 'TH Sarabun New Print', sans-serif; color: black; line-height: 1.1; font-weight: normal; }
             body { background: #f0f0f0; margin: 0; padding: 0; }
             .page { 
               background: white; width: 210mm; min-height: 297mm; 
@@ -185,7 +185,8 @@ export default function LECReports() {
             .header { text-align: center; line-height: 1.1; margin-bottom: 0.5cm; }
             .lec-code { text-align: right; font-weight: bold; font-size: 16pt; margin-bottom: 5px; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid black !important; padding: 4px 8px !important; text-align: center; font-size: 16pt; }
+            th, td { border: 1px solid black !important; padding: 4px 8px !important; text-align: center; font-size: 16pt; font-family: 'TH Sarabun New Print', sans-serif; }
+            td { font-weight: normal; }
             th { background: #f8fafc; font-weight: bold; }
             .footer { margin-top: 1.2cm; display: flex; justify-content: space-between; width: 100%; font-size: 16pt; }
             .sign-box-table { border: none !important; margin: 0 auto; line-height: 1.1; border-spacing: 0; }
@@ -296,12 +297,12 @@ export default function LECReports() {
           <title>แบบ LEC-2 ปี ${config.academicYear}</title>
           <style>
             @font-face {
-              font-family: 'TH Sarabun New';
+              font-family: 'TH Sarabun New Print';
               src: url(data:font/truetype;charset=utf-8;base64,${FONT_BASE64}) format('truetype');
               font-weight: normal; font-style: normal;
             }
             @font-face {
-              font-family: 'TH Sarabun New';
+              font-family: 'TH Sarabun New Print';
               src: url(data:font/truetype;charset=utf-8;base64,${FONT_BOLD_BASE64}) format('truetype');
               font-weight: bold; font-style: normal;
             }
@@ -310,12 +311,13 @@ export default function LECReports() {
               body { background: white; }
               .no-print-btn { display: none !important; }
             }
-            .sarabun { font-family: 'TH Sarabun New', sans-serif; color: black; line-height: 1.2; }
+            .sarabun { font-family: 'TH Sarabun New Print', sans-serif; color: black; line-height: 1.2; font-weight: normal; }
             body { background: #f0f0f0; margin: 0; padding: 0; }
             .page { background: white; width: 210mm; min-height: 297mm; padding: 1.2cm 1.5cm; margin: 1cm auto; box-sizing: border-box; page-break-after: always; position: relative; }
             .lec-code { text-align: right; font-weight: bold; font-size: 16pt; margin-bottom: 5px; }
             table { width: 100%; border-collapse: collapse; font-size: 15pt; margin-top: 10px; }
-            th, td { border: 1px solid black !important; padding: 3px 6px !important; text-align: center; }
+            th, td { border: 1px solid black !important; padding: 3px 6px !important; text-align: center; font-family: 'TH Sarabun New Print', sans-serif; }
+            td { font-weight: normal; }
             th { background: #f8fafc; font-weight: bold; }
             .footer { display: flex; justify-content: space-between; width: 100%; font-size: 15pt; }
             .sign-box-table { border: none !important; margin: 0 0 0 auto; line-height: 1.2; border-spacing: 0; width: auto !important; }
