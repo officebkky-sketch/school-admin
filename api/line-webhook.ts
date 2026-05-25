@@ -46,7 +46,24 @@ export default async function handler(req: any, res: any) {
     for (const event of events) {
       if (event.type === 'message' && event.message.type === 'text') {
         const userId = event.source.userId;
+        const groupId = event.source.groupId;
         const userMsg = event.message.text.trim();
+
+        // --- ฟีเจอร์อำนวยความสะดวก: ตรวจสอบ Group ID / User ID ---
+        if (userMsg === 'เช็คไอดีกลุ่ม' || userMsg.toLowerCase() === 'group id') {
+          if (groupId) {
+            await replyToLine(event.replyToken, `ไอดีกลุ่มนี้คือ:\n👉 ${groupId}\n\nคุณครูสามารถคัดลอกไอดีนี้ไปกรอกในหน้าตั้งค่าระบบได้เลยค่ะ 🌸`);
+          } else {
+            await replyToLine(event.replyToken, `ข้อความนี้ไม่ได้ส่งมาจากกลุ่มค่ะ ชบาหาไอดีกลุ่มไม่พบนะคะ 🌸`);
+          }
+          continue;
+        }
+
+        if (userMsg === 'เช็คไอดีผู้ใช้' || userMsg.toLowerCase() === 'my id') {
+          await replyToLine(event.replyToken, `ไอดีผู้ใช้ของคุณครูคือ:\n👉 ${userId}\n\nสามารถใช้สำหรับผูกบัญชีรายบุคคลได้ค่ะ 🌸`);
+          continue;
+        }
+
         const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('line_user_id', userId).maybeSingle();
 
         if (profile) {
@@ -461,6 +478,17 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
           }
           return `ไม่พบข้อมูลรายชื่อนักเรียนชั้น ${targetClass} สำหรับปีการศึกษา ${currentYear} ค่ะ`;
         } else {
+          // หากเป็นการถามภาพรวม หรือต้องการสถิติ/แยกชั้น/แยกเพศ/ศาสนา ให้ดึงฟิลด์สถิติของนักเรียนทั้งหมดมาให้ AI วิเคราะห์
+          const { data: allStudents } = await supabase
+            .from('students')
+            .select('class_level, gender, religion')
+            .eq('academic_year', currentYear)
+            .in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
+          
+          if (allStudents && allStudents.length > 0) {
+            return `ข้อมูลรายชื่อและโครงสร้างนักเรียนทุกคนในปีการศึกษา ${currentYear} (สำหรับคุณวิเคราะห์เพื่อนับแยกชั้น แยกเพศ หรือศาสนาตามคำขอ) (รวม ${allStudents.length} คน): ${JSON.stringify(allStudents)}`;
+          }
+          
           const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
           return `จำนวนนักเรียนปัจจุบันทั้งหมดในปีการศึกษา ${currentYear}: ${count} คน`;
         }

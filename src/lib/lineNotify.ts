@@ -96,12 +96,13 @@ export async function sendLineNotification(message: string, specificToId?: strin
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error?.message || errorData.message || 'Failed to send notification via Vercel');
+      console.error('Failed to send notification via Vercel:', errorData.error?.message || errorData.message);
+      return undefined;
     }
 
     return await response.json();
   } catch (error: any) {
     console.error('LINE Notification Error:', error);
-    throw error;
+    return undefined;
   }
 }
