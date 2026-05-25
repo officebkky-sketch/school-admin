@@ -1,0 +1,87 @@
+{
+  "name": "school-admin-v2",
+  "private": true,
+  "version": "1.1.0",
+  "description": "ระบบบริหารจัดการข้อมูลโรงเรียน",
+  "author": "Phairot มากแก้ว",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/officebkky-sketch/school-admin.git"
+  },
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "build:koko": "tsc -b && vite build --mode koko && electron-builder --config electron-builder-koko.json",
+    "build:school2": "tsc -b && vite build --mode school2 && electron-builder --config electron-builder-school2.json",
+    "start": "npm run electron:dev"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@supabase/supabase-js": "^2.105.1",
+    "electron-updater": "^6.8.3",
+    "lucide-react": "^1.14.0",
+    "papaparse": "^5.5.3",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.7.284",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.2",
+    "recharts": "^3.8.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.2.4",
+    "@types/node": "^24.12.2",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "postcss": "^8.5.13",
+    "tailwindcss": "^4.2.4",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "wait-on": "^9.0.5"
+  },
+  "build": {
+    "appId": "com.schooladmin.multischool",
+    "productName": "ระบบบริหารจัดการหลายโรงเรียน",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "officebkky-sketch",
+        "repo": "school-admin"
+      }
+    ],
+    "directories": {
+      "output": "dist-installer"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "ระบบบริหารจัดการหลายโรงเรียน",
+      "deleteAppDataOnUninstall": false
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/logo.png"
+    }
+  }
+}

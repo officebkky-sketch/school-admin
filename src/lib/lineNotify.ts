@@ -1,0 +1,117 @@
+import { supabase, getActiveSchoolProfile } from './supabase';
+
+interface Attachment {
+  label: string;
+  url: string;
+}
+
+/**
+ * ส่งการแจ้งเตือนผ่าน LINE Messaging API
+ * รองรับข้อความธรรมดา และ Flex Message พร้อมปุ่มกด
+ */
+export async function sendLineNotification(message: string, specificToId?: string, attachments: Attachment[] = []) {
+  try {
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('line_channel_access_token, line_group_id')
+      .single();
+
+    const channelAccessToken = settings?.line_channel_access_token;
+    const groupId = settings?.line_group_id;
+
+    if (!channelAccessToken) return;
+
+    const targetId = specificToId || groupId;
+    if (!targetId) return;
+
+    let payloadObj: any;
+
+    if (attachments.length > 0) {
+      // --- สร้าง Flex Message หากมีไฟล์แนบ ---
+      payloadObj = {
+        to: targetId,
+        messages: [{
+          type: "flex",
+          altText: "แจ้งเตือนระบบสารบรรณ",
+          contents: {
+            type: "bubble",
+            body: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                {
+                  type: "text",
+                  text: "📢 แจ้งเตือนระบบงาน",
+                  weight: "bold",
+                  color: "#1DB446",
+                  size: "sm"
+                },
+                {
+                  type: "text",
+                  text: message.trim(),
+                  margin: "md",
+                  wrap: true,
+                  weight: "bold",
+                  size: "md",
+                  color: "#333333"
+                }
+              ]
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              spacing: "sm",
+              contents: attachments.map(att => ({
+                type: "button",
+                style: "primary",
+                height: "sm",
+                color: att.label.includes('ต้นฉบับ') || att.label.includes('สั่งการ') ? "#1DB446" : "#007AFF",
+                action: {
+                  type: "uri",
+                  label: att.label,
+                  uri: att.url
+                }
+              }))
+            }
+          }
+        }]
+      };
+    } else {
+      // --- ข้อความธรรมดา ---
+      payloadObj = {
+        to: targetId,
+        messages: [{ type: 'text', text: message }]
+      };
+    }
+
+    // ดึงค่า Vercel URL แบบไดนามิกจากโปรไฟล์โรงเรียนที่เลือก
+    const profile = getActiveSchoolProfile();
+    let vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    if (vercelBaseUrl.endsWith('/')) {
+      vercelBaseUrl = vercelBaseUrl.slice(0, -1);
+    }
+    const webhookUrl = `${vercelBaseUrl}/api/line-webhook`;
+
+    // ส่งข้อมูลไปประมวลผลที่ Vercel server (เพื่อ bypass CORS และใช้ Token ที่ถูกต้อง)
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        payload: payloadObj,
+        token: channelAccessToken
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Failed to send notification via Vercel:', errorData.error?.message || errorData.message);
+      return undefined;
+    }
+
+    return await response.json();
+
+  } catch (error: any) {
+    console.error('LINE Notification Error:', error);
+    return undefined;
+  }
+}
