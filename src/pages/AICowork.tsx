@@ -793,11 +793,11 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
             } else if (data?.length) {
               // เพิ่ม Pre-computed stats สำหรับตารางนักเรียนภาพรวม เพื่อให้ AI ตอบได้ถูกต้อง 100%
               if (q.table === 'students' && !userMsg.includes('รายชื่อ') && !userMsg.includes('คนไหนบ้าง')) {
-                const counts = {};
-                const genders = {};
-                const religions = {};
+                const counts: Record<string, number> = {};
+                const genders: Record<string, number> = {};
+                const religions: Record<string, number> = {};
                 
-                data.forEach((s) => {
+                (data as any[]).forEach((s: any) => {
                   const lvl = s.class_level || 'ไม่ระบุชั้น';
                   const g = s.gender || 'ไม่ระบุเพศ';
                   const r = s.religion || 'ไม่ระบุศาสนา';
