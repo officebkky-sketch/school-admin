@@ -601,8 +601,26 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
           if (q.filters) {
             for (const f of q.filters) {
               if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
-                // @ts-ignore
-                query = query[f.operator](f.column, f.value);
+                // ปรับปรุงการกรองระดับชั้นเรียน (class_level) ในตาราง students ให้ยืดหยุ่นและทนทาน (Robust Filter)
+                if (q.table === 'students' && f.column === 'class_level') {
+                  const rawVal = String(f.value).trim();
+                  const levelMatch = rawVal.match(/\d+/);
+                  const prefix = rawVal.includes('อ') || rawVal.includes('อนุบาล') ? 'อ' : 'ป';
+                  if (levelMatch) {
+                    const levelNum = levelMatch[0];
+                    if (prefix === 'ป') {
+                      query = query.or(`class_level.eq.${rawVal},class_level.ilike.ป%${levelNum}%,class_level.ilike.%ประถม%${levelNum}%`);
+                    } else {
+                      query = query.or(`class_level.eq.${rawVal},class_level.ilike.อ%${levelNum}%,class_level.ilike.%อนุบาล%${levelNum}%`);
+                    }
+                  } else {
+                    // @ts-ignore
+                    query = query[f.operator](f.column, f.value);
+                  }
+                } else {
+                  // @ts-ignore
+                  query = query[f.operator](f.column, f.value);
+                }
               }
             }
           }

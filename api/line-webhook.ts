@@ -103,8 +103,8 @@ export default async function handler(req: any, res: any) {
 
 async function handleFastAI(replyToken: string, message: string, _profile: any) {
   try {
-    const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key, current_academic_year').single();
-    const apiKey = sets?.gemini_api_key;
+    const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();
+    const apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key;
     const openaiApiKey = process.env.OPENAI_API_KEY;
     const currentYear = sets?.current_academic_year || '2569';
     
@@ -452,7 +452,7 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
     {
       keys: ['การตั้งค่า', 'โรงเรียน', 'ผู้อำนวยการ', 'เบอร์โทร', 'ที่อยู่โรงเรียน', 'ข้อมูลโรงเรียน'],
       fetch: async () => {
-        const { data } = await supabase.from('settings').select('school_name, school_address, director_name, current_academic_year, current_term, phone_number, local_gov_name').single();
+        const { data } = await supabase.from('settings').select('school_name, school_address, director_name, current_academic_year, current_term, phone_number, local_gov_name').limit(1).maybeSingle();
         return `ข้อมูลการตั้งค่าโรงเรียนทั่วไป: ${JSON.stringify(data)}`;
       }
     },
@@ -464,14 +464,30 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
           return "";
         }
         if (targetClass) {
-          const { data } = await supabase
+          const prefix = targetClass.startsWith('ป') ? 'ป' : 'อ';
+          const levelNum = targetClass.split('.')[1];
+          
+          let query = supabase
             .from('students')
             .select('prefix, first_name, last_name, class_level, room, gender')
-            .eq('class_level', targetClass)
             .eq('academic_year', currentYear)
-            .in('graduation_status', ['ปกติ', 'กำลังศึกษา'])
+            .in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
+            
+          if (prefix === 'ป') {
+            query = query.or(`class_level.eq.${targetClass},class_level.ilike.ป%${levelNum}%,class_level.ilike.%ประถม%${levelNum}%`);
+          } else {
+            query = query.or(`class_level.eq.${targetClass},class_level.ilike.อ%${levelNum}%,class_level.ilike.%อนุบาล%${levelNum}%`);
+          }
+          
+          const { data, error } = await query
             .order('room', { ascending: true })
             .order('first_name', { ascending: true });
+            
+          if (error) {
+            console.error('[LINE WEBHOOK] Error fetching students by class:', error);
+            return `เกิดข้อผิดพลาดในการดึงข้อมูลนักเรียนชั้น ${targetClass} ค่ะ`;
+          }
+          
           if (data && data.length > 0) {
             const listText = data.map((s: any, idx: number) => `${idx + 1}. ${s.prefix || ''}${s.first_name} ${s.last_name} ${s.room ? `(ห้อง ${s.room})` : ''}`).join('\n');
             return `รายชื่อนักเรียนชั้น ${targetClass} สำหรับปีการศึกษา ${currentYear} (รวม ${data.length} คน):\n${listText}`;
