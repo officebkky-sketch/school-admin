@@ -60,19 +60,35 @@ export default function IncomingDocs() {
 
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   useEffect(() => { 
     fetchDocs(); 
+  }, [selectedYear]);
+
+  useEffect(() => {
     fetchTeachers();
   }, []);
 
   async function fetchDocs() {
     setLoading(true);
     try {
-      const { data } = await supabase.from('incoming_docs').select('*').order('created_at', { ascending: false });
+      const yearCE = parseInt(selectedYear) - 543;
+      const startDate = `${yearCE}-01-01`;
+      const endDate = `${yearCE}-12-31`;
+      
+      const { data } = await supabase
+        .from('incoming_docs')
+        .select('*')
+        .gte('doc_date', startDate)
+        .lte('doc_date', endDate)
+        .order('created_at', { ascending: false });
+        
       setDocs(data || []);
       if (data && data.length > 0) {
         setLatestNumber(data[0].doc_number);
+      } else {
+        setLatestNumber('');
       }
     } catch (err) {
       console.error(err);
@@ -384,10 +400,27 @@ export default function IncomingDocs() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="relative flex-1 max-w-md flex items-center gap-3">
+        <div className="flex-1 max-w-xl flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input type="text" placeholder="ค้นหาหนังสือรับ..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
+            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const year = new Date().getFullYear() + 543 - i;
+                return (
+                  <option key={year} value={year.toString()}>
+                    {year}
+                  </option>
+                );
+              })}
+            </select>
           </div>
           {latestNumber && (
             <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs">
