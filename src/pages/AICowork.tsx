@@ -669,36 +669,53 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
       if (queryPlan.queries && Array.isArray(queryPlan.queries)) {
         for (const q of queryPlan.queries) {
           if (!DEFAULT_SCHEMA_MAP[q.table]) continue;
-          let query = supabase.from(q.table).select(q.select || '*');
-          if (q.filters) {
-            for (const f of q.filters) {
-              if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
-                // ปรับปรุงการกรองระดับชั้นเรียน (class_level) ในตาราง students ให้ยืดหยุ่นและทนทาน (Robust Filter)
-                if (q.table === 'students' && f.column === 'class_level') {
-                  const rawVal = String(f.value).trim();
-                  const levelMatch = rawVal.match(/\d+/);
-                  const prefix = rawVal.includes('อ') || rawVal.includes('อนุบาล') ? 'อ' : 'ป';
-                  if (levelMatch) {
-                    const levelNum = levelMatch[0];
-                    if (prefix === 'ป') {
-                      query = query.or(`class_level.eq.${rawVal},class_level.ilike.ป%${levelNum}%,class_level.ilike.%ประถม%${levelNum}%`);
+          try {
+            // ป้องกัน syntax พังจากการที่ AI พยายามสร้างฟังก์ชัน aggregate เช่น count(*) ใน select
+            let selectStr = q.select || '*';
+            if (selectStr.includes('count') || selectStr.includes('(') || selectStr.includes(')')) {
+              const parts = selectStr.split(',').map((p: string) => p.trim());
+              const validParts = parts.filter((p: string) => {
+                const cleanName = p.replace(/[^a-zA-Z0-9_]/g, '');
+                return DEFAULT_SCHEMA_MAP[q.table].columns.includes(cleanName);
+              });
+              selectStr = validParts.length > 0 ? validParts.join(',') : '*';
+            }
+
+            let query = supabase.from(q.table).select(selectStr);
+            if (q.filters) {
+              for (const f of q.filters) {
+                if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
+                  // ปรับปรุงการกรองระดับชั้นเรียน (class_level) ในตาราง students ให้ยืดหยุ่นและทนทาน (Robust Filter)
+                  if (q.table === 'students' && f.column === 'class_level') {
+                    const rawVal = String(f.value).trim();
+                    const levelMatch = rawVal.match(/\d+/);
+                    const prefix = rawVal.includes('อ') || rawVal.includes('อนุบาล') ? 'อ' : 'ป';
+                    if (levelMatch) {
+                      const levelNum = levelMatch[0];
+                      if (prefix === 'ป') {
+                        query = query.or(`class_level.eq.${rawVal},class_level.ilike.ป%${levelNum}%,class_level.ilike.%ประถม%${levelNum}%`);
+                      } else {
+                        query = query.or(`class_level.eq.${rawVal},class_level.ilike.อ%${levelNum}%,class_level.ilike.%อนุบาล%${levelNum}%`);
+                      }
                     } else {
-                      query = query.or(`class_level.eq.${rawVal},class_level.ilike.อ%${levelNum}%,class_level.ilike.%อนุบาล%${levelNum}%`);
+                      // @ts-ignore
+                      query = query[f.operator](f.column, f.value);
                     }
                   } else {
                     // @ts-ignore
                     query = query[f.operator](f.column, f.value);
                   }
-                } else {
-                  // @ts-ignore
-                  query = query[f.operator](f.column, f.value);
                 }
               }
             }
-          }
-          const { data } = await query.limit(Math.min(q.limit || 100, 300));
-          if (data?.length) {
-            dbContextParts.push(`[ข้อมูลตาราง: ${q.table}]\n${JSON.stringify(data, null, 2)}`);
+            const { data, error } = await query.limit(Math.min(q.limit || 100, 300));
+            if (error) {
+              console.error(`[AICowork DB Query Error on ${q.table}]:`, error);
+            } else if (data?.length) {
+              dbContextParts.push(`[ข้อมูลตาราง: ${q.table}]\n${JSON.stringify(data, null, 2)}`);
+            }
+          } catch (queryErr) {
+            console.error(`[AICowork DB Query Exec Fail on ${q.table}]:`, queryErr);
           }
         }
       }
