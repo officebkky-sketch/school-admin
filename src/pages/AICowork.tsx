@@ -761,6 +761,27 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
             }
 
             let query = supabase.from(q.table).select(selectStr);
+            
+            // --- ระบบบังคับกรองข้อมูลตามปีการศึกษาและสถานะปัจจุบัน (Enforce Academic Year & Status Filter) ---
+            const columnsInTable = DEFAULT_SCHEMA_MAP[q.table]?.columns || [];
+            
+            // 1. บังคับกรองปีการศึกษา (academic_year)
+            if (columnsInTable.includes('academic_year')) {
+              const hasYearFilter = q.filters && q.filters.some((f: any) => f.column === 'academic_year');
+              if (!hasYearFilter) {
+                query = query.eq('academic_year', currentYear);
+              }
+            }
+            
+            // 2. บังคับกรองสถานะนักเรียนปกติ/กำลังศึกษา (graduation_status)
+            if (q.table === 'students') {
+              const hasStatusFilter = q.filters && q.filters.some((f: any) => f.column === 'graduation_status');
+              if (!hasStatusFilter) {
+                query = query.in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
+              }
+            }
+            // -------------------------------------------------------------------------------------------------
+
             if (q.filters) {
               for (const f of q.filters) {
                 if (DEFAULT_SCHEMA_MAP[q.table].columns.includes(f.column)) {
