@@ -141,9 +141,14 @@ export default function TaskManagement() {
       .eq('id', selectedTask.id);
 
     if (!error) {
+      const msg = `\n🏁 ผอ. ตรวจรับงานแล้ว\nเรื่อง: ${selectedTask.incoming_docs.subject}\nความเห็น ผอ.: ${feedbackText || 'รับทราบผลการปฏิบัติงาน'}\n\nขอบคุณสำหรับการปฏิบัติหน้าที่ครับ`;
+      
+      // 1. ส่งแจ้งเตือนเข้ากลุ่มไลน์หลักของโรงเรียน
+      await sendLineNotification(msg);
+      
+      // 2. ส่งแจ้งเตือนหาคุณครูผู้ปฏิบัติโดยตรง (หากมี Line User ID)
       if (selectedTask.teachers?.line_user_id) {
-        const msg = `\n🏁 ผอ. ตรวจรับงานแล้ว\nเรื่อง: ${selectedTask.incoming_docs.subject}\nความเห็น ผอ.: ${feedbackText || 'รับทราบผลการปฏิบัติงาน'}\n\nขอบคุณสำหรับการปฏิบัติหน้าที่ครับ`;
-        sendLineNotification(msg, selectedTask.teachers.line_user_id);
+        await sendLineNotification(msg, selectedTask.teachers.line_user_id);
       }
       
       setIsFeedbackModalOpen(false);
@@ -357,7 +362,7 @@ export default function TaskManagement() {
                            <button 
                             onClick={() => {
                               const msg = `\n📥 รับทราบการมอบหมายงาน\nเรื่อง: ${task.incoming_docs.subject}\nผู้ปฏิบัติ: ${task.teachers.prefix}${task.teachers.first_name}\n\nขณะนี้กำลังเริ่มดำเนินการครับ`;
-                              updateStatus(task.id, 'acknowledged', msg, task.teachers?.line_user_id);
+                              updateStatus(task.id, 'acknowledged', msg); // ไม่ส่ง lineUserId เพื่อให้ส่งเข้ากลุ่มไลน์หลัก (แจ้ง ผอ. และครูท่านอื่น)
                             }}
                             className="w-full py-4 bg-brand-primary text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-green-700 transition-all active:scale-95"
                            >

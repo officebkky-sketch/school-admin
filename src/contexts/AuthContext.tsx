@@ -94,7 +94,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error during Supabase signOut:', e);
+    }
+    // ล้าง localStorage ที่เกี่ยวกับ Auth และ Profile ทั้งหมดเพื่อป้องกัน Token ค้าง
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.startsWith('profile_') || key.includes('auth-token'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (err) {
+      console.error('Error clearing localStorage:', err);
+    }
   };
 
   return (

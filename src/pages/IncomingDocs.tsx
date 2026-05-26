@@ -162,20 +162,50 @@ export default function IncomingDocs() {
 
       if (error) throw error;
 
-      // Notify Teacher via LINE
+      // Notify Teacher via LINE (with Fallback to Group)
       const teacher = teachers.find(t => t.id === assignForm.teacher_id);
-      if (teacher?.line_user_id) {
-        const msg = `คุณครูมีงานมอบหมายใหม่\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
-        const lineAttachments = [{ label: '📄 ดูเอกสารสั่งการ', url: selectedDoc.file_url }];
-        if (Array.isArray(selectedDoc.attachment_urls)) {
-          selectedDoc.attachment_urls.forEach((url: string, i: number) => {
-            lineAttachments.push({ label: `📎 ไฟล์แนบ ${i + 1}`, url: url });
-          });
-        }
-        await sendLineNotification(msg, teacher.line_user_id, lineAttachments);
+      const teacherName = teacher ? `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}` : 'ครูผู้รับผิดชอบ';
+      
+      const lineAttachments = [{ label: '📄 ดูเอกสารสั่งการ', url: selectedDoc.file_url }];
+      if (Array.isArray(selectedDoc.attachment_urls)) {
+        selectedDoc.attachment_urls.forEach((url: string, i: number) => {
+          lineAttachments.push({ label: `📎 ไฟล์แนบ ${i + 1}`, url: url });
+        });
       }
 
-      alert('เกษียณหนังสือและมอบหมายงานเรียบร้อยแล้ว');
+      let lineNotifyStatus = '';
+      try {
+        if (teacher?.line_user_id) {
+          // ส่งตรงถึงครูผู้รับมอบหมาย
+          const personalMsg = `📌 คุณครูมีงานมอบหมายใหม่\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+          console.log(`[LINE NOTIFY] Sending to teacher: ${teacherName} (ID: ${teacher.line_user_id})`);
+          const result = await sendLineNotification(personalMsg, teacher.line_user_id, lineAttachments);
+          if (result) {
+            lineNotifyStatus = `✅ แจ้งเตือน LINE ถึง${teacherName}แล้ว`;
+          } else {
+            // ถ้าส่งตรงไม่สำเร็จ → Fallback ไปกลุ่ม
+            console.warn('[LINE NOTIFY] Personal push failed, falling back to group...');
+            const groupMsg = `📢 มอบหมายงานใหม่\nถึง: ${teacherName}\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+            await sendLineNotification(groupMsg, undefined, lineAttachments);
+            lineNotifyStatus = `⚠️ ส่ง LINE ตรงไม่สำเร็จ → แจ้งผ่านกลุ่มแทนแล้ว`;
+          }
+        } else {
+          // ครูไม่มี line_user_id → Fallback ส่งไปกลุ่มเลย
+          console.warn(`[LINE NOTIFY] Teacher ${teacherName} has no line_user_id. Sending to group instead.`);
+          const groupMsg = `📢 มอบหมายงานใหม่\nถึง: ${teacherName}\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+          const result = await sendLineNotification(groupMsg, undefined, lineAttachments);
+          if (result) {
+            lineNotifyStatus = `📣 ${teacherName}ยังไม่ผูก LINE → แจ้งผ่านกลุ่มแทนแล้ว`;
+          } else {
+            lineNotifyStatus = `❌ ไม่สามารถส่งแจ้งเตือน LINE ได้ (ไม่มี Group ID)`;
+          }
+        }
+      } catch (lineErr: any) {
+        console.error('[LINE NOTIFY ERROR]', lineErr);
+        lineNotifyStatus = `❌ เกิดข้อผิดพลาดในการส่ง LINE: ${lineErr.message}`;
+      }
+
+      alert(`เกษียณหนังสือและมอบหมายงานเรียบร้อยแล้ว\n\n${lineNotifyStatus}`);
       setIsAssignModalOpen(false);
       resetForm();
       fetchDocs();
