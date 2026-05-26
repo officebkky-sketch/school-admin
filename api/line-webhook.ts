@@ -101,6 +101,116 @@ export default async function handler(req: any, res: any) {
   return res.status(200).json({ message: 'OK' });
 }
 
+
+function formatFallbackResponse(context: string, userMsg: string): string {
+  if (!context || context.trim().length === 0) return "";
+  
+  const msg = userMsg.toLowerCase();
+  let formatted = context;
+  
+  // 1. ตรวจสอบข้อมูลสถิตินักเรียน
+  if (formatted.includes('[สรุปสถิตินักเรียนปีการศึกษา')) {
+    const idx = formatted.indexOf('ข้อมูลรายละเอียดดิบสำหรับคุณวิเคราะห์:');
+    if (idx !== -1) {
+      formatted = formatted.substring(0, idx).trim();
+    }
+    return `ขออภัยค่ะคุณครู ตอนนี้ระบบประมวลผล AI ของชบาเกิดโควตาใช้งานชั่วคราว 🙇‍♀️ ชบาจึงช่วยดึงสถิติตัวเลขจริงจากฐานข้อมูลโรงเรียนมาให้โดยตรงดังนี้นะคะ:\n\n${formatted}`;
+  }
+  
+  // 2. ตรวจสอบรายชื่อนักเรียนเจาะจงชั้นเรียน
+  if (formatted.includes('รายชื่อนักเรียนชั้น') && formatted.includes('รวม')) {
+    return `ขออภัยค่ะคุณครู ตอนนี้สมอง AI ของชบาเกิดโควตาใช้งานเต็ม 🙇‍♀️ แต่ชบาช่วยดึงข้อมูลโดยตรงจากระบบมาให้คุณครูได้สำเร็จค่ะ:\n\n${formatted}`;
+  }
+  
+  // 3. ตรวจสอบรายชื่อครูและตารางเวร
+  if (formatted.includes('รายชื่อครูและบุคลากร:')) {
+    try {
+      const teacherMatch = formatted.match(/รายชื่อครูและบุคลากร:\s*(\[[\s\S]*?\])/);
+      const dutyMatch = formatted.match(/ตารางเวรประจำวันครู.*:\s*(\[[\s\S]*?\])/);
+      
+      let res = `ขออภัยค่ะคุณครู ตอนนี้ AI ของชบาเกินโควตาใช้งานชั่วคราว 🙇‍♀️ ชบาช่วยค้นหาคุณครูและเวรประจำวันจากฐานข้อมูลให้โดยตรงดังนี้นะคะ:\n\n🧑‍🏫 [รายชื่อคุณครูในระบบ]:\n`;
+      if (teacherMatch) {
+        const teachers = JSON.parse(teacherMatch[1]);
+        let activeIdx = 1;
+        teachers.forEach((t: any) => {
+          if (t.status === 'ปกติ' || t.status === 'active' || !t.status) {
+            res += `${activeIdx}. ${t.prefix || ''}${t.first_name} ${t.last_name} (${t.position || 'คุณครู'})${t.phone ? ` โทร: ${t.phone}` : ''}\n`;
+            activeIdx++;
+          }
+        });
+      }
+      
+      if (dutyMatch && (msg.includes('เวร') || msg.includes('เวรยาม') || msg.includes('ประจำวัน'))) {
+        res += `\n📅 [ตารางเวรประจำวันครู]:\n`;
+        const duties = JSON.parse(dutyMatch[1]);
+        duties.forEach((d: any, idx: number) => {
+          const tInfo = d.teachers ? `${d.teachers.prefix || ''}${d.teachers.first_name} ${d.teachers.last_name}` : 'ไม่ระบุชื่อครู';
+          res += `${idx + 1}. วัน${d.duty_day || ''}: ${tInfo} (${d.duty_type || 'เวรทั่วไป'})\n`;
+        });
+      }
+      return res;
+    } catch (e) {
+      return `ขออภัยค่ะคุณครู ตอนนี้ระบบ AI เกินโควตาใช้งาน 🙇‍♀️ ชบาขอส่งข้อมูลดิบครูและบุคลากรให้ดังนี้นะคะ:\n\n${formatted.substring(0, 1000)}`;
+    }
+  }
+
+  // 4. สถิติงบประมาณและพัสดุ
+  if (formatted.includes('สถิติสรุปงบประมาณและพัสดุ')) {
+    const idx = formatted.indexOf('ข้อมูลโครงการทั้งหมด:');
+    if (idx !== -1) {
+      formatted = formatted.substring(0, idx).trim();
+    }
+    return `ขออภัยนะคะคุณครู ตอนนี้ระบบ AI เกิดโควตาใช้งานชั่วคราว 🙇‍♀️ ชบาช่วยดึงข้อมูลสถิติงบประมาณและพัสดุจริงจากระบบมาให้โดยตรงดังนี้นะคะ:\n\n${formatted}`;
+  }
+
+  // 5. หนังสือราชการต่างๆ
+  if (formatted.includes('ข้อมูลหนังสือรับ') || formatted.includes('ข้อมูลหนังสือส่ง') || formatted.includes('ข้อมูลคำสั่ง') || formatted.includes('ข้อมูลบันทึกข้อความ') || formatted.includes('ข้อมูลค่าสาธารณูปโภค')) {
+    try {
+      const jsonMatch = formatted.match(/:\s*(\[[\s\S]*?\])/);
+      if (jsonMatch) {
+        const docs = JSON.parse(jsonMatch[1]);
+        if (Array.isArray(docs) && docs.length > 0) {
+          let res = `ขออภัยนะคะคุณครู ตอนนี้ระบบ AI เกินโควตา 🙇‍♀️ ชบาช่วยค้นหารายการที่เกี่ยวข้องโดยตรงจากระบบสารบรรณมาให้ดังนี้นะคะ:\n\n`;
+          docs.forEach((d: any, idx: number) => {
+            const docNum = d.doc_number || d.order_number || d.memo_number || '';
+            const subject = d.subject || d.remark || 'ไม่ระบุเรื่อง';
+            const fileUrl = d.file_url || '';
+            
+            res += `📍 รายการที่ ${idx + 1}:\n`;
+            if (docNum) res += `เลขที่: ${docNum}\n`;
+            res += `เรื่อง: ${subject}\n`;
+            if (fileUrl) res += `ลิงก์ไฟล์: ${fileUrl}\n`;
+            
+            if (d.attachment_urls) {
+              try {
+                const atts = typeof d.attachment_urls === 'string' ? JSON.parse(d.attachment_urls) : d.attachment_urls;
+                if (Array.isArray(atts) && atts.length > 0) {
+                  res += `ไฟล์แนบเพิ่มเติม:\n`;
+                  atts.forEach((a: any, aIdx: number) => {
+                    res += `  - แนบที่ ${aIdx + 1}: ${a}\n`;
+                  });
+                }
+              } catch(e) {}
+            }
+            res += `\n`;
+          });
+          return res;
+        }
+      }
+    } catch(e) {}
+  }
+  
+  if (formatted.includes('ข้อมูลหนังสือในห้องสมุด:')) {
+    return `ขออภัยนะคะคุณครู ตอนนี้ระบบ AI เกิดโควตาใช้งานชั่วคราว 🙇‍♀️ ชบาขอส่งสถิติและข้อมูลห้องสมุดโดยตรงให้ดังนี้นะคะ:\n\n${formatted.substring(0, 1000)}`;
+  }
+  
+  if (!formatted.includes('{') && !formatted.includes('[')) {
+    return `ขออภัยนะคะคุณครู ตอนนี้ระบบ AI เกิดโควตาใช้งานชั่วคราว 🙇‍♀️ ชบาจึงนำข้อมูลโดยตรงจากฐานข้อมูลมาให้ดังนี้นะคะ:\n\n${formatted}`;
+  }
+  
+  return "";
+}
+
 async function handleFastAI(replyToken: string, message: string, _profile: any) {
   try {
     const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();

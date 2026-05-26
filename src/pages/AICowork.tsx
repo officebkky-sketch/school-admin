@@ -626,6 +626,7 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
           queryPlan.queries.push({
             table: 'students',
             select: 'class_level, gender, religion',
+            limit: 500,
             filters: [
               { column: 'academic_year', operator: 'eq', value: currentYear },
               { column: 'graduation_status', operator: 'in', value: ['ปกติ', 'กำลังศึกษา'] }
@@ -661,6 +662,77 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
           table: 'budget_allocations',
           select: 'budget_type, category_name, amount, spent_amount, remaining_amount',
           filters: [{ column: 'academic_year', operator: 'eq', value: currentYear }]
+        });
+      }
+
+      // 4. สำหรับข้อมูลหนังสือราชการและไฟล์แนบ
+      const hasDocQuery = queryPlan.queries.some((q: any) => q.table === 'incoming_docs' || q.table === 'outgoing_docs' || q.table === 'orders' || q.table === 'memos');
+      if (!hasDocQuery && (msgLower.includes('หนังสือรับ') || msgLower.includes('หนังสือเข้า') || msgLower.includes('หนังสือส่ง') || msgLower.includes('หนังสือออก') || msgLower.includes('คำสั่ง') || msgLower.includes('บันทึกข้อความ') || msgLower.includes('เมโม่') || msgLower.includes('แนบ') || msgLower.includes('ไฟล์แนบ') || msgLower.includes('เอกสารแนบ'))) {
+        const searchWord = userMsg.replace(/(ขอ|ไฟล์|แนบ|หนังสือ|คำสั่ง|บันทึกข้อความ|เมโม่|ล่าสุด|ของ|เรื่อง|เรื่องที่|ที่)/g, '').trim();
+        const docFilters = searchWord ? [{ column: 'subject', operator: 'ilike', value: `%${searchWord}%` }] : [];
+        
+        if (msgLower.includes('หนังสือรับ') || msgLower.includes('หนังสือเข้า') || msgLower.includes('แนบ') || msgLower.includes('เอกสารแนบ')) {
+          queryPlan.queries.push({
+            table: 'incoming_docs',
+            select: 'doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls',
+            filters: docFilters,
+            limit: 10
+          });
+        }
+        if (msgLower.includes('หนังสือส่ง') || msgLower.includes('หนังสือออก')) {
+          queryPlan.queries.push({
+            table: 'outgoing_docs',
+            select: 'doc_number, subject, to_agency, doc_date, urgency, remark, file_url',
+            filters: docFilters,
+            limit: 10
+          });
+        }
+        if (msgLower.includes('คำสั่ง')) {
+          queryPlan.queries.push({
+            table: 'orders',
+            select: 'order_number, subject, issuer, order_date, remark, file_url',
+            filters: docFilters,
+            limit: 10
+          });
+        }
+        if (msgLower.includes('บันทึกข้อความ') || msgLower.includes('เมโม่') || msgLower.includes('บันทึก')) {
+          queryPlan.queries.push({
+            table: 'memos',
+            select: 'memo_number, subject, requester, memo_date, urgency, remark, file_url',
+            filters: docFilters,
+            limit: 10
+          });
+        }
+      }
+
+      // 5. สำหรับข้อมูลบิลค่าไฟ ค่าน้ำ และสาธารณูปโภค
+      const hasUtilityQuery = queryPlan.queries.some((q: any) => q.table === 'utilities');
+      if (!hasUtilityQuery && (msgLower.includes('ค่าไฟ') || msgLower.includes('ไฟฟ้า') || msgLower.includes('ค่าน้ำ') || msgLower.includes('ประปา') || msgLower.includes('โทรศัพท์') || msgLower.includes('เน็ต') || msgLower.includes('อินเทอร์เน็ต') || msgLower.includes('บิล') || msgLower.includes('สาธารณูปโภค'))) {
+        const types = [];
+        if (msgLower.includes('ค่าไฟ') || msgLower.includes('ไฟฟ้า')) types.push('electricity');
+        if (msgLower.includes('ค่าน้ำ') || msgLower.includes('ประปา')) types.push('water');
+        if (msgLower.includes('โทรศัพท์')) types.push('telephone');
+        if (msgLower.includes('เน็ต') || msgLower.includes('อินเทอร์เน็ต')) types.push('internet');
+        
+        queryPlan.queries.push({
+          table: 'utilities',
+          select: 'type, academic_year, month, amount, invoice_number, status, bill_date',
+          filters: [
+            { column: 'academic_year', operator: 'eq', value: currentYear },
+            ...(types.length > 0 ? [{ column: 'type', operator: 'in', value: types }] : [])
+          ],
+          limit: 20
+        });
+      }
+
+      // 6. สำหรับข้อมูลจัดซื้อจัดจ้าง
+      const hasProcureQuery = queryPlan.queries.some((q: any) => q.table === 'procurement_projects');
+      if (!hasProcureQuery && (msgLower.includes('จัดซื้อ') || msgLower.includes('จัดจ้าง') || msgLower.includes('พัสดุ') || msgLower.includes('ผู้ขาย') || msgLower.includes('สัญญา') || msgLower.includes('ผู้รับจ้าง'))) {
+        queryPlan.queries.push({
+          table: 'procurement_projects',
+          select: 'project_name, academic_year, method, procurement_type, total_amount, status, ref_doc_number, contract_number, committee_json, vendor_info',
+          filters: [{ column: 'academic_year', operator: 'eq', value: currentYear }],
+          limit: 20
         });
       }
       // ---------------------------------------------------------------------
@@ -715,11 +787,48 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
                 }
               }
             }
-            const { data, error } = await query.limit(Math.min(q.limit || 100, 300));
+            const { data, error } = await query.limit(Math.min(q.limit || 100, 500));
             if (error) {
               console.error(`[AICowork DB Query Error on ${q.table}]:`, error);
             } else if (data?.length) {
-              dbContextParts.push(`[ข้อมูลตาราง: ${q.table}]\n${JSON.stringify(data, null, 2)}`);
+              // เพิ่ม Pre-computed stats สำหรับตารางนักเรียนภาพรวม เพื่อให้ AI ตอบได้ถูกต้อง 100%
+              if (q.table === 'students' && !userMsg.includes('รายชื่อ') && !userMsg.includes('คนไหนบ้าง')) {
+                const counts = {};
+                const genders = {};
+                const religions = {};
+                
+                data.forEach((s) => {
+                  const lvl = s.class_level || 'ไม่ระบุชั้น';
+                  const g = s.gender || 'ไม่ระบุเพศ';
+                  const r = s.religion || 'ไม่ระบุศาสนา';
+                  
+                  counts[lvl] = (counts[lvl] || 0) + 1;
+                  genders[g] = (genders[g] || 0) + 1;
+                  religions[r] = (religions[r] || 0) + 1;
+                });
+                
+                const sortedClasses = Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0], 'th'));
+                const summaryStr = sortedClasses.map(([lvl, num]) => `- ${lvl}: ${num} คน`).join('\n');
+                const genderStr = Object.entries(genders).map(([g, num]) => `- ${g}: ${num} คน`).join('\n');
+                const religionStr = Object.entries(religions).map(([r, num]) => `- ${r}: ${num} คน`).join('\n');
+                
+                dbContextParts.push(`[สรุปสถิตินักเรียนปีการศึกษา ${currentYear} คำนวณจากระบบฐานข้อมูล]:
+รวมนักเรียนปัจจุบันทั้งหมด: ${data.length} คน
+
+จำนวนนักเรียนแยกตามชั้นเรียน:
+${summaryStr}
+
+จำนวนนักเรียนแยกตามเพศ:
+${genderStr}
+
+จำนวนนักเรียนแยกตามศาสนา:
+${religionStr}
+
+[ข้อมูลรายละเอียดตารางนักเรียนดิบ: ${q.table}]
+${JSON.stringify(data, null, 2)}`);
+              } else {
+                dbContextParts.push(`[ข้อมูลตาราง: ${q.table}]\n${JSON.stringify(data, null, 2)}`);
+              }
             }
           } catch (queryErr) {
             console.error(`[AICowork DB Query Exec Fail on ${q.table}]:`, queryErr);
@@ -806,13 +915,13 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
 
       const prompt = `บริบทฐานข้อมูล:
       ${fallbackStats}
-      ${truncateContext(dbContextParts.join('\n\n'), 4000)}
+      ${truncateContext(dbContextParts.join('\n\n'), 150000)}
 
       บริบทคลังปัญญา:
-      ${truncateContext(knowledgeContext, 4000)}
+      ${truncateContext(knowledgeContext, 150000)}
 
       บริบทเอกสารส่วนตัว:
-      ${truncateContext(privateContext, 4000)}
+      ${truncateContext(privateContext, 150000)}
 
       ${historyContext}คำถามปัจจุบันของคุณครู: "${userMsg}"
       
