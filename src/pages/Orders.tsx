@@ -38,6 +38,7 @@ export default function Orders() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDrafting, setIsDrafting] = useState(false);
   const [settings, setSettings] = useState<any>(null);
+  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   const [formData, setFormData] = useState({
     order_number: '',
@@ -55,6 +56,9 @@ export default function Orders() {
 
   useEffect(() => { 
     fetchDocs(); 
+  }, [selectedYear]);
+
+  useEffect(() => {
     fetchSettings();
     fetchTeachers();
   }, []);
@@ -79,9 +83,23 @@ export default function Orders() {
 
   async function fetchDocs() {
     setLoading(true);
-    const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-    setDocs(data || []);
-    setLoading(false);
+    try {
+      const yearCE = parseInt(selectedYear) - 543;
+      const startDate = `${yearCE}-01-01`;
+      const endDate = `${yearCE}-12-31`;
+      
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .gte('order_date', startDate)
+        .lte('order_date', endDate)
+        .order('created_at', { ascending: false });
+      setDocs(data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function addCommitteeMember() {
@@ -595,23 +613,40 @@ export default function Orders() {
       // ออกเลขคำสั่งรันต่อเนื่องอัตโนมัติ (หากเป็นค่า 'รออนุมัติ')
       let finalOrderNumber = selectedOrderForApproval.order_number;
       if (finalOrderNumber === 'รออนุมัติ' || !finalOrderNumber) {
-        // ดึงเลขคำสั่งล่าสุด
+        // ดึงปี พ.ศ. และ ค.ศ. จาก order_date ของเอกสารที่จะอนุมัติ
+        const orderDateStr = selectedOrderForApproval.order_date || new Date().toISOString().split('T')[0];
+        const orderDateObj = new Date(orderDateStr);
+        const orderYearCE = orderDateObj.getFullYear();
+        const orderYearThai = (orderYearCE + 543).toString();
+
+        const startDate = `${orderYearCE}-01-01`;
+        const endDate = `${orderYearCE}-12-31`;
+
+        // ดึงเลขคำสั่งทั้งหมดในปี ค.ศ. นั้นๆ
         const { data: latestDocs } = await supabase
           .from('orders')
           .select('order_number')
           .not('order_number', 'eq', 'รออนุมัติ')
-          .order('created_at', { ascending: false })
-          .limit(1);
+          .gte('order_date', startDate)
+          .lte('order_date', endDate)
+          .order('created_at', { ascending: false });
           
         let nextNum = 1;
         if (latestDocs && latestDocs.length > 0) {
-          const match = latestDocs[0].order_number.match(/^(\d+)/);
-          if (match) {
-            nextNum = parseInt(match[1]) + 1;
-          }
+          // หาค่าตัวเลขสูงสุดจากประวัติในปีนั้น (เพื่อป้องกันกรณีมีเลขข้าม หรือกรอกเองในระบบ)
+          let maxNum = 0;
+          latestDocs.forEach((d: any) => {
+            const match = d.order_number.match(/^(\d+)/);
+            if (match) {
+              const num = parseInt(match[1]);
+              if (num > maxNum) {
+                maxNum = num;
+              }
+            }
+          });
+          nextNum = maxNum + 1;
         }
-        const currentYearThai = (new Date().getFullYear() + 543).toString();
-        finalOrderNumber = `${nextNum}/${currentYearThai}`;
+        finalOrderNumber = `${nextNum}/${orderYearThai}`;
       }
 
       const { error } = await supabase.from('orders').update({ 
@@ -809,9 +844,28 @@ ${groups.map(g => `<duty name="${g}">
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
-          <input type="text" placeholder="ค้นหาคำสั่ง..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <div className="flex-1 max-w-lg flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
+            <input type="text" placeholder="ค้นหาคำสั่ง..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
+            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const year = new Date().getFullYear() + 543 - i;
+                return (
+                  <option key={year} value={year.toString()}>
+                    {year}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
         </div>
         <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-all">
           <Book size={20} /> ออกเลขคำสั่ง

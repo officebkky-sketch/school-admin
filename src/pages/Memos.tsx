@@ -34,6 +34,7 @@ export default function Memos() {
   const [directorOpinion, setDirectorOpinion] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<any>(null);
+  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   const [formData, setFormData] = useState({
     memo_number: '',
@@ -55,6 +56,9 @@ export default function Memos() {
 
   useEffect(() => { 
     fetchDocs(); 
+  }, [selectedYear]);
+
+  useEffect(() => {
     fetchSettings();
   }, []);
 
@@ -74,12 +78,29 @@ export default function Memos() {
 
   async function fetchDocs() {
     setLoading(true);
-    const { data } = await supabase.from('memos').select('*').order('created_at', { ascending: false });
-    setDocs(data || []);
-    if (data && data.length > 0) {
-      setLatestNumber(data[0].memo_number);
+    try {
+      const yearCE = parseInt(selectedYear) - 543;
+      const startDate = `${yearCE}-01-01`;
+      const endDate = `${yearCE}-12-31`;
+      
+      const { data } = await supabase
+        .from('memos')
+        .select('*')
+        .gte('memo_date', startDate)
+        .lte('memo_date', endDate)
+        .order('created_at', { ascending: false });
+        
+      setDocs(data || []);
+      if (data && data.length > 0) {
+        setLatestNumber(data[0].memo_number);
+      } else {
+        setLatestNumber('');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const isDirector = profile?.role === 'director' || profile?.role === 'admin';
@@ -527,10 +548,27 @@ export default function Memos() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="relative flex-1 max-w-md flex items-center gap-3">
+        <div className="flex-1 max-w-xl flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input type="text" placeholder="ค้นหาบันทึกข้อความ..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
+            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const year = new Date().getFullYear() + 543 - i;
+                return (
+                  <option key={year} value={year.toString()}>
+                    {year}
+                  </option>
+                );
+              })}
+            </select>
           </div>
           {latestNumber && (
             <div className="shrink-0 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs">

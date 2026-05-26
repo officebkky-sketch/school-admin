@@ -32,6 +32,7 @@ export default function OutgoingDocs() {
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<any>(null);
   const [incomingDocs, setIncomingDocs] = useState<any[]>([]);
+  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [selectedDocForApproval, setSelectedDocForApproval] = useState<any>(null);
@@ -63,6 +64,9 @@ export default function OutgoingDocs() {
 
   useEffect(() => { 
     fetchDocs(); 
+  }, [selectedYear]);
+
+  useEffect(() => {
     fetchSettings();
     fetchIncomingDocs();
   }, []);
@@ -88,12 +92,28 @@ export default function OutgoingDocs() {
 
   async function fetchDocs() {
     setLoading(true);
-    const { data } = await supabase.from('outgoing_docs').select('*').order('created_at', { ascending: false });
-    setDocs(data || []);
-    if (data && data.length > 0) {
-      setLatestNumber(data[0].doc_number);
+    try {
+      const yearCE = parseInt(selectedYear) - 543;
+      const startDate = `${yearCE}-01-01`;
+      const endDate = `${yearCE}-12-31`;
+      
+      const { data } = await supabase
+        .from('outgoing_docs')
+        .select('*')
+        .gte('doc_date', startDate)
+        .lte('doc_date', endDate)
+        .order('created_at', { ascending: false });
+      setDocs(data || []);
+      if (data && data.length > 0) {
+        setLatestNumber(data[0].doc_number);
+      } else {
+        setLatestNumber('');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const toThaiNumerals = (text: string) => {
@@ -113,15 +133,27 @@ export default function OutgoingDocs() {
 
   const getNextDocNumber = () => {
     const prefix = settings?.school_doc_prefix || 'ศธ 04225.016/';
-    if (!docs || docs.length === 0) {
+    
+    // ดึงปี พ.ศ. และ ค.ศ. จาก formData.doc_date เพื่อใช้กรองการรันเลข
+    const targetDateStr = formData?.doc_date || new Date().toISOString().split('T')[0];
+    const targetYearCE = new Date(targetDateStr).getFullYear();
+    
+    // กรอง docs ใน state ที่มี doc_date อยู่ในปีเดียวกัน
+    const docsInSameYear = docs.filter(d => {
+      if (!d.doc_date) return false;
+      const dYear = new Date(d.doc_date).getFullYear();
+      return dYear === targetYearCE;
+    });
+
+    if (docsInSameYear.length === 0) {
       return `${prefix}1`;
     }
     
-    // ค้นหาเลขส่งล่าสุดที่เป็นรูปแบบ prefix
-    const validDocs = docs.filter(d => d.doc_number && d.doc_number.startsWith(prefix));
+    // ค้นหาเลขส่งล่าสุดที่เป็นรูปแบบ prefix ในปีเดียวกัน
+    const validDocs = docsInSameYear.filter(d => d.doc_number && d.doc_number.startsWith(prefix));
     if (validDocs.length === 0) {
-      // หากไม่มีที่ตรงกับ prefix เลย ลองดึงเลขล่าสุดมาแกะ
-      const latest = docs[0].doc_number || '';
+      // หากไม่มีที่ตรงกับ prefix เลย ลองดึงเลขล่าสุดของปีนี้มาแกะ
+      const latest = docsInSameYear[0].doc_number || '';
       const match = latest.match(/\/(\d+)/);
       if (match) {
         return `${prefix}${parseInt(match[1]) + 1}`;
@@ -129,7 +161,7 @@ export default function OutgoingDocs() {
       return `${prefix}1`;
     }
     
-    // หาเลขรันล่าสุด
+    // หาเลขรันล่าสุดของปีนี้
     let maxNum = 0;
     validDocs.forEach(d => {
       const match = d.doc_number.match(/\/(\d+)/);
@@ -777,10 +809,27 @@ ${userDetail}
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="relative flex-1 max-w-md flex items-center gap-3">
+        <div className="flex-1 max-w-xl flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input type="text" placeholder="ค้นหาหนังสือส่ง..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
+            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+            >
+              {Array.from({ length: 5 }, (_, i) => {
+                const year = new Date().getFullYear() + 543 - i;
+                return (
+                  <option key={year} value={year.toString()}>
+                    {year}
+                  </option>
+                );
+              })}
+            </select>
           </div>
           {latestNumber && (
             <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs">
