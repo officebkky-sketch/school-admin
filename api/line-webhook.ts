@@ -214,7 +214,11 @@ function formatFallbackResponse(context: string, userMsg: string): string {
 async function handleFastAI(replyToken: string, message: string, _profile: any) {
   try {
     const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();
-    const apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key;
+    let apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key || '';
+    if (apiKey.includes(',')) {
+      const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
+      apiKey = keys[Math.floor(Math.random() * keys.length)] || '';
+    }
     const openaiApiKey = process.env.OPENAI_API_KEY;
     const currentYear = sets?.current_academic_year || '2569';
     
@@ -604,7 +608,7 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
           }
           return `ไม่พบข้อมูลรายชื่อนักเรียนชั้น ${targetClass} สำหรับปีการศึกษา ${currentYear} ค่ะ`;
         } else {
-          // หากเป็นการถามภาพรวม หรือต้องการสถิติ/แยกชั้น/แยกเพศ/ศาสนา ให้ดึงฟิลด์สถิติของนักเรียนทั้งหมดมาให้ AI วิเคราะห์
+          // ดึงสถิตินักเรียนทั้งหมดและสรุป
           const { data: allStudents } = await supabase
             .from('students')
             .select('class_level, gender, religion')
@@ -612,7 +616,38 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
             .in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
           
           if (allStudents && allStudents.length > 0) {
-            return `ข้อมูลรายชื่อและโครงสร้างนักเรียนทุกคนในปีการศึกษา ${currentYear} (สำหรับคุณวิเคราะห์เพื่อนับแยกชั้น แยกเพศ หรือศาสนาตามคำขอ) (รวม ${allStudents.length} คน): ${JSON.stringify(allStudents)}`;
+            const counts: Record<string, number> = {};
+            const genders: Record<string, number> = {};
+            const religions: Record<string, number> = {};
+            
+            (allStudents as any[]).forEach((s: any) => {
+              const lvl = s.class_level || 'ไม่ระบุชั้น';
+              const g = s.gender || 'ไม่ระบุเพศ';
+              const r = s.religion || 'ไม่ระบุศาสนา';
+              
+              counts[lvl] = (counts[lvl] || 0) + 1;
+              genders[g] = (genders[g] || 0) + 1;
+              religions[r] = (religions[r] || 0) + 1;
+            });
+            
+            const sortedClasses = Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0], 'th'));
+            const summaryStr = sortedClasses.map(([lvl, num]) => `- ${lvl}: ${num} คน`).join('\n');
+            const genderStr = Object.entries(genders).map(([g, num]) => `- ${g}: ${num} คน`).join('\n');
+            const religionStr = Object.entries(religions).map(([r, num]) => `- ${r}: ${num} คน`).join('\n');
+            
+            return `[สรุปสถิตินักเรียนปีการศึกษา ${currentYear} คำนวณจากระบบฐานข้อมูล]:
+รวมนักเรียนปัจจุบันทั้งหมด: ${allStudents.length} คน
+
+จำนวนนักเรียนแยกตามชั้นเรียน:
+${summaryStr}
+
+จำนวนนักเรียนแยกตามเพศ:
+${genderStr}
+
+จำนวนนักเรียนแยกตามศาสนา:
+${religionStr}
+
+ข้อมูลรายละเอียดดิบสำหรับคุณวิเคราะห์: ${JSON.stringify(allStudents)}`;
           }
           
           const { count } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('academic_year', currentYear).in('graduation_status', ['ปกติ', 'กำลังศึกษา']);
@@ -671,7 +706,11 @@ async function handleReceiptOCR(replyToken: string, messageId: string, _profile:
 
     // 2. ดึง API Key
     const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key').single();
-    const apiKey = sets?.gemini_api_key;
+    let apiKey = sets?.gemini_api_key || '';
+    if (apiKey.includes(',')) {
+      const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
+      apiKey = keys[Math.floor(Math.random() * keys.length)] || '';
+    }
     if (!apiKey) {
       await replyToLine(replyToken, "ระบบยังไม่ได้ตั้งค่า API Key ในโรงเรียนค่ะ รบกวนคุณครูตั้งค่า API Key ในหน้าตั้งค่าก่อนนะคะ 🌸");
       return;
