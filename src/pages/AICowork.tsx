@@ -52,6 +52,24 @@ function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function extractClassLevel(text: string): string | null {
+  const cleaned = text.replace(/\s+/g, '');
+  
+  // ค้นหารูปแบบ ป.1 - ป.6
+  const pMatch = cleaned.match(/(ป|ประถม|ประถมศึกษา|ประถมศึกษาปีที่)\.?([1-6])/);
+  if (pMatch) {
+    return `ป.${pMatch[2]}`;
+  }
+
+  // ค้นหารูปแบบ อ.2 - อ.3
+  const aMatch = cleaned.match(/(อ|อนุบาล|อนุบาลปีที่)\.?([2-3])/);
+  if (aMatch) {
+    return `อ.${aMatch[2]}`;
+  }
+
+  return null;
+}
+
 interface PersonalDoc {
   file_name: string;
   content_text: string;
@@ -585,6 +603,60 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
       } catch (planErr) {
         console.error("Failed to plan database queries:", planErr);
       }
+
+      // --- ระบบ RAG Fallback สำหรับตารางหลัก (Database Fallback Solver) ---
+      if (!queryPlan.queries) queryPlan.queries = [];
+      const msgLower = userMsg.toLowerCase();
+      
+      // 1. สำหรับข้อมูลนักเรียน
+      const hasStudentQuery = queryPlan.queries.some((q: any) => q.table === 'students');
+      if (!hasStudentQuery && (msgLower.includes('นักเรียน') || msgLower.includes('ชั้นเรียน') || msgLower.includes('สถิติ') || msgLower.includes('ห้องเรียน') || msgLower.includes('เด็ก'))) {
+        const targetClass = extractClassLevel(userMsg);
+        if (targetClass) {
+          queryPlan.queries.push({
+            table: 'students',
+            select: 'prefix, first_name, last_name, class_level, room, gender',
+            filters: [{ column: 'class_level', operator: 'eq', value: targetClass }]
+          });
+        } else {
+          queryPlan.queries.push({
+            table: 'students',
+            select: 'class_level, gender, religion',
+            filters: []
+          });
+        }
+      }
+
+      // 2. สำหรับข้อมูลครูและเวร
+      const hasTeacherQuery = queryPlan.queries.some((q: any) => q.table === 'teachers' || q.table === 'teacher_duties');
+      if (!hasTeacherQuery && (msgLower.includes('ครู') || msgLower.includes('คุณครู') || msgLower.includes('เวร') || msgLower.includes('เวรยาม') || msgLower.includes('บุคลากร'))) {
+        queryPlan.queries.push({
+          table: 'teachers',
+          select: 'id, prefix, first_name, last_name, position, department, phone, email',
+          filters: []
+        });
+        queryPlan.queries.push({
+          table: 'teacher_duties',
+          select: 'duty_day, duty_type, teacher_id',
+          filters: []
+        });
+      }
+
+      // 3. สำหรับโครงการและงบประมาณ
+      const hasProjectQuery = queryPlan.queries.some((q: any) => q.table === 'school_projects' || q.table === 'budget_allocations');
+      if (!hasProjectQuery && (msgLower.includes('โครงการ') || msgLower.includes('งบประมาณ') || msgLower.includes('เงินงบ') || msgLower.includes('งบ'))) {
+        queryPlan.queries.push({
+          table: 'school_projects',
+          select: 'project_name, academic_year, planned_amount, spent_amount, status',
+          filters: [{ column: 'academic_year', operator: 'eq', value: currentYear }]
+        });
+        queryPlan.queries.push({
+          table: 'budget_allocations',
+          select: 'budget_type, category_name, amount, spent_amount, remaining_amount',
+          filters: [{ column: 'academic_year', operator: 'eq', value: currentYear }]
+        });
+      }
+      // ---------------------------------------------------------------------
 
       // ดึงสถิตินักเรียนและครูพื้นฐาน (Fallback)
       let fallbackStats = "";
