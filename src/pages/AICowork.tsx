@@ -616,13 +616,20 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
           queryPlan.queries.push({
             table: 'students',
             select: 'prefix, first_name, last_name, class_level, room, gender',
-            filters: [{ column: 'class_level', operator: 'eq', value: targetClass }]
+            filters: [
+              { column: 'class_level', operator: 'eq', value: targetClass },
+              { column: 'academic_year', operator: 'eq', value: currentYear },
+              { column: 'graduation_status', operator: 'in', value: ['ปกติ', 'กำลังศึกษา'] }
+            ]
           });
         } else {
           queryPlan.queries.push({
             table: 'students',
             select: 'class_level, gender, religion',
-            filters: []
+            filters: [
+              { column: 'academic_year', operator: 'eq', value: currentYear },
+              { column: 'graduation_status', operator: 'in', value: ['ปกติ', 'กำลังศึกษา'] }
+            ]
           });
         }
       }
