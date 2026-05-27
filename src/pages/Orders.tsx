@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { sendLineNotification } from '../lib/lineNotify';
+import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
 import { generateAIDraft } from '../lib/aiService';
 import Modal from '../components/Modal';
 import { 
@@ -29,6 +29,8 @@ export default function Orders() {
   const [docs, setDocs] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const currentYearBE = new Date().getFullYear() + 543;
+  const [selectedYear, setSelectedYear] = useState<number | null>(currentYearBE);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
@@ -77,10 +79,18 @@ export default function Orders() {
     }
   }
 
-  async function fetchDocs() {
+  async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
-    const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-    setDocs(data || []);
+    try {
+      let query = supabase.from('orders').select('*');
+      if (yearToFetch) {
+        query = query.eq('doc_year', yearToFetch);
+      }
+      const { data } = await query.order('created_at', { ascending: false });
+      setDocs(data || []);
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   }
 
@@ -540,7 +550,10 @@ export default function Orders() {
         show_director_opinion: formData.show_director_opinion
       };
 
-      const { error } = await supabase.from('orders').insert([{ 
+      const orderDateObj = new Date(formData.order_date);
+      const docYear = orderDateObj.getFullYear() + 543;
+
+      const { data: insertedDocs, error } = await supabase.from('orders').insert([{ 
         order_number: formData.order_number || 'รออนุมัติ',
         subject: formData.subject,
         issuer: formData.issuer,
@@ -548,13 +561,34 @@ export default function Orders() {
         remark: JSON.stringify(extraData),
         file_url, 
         status: 'pending',
-        created_by: user?.id 
-      }]);
+        created_by: user?.id,
+        doc_year: docYear
+      }]).select();
 
       if (error) throw new Error(`บันทึกข้อมูลไม่สำเร็จ: ${error.message}`);
+      const insertedDoc = insertedDocs?.[0];
 
-      const lineMessage = `\n📋 มีคำสั่งเสนออนุมัติใหม่\nเรื่อง: ${formData.subject}\n\nกรุณาเข้าตรวจสอบและพิจารณาในระบบงานสารบรรณ`;
-      sendLineNotification(lineMessage);
+      // ดึงไลน์ ผอ. เพื่อเสนอตรง
+      const { data: dirProfile } = await supabase
+        .from('profiles')
+        .select('line_user_id')
+        .eq('role', 'director')
+        .maybeSingle();
+
+      const lineMessage = `เรื่อง: ${formData.subject}\nผู้เสนอ: ${profile?.display_name || ''}`;
+      const lineActions: any[] = [
+        { label: '✅ อนุมัติลงนาม', type: 'postback', data: `action=approve_doc&type=order&id=${insertedDoc?.id || ''}`, color: '#1DB446' },
+        { label: '❌ ส่งกลับแก้ไข', type: 'postback', data: `action=reject_doc&type=order&id=${insertedDoc?.id || ''}`, color: '#FF3B30' }
+      ];
+      if (file_url) {
+        lineActions.unshift({ label: '📄 ดูร่างคำสั่ง', type: 'uri', uri: file_url });
+      }
+      await sendInteractiveFlexMessage(
+        dirProfile?.line_user_id || undefined,
+        '⏳ เสนออนุมัติคำสั่งแต่งตั้ง',
+        lineMessage,
+        lineActions
+      );
 
       setIsModalOpen(false);
       resetForm();
@@ -594,30 +628,29 @@ export default function Orders() {
 
       // ออกเลขคำสั่งรันต่อเนื่องอัตโนมัติ (หากเป็นค่า 'รออนุมัติ')
       let finalOrderNumber = selectedOrderForApproval.order_number;
+      const orderDateObj = new Date(selectedOrderForApproval.order_date || new Date());
+      const docYear = orderDateObj.getFullYear() + 543;
+      let docSeq: number | null = selectedOrderForApproval.doc_sequence || null;
+
       if (finalOrderNumber === 'รออนุมัติ' || !finalOrderNumber) {
-        // ดึงเลขคำสั่งล่าสุด
-        const { data: latestDocs } = await supabase
+        // ค้นหา sequence ถัดไปของปีปัจจุบันของคำสั่ง ณ จังหวะอนุมัติ
+        const { data: seqDocs } = await supabase
           .from('orders')
-          .select('order_number')
-          .not('order_number', 'eq', 'รออนุมัติ')
-          .order('created_at', { ascending: false })
+          .select('doc_sequence')
+          .eq('doc_year', docYear)
+          .order('doc_sequence', { ascending: false })
           .limit(1);
           
-        let nextNum = 1;
-        if (latestDocs && latestDocs.length > 0) {
-          const match = latestDocs[0].order_number.match(/^(\d+)/);
-          if (match) {
-            nextNum = parseInt(match[1]) + 1;
-          }
-        }
-        const currentYearThai = (new Date().getFullYear() + 543).toString();
-        finalOrderNumber = `${nextNum}/${currentYearThai}`;
+        docSeq = (seqDocs && seqDocs.length > 0) ? (seqDocs[0].doc_sequence + 1) : 1;
+        finalOrderNumber = `${docSeq}/${docYear}`;
       }
 
       const { error } = await supabase.from('orders').update({ 
         status: 'approved',
         order_number: finalOrderNumber,
-        remark: JSON.stringify(updatedExtraData)
+        remark: JSON.stringify(updatedExtraData),
+        doc_year: docYear,
+        doc_sequence: docSeq
       }).eq('id', selectedOrderForApproval.id);
 
       if (error) throw error;
@@ -809,9 +842,26 @@ ${groups.map(g => `<duty name="${g}">
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
-          <input type="text" placeholder="ค้นหาคำสั่ง..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <div className="relative flex-1 max-w-2xl flex items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
+            <input type="text" placeholder="ค้นหาคำสั่ง..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+
+          <select 
+            value={selectedYear || ''} 
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : null;
+              setSelectedYear(val);
+              fetchDocs(val);
+            }}
+            className="p-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs font-bold text-slate-700 text-sm h-[48px]"
+          >
+            <option value="">ดูทั้งหมด</option>
+            <option value={currentYearBE}>{currentYearBE}</option>
+            <option value={currentYearBE - 1}>{currentYearBE - 1}</option>
+            <option value={currentYearBE - 2}>{currentYearBE - 2}</option>
+          </select>
         </div>
         <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-all">
           <Book size={20} /> ออกเลขคำสั่ง

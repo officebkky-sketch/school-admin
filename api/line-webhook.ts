@@ -1,15 +1,28 @@
 import { createClient } from '@supabase/supabase-js';
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import fs from 'fs';
+import path from 'path';
 
 declare const process: any;
 declare const Buffer: any;
-const supabaseAdmin = createClient(process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY!);
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://placeholder-url.supabase.co';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req: any, res: any) {
+  if (!process.env.VITE_SUPABASE_URL || (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.VITE_SUPABASE_ANON_KEY)) {
+    return res.status(500).json({
+      success: false,
+      message: 'Vercel configuration missing: VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not defined.'
+    });
+  }
   if (req.method === 'GET') return res.status(200).json({ message: 'Nong Chaba Online' });
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
   // 0. รองรับการส่งแจ้งเตือนจาก Electron (Client-side push requests)
-  const { lineUserId, message, payload, token: clientToken } = req.body;
+  const { lineUserId, message, payload, token: clientToken } = req.body || {};
   if ((lineUserId && message) || payload) {
     const token = clientToken || process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
@@ -67,7 +80,26 @@ export default async function handler(req: any, res: any) {
         const { data: profile } = await supabaseAdmin.from('profiles').select('*').eq('line_user_id', userId).maybeSingle();
 
         if (profile) {
-          await handleFastAI(event.replyToken, userMsg, profile);
+          // ตรวจสอบว่ามี pending action state (สถานะการทำรายการค้าง) หรือไม่
+          const { data: pendingState } = await supabaseAdmin
+            .from('line_action_states')
+            .select('*')
+            .eq('user_id', userId)
+            .gt('expires_at', new Date().toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (pendingState) {
+            await handlePendingAction(event, pendingState, profile, userMsg);
+          } else {
+            // เช็คว่าเป็นคำสั่งเรียกดูงานค้างของครูหรือไม่
+            if (userMsg === 'รายงานผล' || userMsg === 'ส่งงาน' || userMsg.includes('งานค้าง')) {
+              await handleListPending(event, new URLSearchParams(''), profile);
+            } else {
+              await handleFastAI(event.replyToken, userMsg, profile);
+            }
+          }
         } else {
           if (userMsg.includes('@')) {
             const { data: found } = await supabaseAdmin.from('profiles').select('*').eq('email', userMsg.toLowerCase().trim()).maybeSingle();
@@ -94,6 +126,40 @@ export default async function handler(req: any, res: any) {
           await handleReceiptOCR(event.replyToken, messageId, profile);
         } else {
           await replyToLine(event.replyToken, 'สวัสดีค่ะ รบกวนยืนยันตัวตนด้วยการกรอกอีเมลของคุณครูก่อนเริ่มส่งใบเสร็จให้ชบาสแกนนะคะ 🌸');
+        }
+      }
+
+      // --- เพิ่ม Postback Event Handler ---
+      if (event.type === 'postback') {
+        const userId = event.source.userId;
+        const postbackData = event.postback.data;
+        const params = new URLSearchParams(postbackData);
+        const action = params.get('action');
+
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('*')
+          .eq('line_user_id', userId)
+          .maybeSingle();
+
+        if (!profile) {
+          await replyToLine(event.replyToken, 'สวัสดีค่ะ ชบาหาบัญชีที่ผูกกับ LINE ของคุณครูไม่พบค่ะ รบกวนพิมพ์ "อีเมล" บนแชทนี้เพื่อยืนยันตัวตนก่อนใช้งานนะคะ 🌸');
+          continue;
+        }
+
+        switch (action) {
+          case 'approve_doc':    await handleApproveDoc(event, params, profile); break;
+          case 'reject_doc':     await handleRejectDoc(event, params, profile); break;
+          case 'start_assign':   await handleStartAssign(event, params, profile); break;
+          case 'assign':         await handleAssignTeacher(event, params, profile); break;
+          case 'confirm_assign': await handleConfirmAssign(event, params, profile); break;
+          case 'acknowledge':    await handleAcknowledge(event, params, profile); break;
+          case 'report':         await handleReport(event, params, profile); break;
+          case 'close':          await handleClose(event, params, profile); break;
+          case 'feedback':       await handleFeedback(event, params, profile); break;
+          case 'list_pending':   await handleListPending(event, params, profile); break;
+          default:
+            await replyToLine(event.replyToken, 'ขออภัยค่ะ ระบบไม่เข้าใจคำสั่งการนี้ 🙇‍♀️');
         }
       }
     }
@@ -774,4 +840,1198 @@ async function callGeminiMultimodal(system: string, user: string, base64Data: st
     }
   }
   return "";
+}
+
+// ====================================================================
+// NEW HELPER FUNCTIONS FOR INTERACTIVE LINE BOT
+// ====================================================================
+
+async function replyToLineFlex(replyToken: string, altText: string, contents: any) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token || !contents) return;
+  try {
+    await fetch('https://api.line.me/v2/bot/message/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        replyToken,
+        messages: [{ type: 'flex', altText: altText.substring(0, 400), contents }]
+      })
+    });
+  } catch (err) { console.error('Reply Flex error:', err); }
+}
+
+async function replyToLineQuickReply(replyToken: string, text: string, items: any[]) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token || !text) return;
+  try {
+    await fetch('https://api.line.me/v2/bot/message/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        replyToken,
+        messages: [{
+          type: 'text',
+          text: text.substring(0, 5000),
+          quickReply: { items }
+        }]
+      })
+    });
+  } catch (err) { console.error('Reply QuickReply error:', err); }
+}
+
+async function pushToLine(toId: string | undefined, text: string) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return;
+
+  let target = toId;
+  if (!target) {
+    try {
+      const { data: settings } = await supabaseAdmin
+        .from('settings')
+        .select('line_group_id')
+        .single();
+      target = settings?.line_group_id || process.env.LINE_GROUP_ID || '';
+    } catch (e) {
+      target = process.env.LINE_GROUP_ID || '';
+    }
+  }
+
+  if (!target || !text) return;
+  try {
+    await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        to: target,
+        messages: [{ type: 'text', text: text.substring(0, 5000) }]
+      })
+    });
+  } catch (err) { console.error('Push text error:', err); }
+}
+
+async function pushToLineFlex(toId: string | undefined, altText: string, contents: any) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return;
+
+  let target = toId;
+  if (!target) {
+    try {
+      const { data: settings } = await supabaseAdmin
+        .from('settings')
+        .select('line_group_id')
+        .single();
+      target = settings?.line_group_id || process.env.LINE_GROUP_ID || '';
+    } catch (e) {
+      target = process.env.LINE_GROUP_ID || '';
+    }
+  }
+
+  if (!target || !contents) return;
+  try {
+    await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        to: target,
+        messages: [{ type: 'flex', altText: altText.substring(0, 400), contents }]
+      })
+    });
+  } catch (err) { console.error('Push Flex error:', err); }
+}
+
+// --------------------------------------------------------------------
+// PDF Stamping function on Serverless Environment
+// --------------------------------------------------------------------
+
+function wrapThaiText(text: string, maxWidth: number, font: any, fontSize: number) {
+  if (!text) return [];
+  const segments = text.split(/(\s+)/);
+  const lines = [];
+  let currentLine = '';
+
+  for (const segment of segments) {
+    const testLine = currentLine + segment;
+    const lineWidth = font.widthOfTextAtSize(testLine, fontSize);
+    if (lineWidth > maxWidth && currentLine !== '') {
+      lines.push(currentLine);
+      currentLine = segment;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+export async function applyStampsOnServer(
+  pdfBuffer: ArrayBuffer,
+  directorData: {
+    order: string;
+    signer: string;
+    date: string;
+    position?: string;
+    signatureUrl?: string;
+    pageNumber?: number;
+  }
+) {
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    pdfDoc.registerFontkit(fontkit);
+
+    let fontBytes: ArrayBuffer;
+    try {
+      const fontB64Path = path.join(process.cwd(), 'font.b64');
+      const localFontPath = path.join(process.cwd(), 'public', 'fonts', 'THSarabunNew.ttf');
+      const localDistFontPath = path.join(process.cwd(), 'dist', 'fonts', 'THSarabunNew.ttf');
+      const rootFontPath = path.join(process.cwd(), 'THSarabunNew.ttf');
+
+      if (fs.existsSync(localFontPath)) {
+        console.log('Loading font from localFontPath:', localFontPath);
+        const buffer = fs.readFileSync(localFontPath);
+        fontBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+      } else if (fs.existsSync(localDistFontPath)) {
+        console.log('Loading font from localDistFontPath:', localDistFontPath);
+        const buffer = fs.readFileSync(localDistFontPath);
+        fontBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+      } else if (fs.existsSync(fontB64Path)) {
+        console.log('Loading font from fontB64Path:', fontB64Path);
+        const b64Str = fs.readFileSync(fontB64Path, 'utf-8');
+        fontBytes = Buffer.from(b64Str.trim(), 'base64');
+      } else if (fs.existsSync(rootFontPath)) {
+        console.log('Loading font from rootFontPath:', rootFontPath);
+        const buffer = fs.readFileSync(rootFontPath);
+        fontBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+      } else {
+        console.log('No local font found. Fetching from remote network...');
+        const res = await fetch('https://school-admin-psi.vercel.app/fonts/THSarabunNew.ttf');
+        if (!res.ok) {
+          throw new Error(`Failed to fetch remote font: status ${res.status}`);
+        }
+        fontBytes = await res.arrayBuffer();
+      }
+    } catch (err) {
+      console.error('Error loading local/preferred font, falling back to remote network fetch:', err);
+      const res = await fetch('https://school-admin-psi.vercel.app/fonts/THSarabunNew.ttf');
+      if (!res.ok) {
+        throw new Error(`Remote network backup fetch failed: status ${res.status}`);
+      }
+      fontBytes = await res.arrayBuffer();
+    }
+
+    const customFont = await pdfDoc.embedFont(fontBytes);
+    const pages = pdfDoc.getPages();
+    const pageCount = pages.length;
+
+    // หาหน้าที่จะประทับตรา
+    const requestedPage = directorData.pageNumber || 1;
+    const pageIndex = Math.min(Math.max(requestedPage - 1, 0), pageCount - 1);
+    const targetPage = pages[pageIndex];
+
+    const { width } = targetPage.getSize();
+    const stampColor = rgb(0.1, 0.2, 0.7);
+    const fontSize = 15;
+    const receiptBoxWidth = 140;
+    const rightMargin = 30;
+    const startX = width - receiptBoxWidth - rightMargin;
+    const effectiveWidth = receiptBoxWidth; 
+    const dirY = 140; 
+
+    targetPage.drawText(`คำสั่ง / การปฏิบัติ`, {
+      x: startX, 
+      y: dirY + 115,
+      size: fontSize + 1,
+      font: customFont,
+      color: stampColor,
+    });
+
+    const orderLines = wrapThaiText(directorData.order, effectiveWidth, customFont, fontSize);
+    let dCurrentY = dirY + 98;
+    for (const line of orderLines) {
+      targetPage.drawText(line, { x: startX, y: dCurrentY, size: fontSize, font: customFont, color: stampColor });
+      dCurrentY -= 18; 
+    }
+
+    const dirSignerY = dCurrentY - 35;
+
+    // ฝังลายเซ็น (ถ้ามี)
+    if (directorData.signatureUrl) {
+      try {
+        const sigRes = await fetch(directorData.signatureUrl);
+        if (sigRes.ok) {
+          const sigBytes = await sigRes.arrayBuffer();
+          const isPng = directorData.signatureUrl.toLowerCase().includes('.png') || directorData.signatureUrl.toLowerCase().includes('image/png');
+          const sigImage = isPng ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
+          const sigDims = sigImage.scale(0.50); 
+          targetPage.drawImage(sigImage, {
+            x: startX + 60, 
+            y: dirSignerY + 10, 
+            width: sigDims.width,
+            height: sigDims.height,
+          });
+        }
+      } catch (imgErr) { console.error('Server PDF Signature image embed error:', imgErr); }
+    }
+
+    targetPage.drawText(`(ลงชื่อ) ........................................`, { x: startX - 10, y: dirSignerY, size: fontSize, font: customFont, color: stampColor });
+    targetPage.drawText(`(${directorData.signer})`, { x: startX + 15, y: dirSignerY - 17, size: fontSize, font: customFont, color: stampColor });
+
+    if (directorData.position) {
+      targetPage.drawText(`${directorData.position}`, { x: startX - 5, y: dirSignerY - 34, size: fontSize, font: customFont, color: stampColor });
+    }
+
+    // แปลงวันที่ไทยแบบย่อ
+    const dateObj = new Date(directorData.date);
+    const thDay = dateObj.getDate();
+    const thMonthAbbr = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."][dateObj.getMonth()];
+    const thYear = dateObj.getFullYear() + 543;
+    const thDateStr = `${thDay}/${thMonthAbbr}/${thYear}`;
+    
+    // แปลงเป็นเลขไทย
+    const thNumerals = ['๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙'];
+    const thaiFormattedDate = thDateStr.replace(/[0-9]/g, (digit) => thNumerals[parseInt(digit)]);
+
+    targetPage.drawText(`วันที่: ${thaiFormattedDate}`, {
+      x: startX + 20,
+      y: dirSignerY - (directorData.position ? 51 : 34),
+      size: fontSize,
+      font: customFont,
+      color: stampColor,
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    return pdfBytes;
+  } catch (err: any) {
+    console.error('applyStampsOnServer error:', err);
+    throw err;
+  }
+}
+
+// --------------------------------------------------------------------
+// Core interactive tasks execution
+// --------------------------------------------------------------------
+
+async function executeDocAssignment(docId: string, teacherId: string, instruction: string, replyToken: string, profile: any) {
+  try {
+    // 1. ดึงข้อมูลหนังสือรับ
+    const { data: doc } = await supabaseAdmin
+      .from('incoming_docs')
+      .select('*')
+      .eq('id', docId)
+      .single();
+
+    if (!doc) {
+      await replyToLine(replyToken, '❌ ไม่พบข้อมูลหนังสือรับชิ้นนี้ในระบบค่ะ');
+      return;
+    }
+
+    // ดึงข้อมูลครู
+    const { data: teacher } = await supabaseAdmin
+      .from('teachers')
+      .select('*')
+      .eq('id', teacherId)
+      .single();
+
+    if (!teacher) {
+      await replyToLine(replyToken, '❌ ไม่พบข้อมูลคุณครูในระบบค่ะ');
+      return;
+    }
+
+    // ดึงค่าหน้าประทับตราเดิม จาก JSON remark
+    let proposalStampPage = 1;
+    if (doc.remark) {
+      try {
+        const extra = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark);
+        if (extra && extra.stamp_page) {
+          proposalStampPage = parseInt(extra.stamp_page) || 1;
+        }
+      } catch (e) { console.warn('Failed to parse doc.remark JSON:', e); }
+    }
+
+    // 2. ดึงข้อมูล ผอ. จาก Settings สำหรับประทับตรา
+    const { data: settings } = await supabaseAdmin
+      .from('settings')
+      .select('director_name, director_signature_url')
+      .single();
+
+    // 3. เริ่มดำเนินการประทับตรา PDF บน server (ถ้าเป็นไฟล์ PDF และอยู่บน Supabase)
+    let finalFileUrl = doc.file_url;
+    if (doc.file_url && doc.file_url.includes('supabase.co') && doc.file_url.toLowerCase().includes('.pdf')) {
+      try {
+        const fileRes = await fetch(doc.file_url);
+        if (fileRes.ok) {
+          const pdfBuffer = await fileRes.arrayBuffer();
+          const stampedBytes = await applyStampsOnServer(pdfBuffer, {
+            order: instruction,
+            signer: settings?.director_name || profile.display_name || 'ผู้อำนวยการโรงเรียน',
+            position: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
+            date: new Date().toISOString().split('T')[0],
+            signatureUrl: settings?.director_signature_url || profile.signature_url,
+            pageNumber: proposalStampPage // ประทับตราหน้าเดียวกับใบเสนอ
+          });
+
+          // อัปโหลดไฟล์ประทับตราทับไปที่ Supabase
+          const pathSegments = doc.file_url.split('/');
+          const fileName = pathSegments[pathSegments.length - 1].split('?')[0];
+          
+          const { error: uploadErr } = await supabaseAdmin
+            .storage
+            .from('temp_docs')
+            .upload(fileName, stampedBytes, { contentType: 'application/pdf', upsert: true });
+
+          if (uploadErr) {
+            console.error('Failed to upload stamped PDF back to Supabase:', uploadErr.message);
+          } else {
+            // ดึง publicUrl ใหม่และใส่ timestamp เพื่อป้องกัน cache
+            const { data: publicData } = supabaseAdmin
+              .storage
+              .from('temp_docs')
+              .getPublicUrl(fileName);
+            
+            if (publicData?.publicUrl) {
+              finalFileUrl = `${publicData.publicUrl}?t=${Date.now()}`;
+              console.log('Successfully stamped and updated file_url:', finalFileUrl);
+            }
+          }
+        }
+      } catch (pdfErr) {
+        console.error('Server PDF Stamping failed:', pdfErr);
+        // ดำเนินการต่อแม้ PDF จะประทับตราไม่สำเร็จ เพื่อไม่ให้ระบบมอบหมายพัง
+      }
+    }
+
+    // 4. อัปเดตตาราง incoming_docs
+    await supabaseAdmin
+      .from('incoming_docs')
+      .update({ 
+        status: 'assigned',
+        file_url: finalFileUrl
+      })
+      .eq('id', docId);
+
+    // 5. บันทึกประวัติ doc_assignments
+    const { data: insertedAssigns, error: assignErr } = await supabaseAdmin
+      .from('doc_assignments')
+      .insert([{
+        doc_id: docId,
+        assignee_id: teacherId,
+        instruction: instruction,
+        status: 'pending'
+      }])
+      .select();
+
+    if (assignErr) throw assignErr;
+    const assignment = insertedAssigns?.[0];
+
+    // 6. ลบ state LINE action state
+    await supabaseAdmin
+      .from('line_action_states')
+      .delete()
+      .eq('user_id', profile.line_user_id);
+
+    // 7. แจ้งยืนยัน ผอ. และ Push หาครู
+    const teacherName = `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}`;
+    await replyToLine(replyToken, `✅ ทำการเกษียณสั่งการหนังสือเรื่อง "${doc.subject}" และมอบหมายงานให้คุณครู ${teacherName} เรียบร้อยแล้วค่ะ 🌸`);
+
+    const personalMsg = `เรื่อง: ${doc.subject}\nเลขที่หนังสือ: ${doc.doc_number}\nคำสั่งการ: ${instruction}`;
+    const lineActions = [
+      { label: '📄 ดูเอกสารสั่งการ', type: 'uri' as const, uri: finalFileUrl },
+      { label: '✅ รับทราบงาน', type: 'postback' as const, data: `action=acknowledge&id=${assignment?.id || ''}`, color: '#007AFF' }
+    ];
+    if (Array.isArray(doc.attachment_urls)) {
+      doc.attachment_urls.forEach((url: string, i: number) => {
+        if (lineActions.length < 4) {
+          lineActions.push({ label: `📎 แนบ ${i + 1}`, type: 'uri' as const, uri: url });
+        }
+      });
+    }
+
+    // กรองปุ่มที่ไม่สมบูรณ์ออกเพื่อป้องกัน LINE API 400 Bad Request
+    const validLineActions = lineActions.filter(act => {
+      if (act.type === 'uri' && !act.uri) return false;
+      if (act.type === 'postback' && !act.data) return false;
+      return true;
+    });
+
+    if (teacher.line_user_id) {
+      await pushToLineFlex(teacher.line_user_id, '📌 มีงานมอบหมายถึงคุณครู', {
+        type: "bubble",
+        body: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            { type: "text", text: "📌 คุณครูมีงานมอบหมายใหม่", weight: "bold", color: "#007AFF", size: "sm" },
+            { type: "text", text: personalMsg, margin: "md", wrap: true, weight: "bold", size: "md" }
+          ]
+        },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: validLineActions.map(act => ({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: act.color || "#1DB446",
+            action: act.type === 'uri' ? { type: "uri", label: act.label, uri: act.uri } : { type: "postback", label: act.label, data: act.data }
+          }))
+        }
+      });
+    } else {
+      // ส่งไปที่กลุ่มไลน์
+      const groupMsg = `ถึง: ${teacherName}\nเรื่อง: ${doc.subject}\nเลขที่หนังสือ: ${doc.doc_number}\nคำสั่งการ: ${instruction}`;
+      await pushToLineFlex(undefined, '📢 มอบหมายงานใหม่', {
+        type: "bubble",
+        body: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            { type: "text", text: "📢 มอบหมายงานใหม่", weight: "bold", color: "#E91E63", size: "sm" },
+            { type: "text", text: groupMsg, margin: "md", wrap: true, weight: "bold", size: "md" }
+          ]
+        },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: validLineActions.map(act => ({
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: act.color || "#1DB446",
+            action: act.type === 'uri' ? { type: "uri", label: act.label, uri: act.uri } : { type: "postback", label: act.label, data: act.data }
+          }))
+        }
+      });
+    }
+  } catch (err: any) {
+    console.error('executeDocAssignment error:', err);
+    await replyToLine(replyToken, `❌ ดำเนินการไม่สำเร็จ: ${err.message}`);
+  }
+}
+
+// --------------------------------------------------------------------
+// Postback handler functions
+// --------------------------------------------------------------------
+
+async function handleApproveDoc(event: any, params: URLSearchParams, profile: any) {
+  const type = params.get('type') || 'outgoing';
+  const id = params.get('id');
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ขออภัยค่ะ ปุ่มนี้สำหรับผู้อำนวยการดำเนินการเท่านั้นนะคะ 🌸');
+    return;
+  }
+
+  try {
+    let tableName = '';
+    let numberColumn = '';
+    let nameString = '';
+    
+    if (type === 'outgoing') { tableName = 'outgoing_docs'; numberColumn = 'doc_number'; nameString = 'หนังสือส่ง'; }
+    else if (type === 'memo') { tableName = 'memos'; numberColumn = 'memo_number'; nameString = 'บันทึกข้อความ'; }
+    else if (type === 'order') { tableName = 'orders'; numberColumn = 'order_number'; nameString = 'คำสั่งแต่งตั้ง'; }
+    else {
+      await replyToLine(replyToken, '❌ ประเภทเอกสารไม่ถูกต้องค่ะ');
+      return;
+    }
+
+    // 1. ดึงข้อมูลเอกสาร
+    const { data: doc } = await supabaseAdmin
+      .from(tableName)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (!doc) {
+      await replyToLine(replyToken, `❌ ไม่พบข้อมูล${nameString}ในระบบค่ะ`);
+      return;
+    }
+
+    let finalNumber = doc[numberColumn];
+    let docYear = doc.doc_year;
+    let docSeq = doc.doc_sequence;
+
+    // สำหรับคำสั่งแต่งตั้ง (ถ้าเขียนว่า รออนุมัติ ให้รันเลขอัตโนมัติ)
+    if (type === 'order' && (finalNumber === 'รออนุมัติ' || !finalNumber)) {
+      const orderDateObj = new Date(doc.order_date || new Date());
+      docYear = orderDateObj.getFullYear() + 543;
+      
+      const { data: seqDocs } = await supabaseAdmin
+        .from('orders')
+        .select('doc_sequence')
+        .eq('doc_year', docYear)
+        .order('doc_sequence', { ascending: false })
+        .limit(1);
+        
+      docSeq = (seqDocs && seqDocs.length > 0) ? (seqDocs[0].doc_sequence + 1) : 1;
+      finalNumber = `${docSeq}/${docYear}`;
+    }
+
+    // 2. อัปเดตสถานะและเลขทะเบียนในฐานข้อมูล
+    const updateObj: any = { status: 'approved' };
+    if (type === 'order') {
+      updateObj.order_number = finalNumber;
+      updateObj.doc_year = docYear;
+      updateObj.doc_sequence = docSeq;
+    }
+
+    const { error: updateErr } = await supabaseAdmin
+      .from(tableName)
+      .update(updateObj)
+      .eq('id', id);
+
+    if (updateErr) throw updateErr;
+
+    // 3. แจ้งเตือน ผอ. และแจ้งข่าวครูผู้เสนอ
+    await replyToLine(replyToken, `✅ ทำการอนุมัติและลงนามอิเล็กทรอนิกส์ใน${nameString}เรื่อง "${doc.subject}" เรียบร้อยแล้วค่ะ 🌸`);
+
+    // แจ้งเตือนผู้สร้าง
+    if (doc.created_by) {
+      const { data: creator } = await supabaseAdmin
+        .from('profiles')
+        .select('line_user_id')
+        .eq('id', doc.created_by)
+        .maybeSingle();
+
+      if (creator?.line_user_id) {
+        await pushToLine(creator.line_user_id, `✅ ยินดีด้วยค่ะ! ผู้อำนวยการได้อนุมัติและลงนามใน${nameString}เรื่อง "${doc.subject}" ของคุณครูเรียบร้อยแล้วนะคะ 🌸`);
+      }
+    }
+  } catch (err: any) {
+    console.error('handleApproveDoc error:', err);
+    await replyToLine(replyToken, `❌ เกิดข้อผิดพลาดในการอนุมัติ: ${err.message}`);
+  }
+}
+
+async function handleRejectDoc(event: any, params: URLSearchParams, profile: any) {
+  const type = params.get('type') || 'outgoing';
+  const id = params.get('id');
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ขออภัยค่ะ ปุ่มนี้สำหรับผู้อำนวยการดำเนินการเท่านั้นนะคะ 🌸');
+    return;
+  }
+
+  try {
+    // บันทึก state เฝ้ารอรับเหตุผลสั่งแก้ไข
+    await supabaseAdmin
+      .from('line_action_states')
+      .insert([{
+        user_id: profile.line_user_id,
+        action: 'awaiting_reject_reason',
+        context: { type, id }
+      }]);
+
+    await replyToLine(replyToken, '💬 กรุณาพิมพ์เหตุผลการส่งกลับ หรือจุดแก้ไขส่งเข้ามาในแชทนี้ เพื่อแจ้งแก่ผู้ร่างคำเสนอได้เลยค่ะ 🌸');
+  } catch (err: any) {
+    console.error('handleRejectDoc error:', err);
+    await replyToLine(replyToken, `❌ ไม่สามารถทำรายการได้: ${err.message}`);
+  }
+}
+
+async function handleStartAssign(event: any, params: URLSearchParams, profile: any) {
+  const docId = params.get('id');
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ขออภัยค่ะ ปุ่มนี้สำหรับผู้อำนวยการดำเนินการเท่านั้นนะคะ 🌸');
+    return;
+  }
+
+  try {
+    const { data: doc } = await supabaseAdmin
+      .from('incoming_docs')
+      .select('subject')
+      .eq('id', docId)
+      .single();
+
+    if (!doc) {
+      await replyToLine(replyToken, '❌ ไม่พบข้อมูลหนังสือรับชิ้นนี้ค่ะ');
+      return;
+    }
+
+    // ดึงคุณครู active ทั้งหมด
+    const { data: teachers } = await supabaseAdmin
+      .from('teachers')
+      .select('*')
+      .eq('status', 'active')
+      .order('first_name');
+
+    if (!teachers || teachers.length === 0) {
+      await replyToLine(replyToken, '❌ ไม่พบรายชื่อคุณครูในระบบสำหรับมอบหมายงานค่ะ');
+      return;
+    }
+
+    // สร้าง Quick Reply Items (แสดงรายชื่อคุณครู)
+    const quickReplyItems = teachers.slice(0, 13).map(teacher => {
+      const name = `${teacher.first_name} ${teacher.last_name.substring(0, 5)}`;
+      return {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: `${teacher.prefix || ''}${name}`,
+          data: `action=assign&doc_id=${docId}&teacher_id=${teacher.id}`,
+          displayText: `เลือกมอบหมาย: ${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}`
+        }
+      };
+    });
+
+    await replyToLineQuickReply(
+      replyToken,
+      `🧑‍🏫 กรุณาเลือกคุณครูผู้รับมอบงานสำหรับเอกสารเรื่อง "${doc.subject}" ด้านล่างนี้ค่ะ:`,
+      quickReplyItems
+    );
+
+  } catch (err: any) {
+    console.error('handleStartAssign error:', err);
+    await replyToLine(replyToken, `❌ ดำเนินการไม่สำเร็จ: ${err.message}`);
+  }
+}
+
+async function handleAssignTeacher(event: any, params: URLSearchParams, profile: any) {
+  const docId = params.get('doc_id');
+  const teacherId = params.get('teacher_id');
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ไม่มีสิทธิ์ดำเนินการค่ะ');
+    return;
+  }
+
+  // ส่ง Quick Reply สำหรับคำสั่งการแบบด่วน
+  const docIdStr = docId || '';
+  const teacherIdStr = teacherId || '';
+  const options = ['มอบดำเนินการ', 'ทราบ/ถือปฏิบัติ', 'ประสานงานต่อ', 'พิมพ์ระบุคำสั่งการเอง'];
+  
+  const quickReplyItems = options.map(opt => {
+    if (opt === 'พิมพ์ระบุคำสั่งการเอง') {
+      return {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: opt,
+          data: `action=confirm_assign&doc_id=${docIdStr}&teacher_id=${teacherIdStr}&instruction=manual`,
+          displayText: opt
+        }
+      };
+    } else {
+      return {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: opt,
+          data: `action=confirm_assign&doc_id=${docIdStr}&teacher_id=${teacherIdStr}&instruction=${opt}`,
+          displayText: `สั่งการ: ${opt}`
+        }
+      };
+    }
+  });
+
+  await replyToLineQuickReply(
+    replyToken,
+    '✍️ เลือกคำสั่งการเกษียณสั่งการหนังสือ หรือเลือกพิมพ์แบบเจาะจงเองด้านล่างค่ะ:',
+    quickReplyItems
+  );
+}
+
+async function handleConfirmAssign(event: any, params: URLSearchParams, profile: any) {
+  const docId = params.get('doc_id') || '';
+  const teacherId = params.get('teacher_id') || '';
+  const instruction = params.get('instruction') || 'มอบดำเนินการ';
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ไม่มีสิทธิ์ดำเนินการค่ะ');
+    return;
+  }
+
+  if (instruction === 'manual') {
+    // บันทึก state เพื่อรอรับข้อความสั่งพิมพ์เอง
+    await supabaseAdmin
+      .from('line_action_states')
+      .insert([{
+        user_id: profile.line_user_id,
+        action: 'awaiting_assign_instruction',
+        context: { doc_id: docId, teacher_id: teacherId }
+      }]);
+    await replyToLine(replyToken, '💬 กรุณาพิมพ์ข้อความคำสั่งการของคุณครูส่งเข้ามาในแชทนี้ได้เลยค่ะ 🌸');
+  } else {
+    // รันการมอบหมายจริง
+    await executeDocAssignment(docId, teacherId, instruction, replyToken, profile);
+  }
+}
+
+async function handleAcknowledge(event: any, params: URLSearchParams, profile: any) {
+  const assignmentId = params.get('id');
+  const replyToken = event.replyToken;
+
+  try {
+    const { data: assignment } = await supabaseAdmin
+      .from('doc_assignments')
+      .select('*, incoming_docs(subject)')
+      .eq('id', assignmentId)
+      .single();
+
+    if (!assignment) {
+      await replyToLine(replyToken, '❌ ไม่พบข้อมูลการมอบหมายงานนี้ในระบบค่ะ');
+      return;
+    }
+
+    // ตรวจสอบว่าครูผู้กดตรงกับผู้รับงานหรือไม่
+    const { data: teacher } = await supabaseAdmin
+      .from('teachers')
+      .select('id')
+      .eq('line_user_id', profile.line_user_id)
+      .maybeSingle();
+
+    if (!teacher || teacher.id !== assignment.assignee_id) {
+      await replyToLine(replyToken, '❌ ขออภัยค่ะ งานชิ้นนี้มอบหมายให้คุณครูท่านอื่นรับผิดชอบค่ะ 🌸');
+      return;
+    }
+
+    // อัปเดตตาราง doc_assignments
+    await supabaseAdmin
+      .from('doc_assignments')
+      .update({ status: 'acknowledged' })
+      .eq('id', assignmentId);
+
+    const docSubject = assignment.incoming_docs?.subject || 'หนังสือสั่งการ';
+    await replyToLine(replyToken, `✅ รับทราบงานเรื่อง "${docSubject}" เรียบร้อยแล้วค่ะ ขอให้การทำงานเป็นไปได้ด้วยดีนะคะคุณครู 🌸✨`);
+
+    // แจ้งเตือน ผอ.
+    const { data: director } = await supabaseAdmin
+      .from('profiles')
+      .select('line_user_id')
+      .eq('role', 'director')
+      .maybeSingle();
+
+    if (director?.line_user_id) {
+      await pushToLine(director.line_user_id, `👍 คุณครู ${profile.display_name} กดรับทราบงานเรื่อง "${docSubject}" แล้วค่ะ`);
+    }
+  } catch (err: any) {
+    console.error('handleAcknowledge error:', err);
+    await replyToLine(replyToken, `❌ ดำเนินการไม่สำเร็จ: ${err.message}`);
+  }
+}
+
+async function handleListPending(event: any, params: URLSearchParams, profile: any) {
+  const replyToken = event.replyToken;
+
+  try {
+    // ค้นหาคุณครูในตาราง teachers
+    const { data: teacher } = await supabaseAdmin
+      .from('teachers')
+      .select('id')
+      .eq('line_user_id', profile.line_user_id)
+      .maybeSingle();
+
+    if (!teacher) {
+      await replyToLine(replyToken, '❌ ไม่พบคุณครูในตารางระบบครูหลักค่ะ กรุณาผูกข้อมูลหรือแจ้งธุรการก่อนนะคะ');
+      return;
+    }
+
+    // ค้นหางานค้าง (status = acknowledged) ของครูคนนี้
+    const { data: pendingAssigns } = await supabaseAdmin
+      .from('doc_assignments')
+      .select('*, incoming_docs(subject, doc_number)')
+      .eq('assignee_id', teacher.id)
+      .eq('status', 'acknowledged')
+      .order('created_at', { ascending: false });
+
+    if (!pendingAssigns || pendingAssigns.length === 0) {
+      await replyToLine(replyToken, '🎉 ยินดีด้วยค่ะ! ตอนนี้คุณครูไม่มีงานราชการรอรายงานผลค้างอยู่เลยนะคะ 🌸');
+      return;
+    }
+
+    // สร้าง Flex Message Carousel รายชิ้นงานค้าง
+    const flexContents = {
+      type: "carousel",
+      contents: pendingAssigns.slice(0, 10).map(assign => ({
+        type: "bubble",
+        body: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            { type: "text", text: "📊 งานราชการที่ได้รับมอบหมาย", weight: "bold", color: "#9C27B0", size: "xs" },
+            { type: "text", text: assign.incoming_docs?.subject || 'ไม่มีหัวเรื่อง', weight: "bold", size: "sm", wrap: true, margin: "md", color: "#333333" },
+            { type: "text", text: `เลขหนังสือ: ${assign.incoming_docs?.doc_number || '-'}`, size: "xs", color: "#777777", margin: "xs" },
+            { type: "text", text: `คำสั่งการ: ${assign.instruction || '-'}`, size: "xs", color: "#ff8c00", margin: "xs", weight: "bold" }
+          ]
+        },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            {
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: "#9C27B0",
+              action: {
+                type: "postback",
+                label: "📝 รายงานผลงานชิ้นนี้",
+                data: `action=report&id=${assign.id}`
+              }
+            }
+          ]
+        }
+      }))
+    };
+
+    await replyToLineFlex(replyToken, '📊 รายการงานค้างสารบรรณ', flexContents);
+  } catch (err: any) {
+    console.error('handleListPending error:', err);
+    await replyToLine(replyToken, `❌ ดึงรายการงานค้างไม่สำเร็จ: ${err.message}`);
+  }
+}
+
+async function handleReport(event: any, params: URLSearchParams, profile: any) {
+  const assignmentId = params.get('id');
+  const replyToken = event.replyToken;
+
+  try {
+    const { data: assignment } = await supabaseAdmin
+      .from('doc_assignments')
+      .select('*, incoming_docs(subject)')
+      .eq('id', assignmentId)
+      .single();
+
+    if (!assignment) {
+      await replyToLine(replyToken, '❌ ไม่พบข้อมูลการมอบหมายงานในระบบค่ะ');
+      return;
+    }
+
+    // บันทึก state เฝ้ารอพิมพ์ผลการทำงาน
+    await supabaseAdmin
+      .from('line_action_states')
+      .insert([{
+        user_id: profile.line_user_id,
+        action: 'awaiting_report_text',
+        context: { assignment_id: assignmentId }
+      }]);
+
+    await replyToLine(replyToken, `✍️ กรุณาพิมพ์รายงานสรุปผลการดำเนินงานสำหรับเรื่อง "${assignment.incoming_docs?.subject}" ส่งเข้ามาในห้องแชทได้เลยค่ะ ชบาจะนำไปบันทึกรายงานเสนอเสนอ ผอ. ทันที 🌸`);
+  } catch (err: any) {
+    console.error('handleReport error:', err);
+    await replyToLine(replyToken, `❌ ไม่สามารถเริ่มรายงานผลได้: ${err.message}`);
+  }
+}
+
+async function handleClose(event: any, params: URLSearchParams, profile: any) {
+  const assignmentId = params.get('id');
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ สิทธิ์การปิดงานเป็นของผู้อำนวยการเท่านั้นค่ะ 🌸');
+    return;
+  }
+
+  try {
+    const { data: assignment } = await supabaseAdmin
+      .from('doc_assignments')
+      .select('*, incoming_docs(subject), assignee_id')
+      .eq('id', assignmentId)
+      .single();
+
+    if (!assignment) {
+      await replyToLine(replyToken, '❌ ไม่พบชิ้นงานในระบบค่ะ');
+      return;
+    }
+
+    // อัปเดตสถานะเป็น closed และใส่เวลาปิด
+    await supabaseAdmin
+      .from('doc_assignments')
+      .update({ status: 'closed', closed_at: new Date().toISOString() })
+      .eq('id', assignmentId);
+
+    await replyToLine(replyToken, `✅ ปิดงานราชการและทราบผลรายงานเรื่อง "${assignment.incoming_docs?.subject}" เรียบร้อยแล้วค่ะ 🌸`);
+
+    // แจ้งเตือนครูผู้รายงาน
+    const { data: teacher } = await supabaseAdmin
+      .from('teachers')
+      .select('line_user_id')
+      .eq('id', assignment.assignee_id)
+      .maybeSingle();
+
+    if (teacher?.line_user_id) {
+      await pushToLine(teacher.line_user_id, `🎉 ผู้อำนวยการได้รับทราบผลรายงานและสั่งการ "ทราบ/ปิดงาน" สำหรับงานเรื่อง "${assignment.incoming_docs?.subject}" แล้วค่ะ ขอบคุณในการดำเนินงานและปิดจ๊อบนะคะคุณครู 🌸⚡`);
+    }
+  } catch (err: any) {
+    console.error('handleClose error:', err);
+    await replyToLine(replyToken, `❌ ปิดงานไม่สำเร็จ: ${err.message}`);
+  }
+}
+
+async function handleFeedback(event: any, params: URLSearchParams, profile: any) {
+  const assignmentId = params.get('id');
+  const replyToken = event.replyToken;
+
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ขออภัยค่ะ ฟังก์ชันนี้สำหรับผู้อำนวยการสั่งการเท่านั้นค่ะ 🌸');
+    return;
+  }
+
+  try {
+    // บันทึก state เพื่อรอคำสั่งการเพิ่มเติม
+    await supabaseAdmin
+      .from('line_action_states')
+      .insert([{
+        user_id: profile.line_user_id,
+        action: 'awaiting_feedback_text',
+        context: { assignment_id: assignmentId }
+      }]);
+
+    await replyToLine(replyToken, '💬 กรุณาพิมพ์ข้อแนะนำหรือคำสั่งการเพิ่มเติมที่ต้องการให้คุณครูดำเนินการแก้ไข/ทำเพิ่มส่งมาได้เลยค่ะ 🌸');
+  } catch (err: any) {
+    console.error('handleFeedback error:', err);
+    await replyToLine(replyToken, `❌ ไม่สามารถเตรียมสั่งเพิ่มเติมได้: ${err.message}`);
+  }
+}
+
+// --------------------------------------------------------------------
+// Pending Stateful Action handler (รับข้อความตาม State)
+// --------------------------------------------------------------------
+
+async function handlePendingAction(event: any, pendingState: any, profile: any, userMsg: string) {
+  const replyToken = event.replyToken;
+  const stateId = pendingState.id;
+  const action = pendingState.action;
+  const context = pendingState.context || {};
+
+  try {
+    if (action === 'awaiting_reject_reason') {
+      const { type, id } = context;
+      let tableName = '';
+      let numberColumn = '';
+      let nameString = '';
+      
+      if (type === 'outgoing') { tableName = 'outgoing_docs'; numberColumn = 'doc_number'; nameString = 'หนังสือส่ง'; }
+      else if (type === 'memo') { tableName = 'memos'; numberColumn = 'memo_number'; nameString = 'บันทึกข้อความ'; }
+      else if (type === 'order') { tableName = 'orders'; numberColumn = 'order_number'; nameString = 'คำสั่งแต่งตั้ง'; }
+
+      // 1. ดึงข้อมูล
+      const { data: doc } = await supabaseAdmin.from(tableName).select('*').eq('id', id).single();
+      if (!doc) {
+        await replyToLine(replyToken, '❌ ไม่พบข้อมูลเอกสารในระบบค่ะ');
+        return;
+      }
+
+      // 2. อัปเดตสถานะและเหตุผลส่งกลับ
+      let remarkObj: any = {};
+      try {
+        remarkObj = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
+      } catch (e) { remarkObj = {}; }
+
+      remarkObj.director_opinion = userMsg;
+      remarkObj.director_decision = 'ส่งกลับแก้ไข';
+      remarkObj.approved_date = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+
+      await supabaseAdmin
+        .from(tableName)
+        .update({
+          status: 'rejected',
+          remark: JSON.stringify(remarkObj)
+        })
+        .eq('id', id);
+
+      // ลบ state
+      await supabaseAdmin.from('line_action_states').delete().eq('id', stateId);
+
+      await replyToLine(replyToken, `✅ ทำการปฏิเสธ/ส่งแก้ไข ${nameString}เรื่อง "${doc.subject}" และส่งเหตุผลคืนคุณครูผู้ร่างเรียบร้อยแล้วค่ะ 🌸`);
+
+      // แจ้งเตือนครูผู้ร่าง
+      if (doc.created_by) {
+        const { data: creator } = await supabaseAdmin.from('profiles').select('line_user_id').eq('id', doc.created_by).maybeSingle();
+        if (creator?.line_user_id) {
+          await pushToLine(creator.line_user_id, `❌ แจ้งเตือน: ${nameString}เรื่อง "${doc.subject}" ได้ถูกส่งกลับแก้ไข\nเหตุผลของ ผอ.: "${userMsg}"\n\nรบกวนคุณครูช่วยตรวจสอบและเข้าไปทำการแก้ไขบนหน้าเว็บโรงเรียนนะคะ 🙇‍♀️🌸`);
+        }
+      }
+    }
+    
+    else if (action === 'awaiting_assign_instruction') {
+      const { doc_id, teacher_id } = context;
+      // เรียกกระบวนการมอบหมายงานหลัก
+      await executeDocAssignment(doc_id, teacher_id, userMsg, replyToken, profile);
+    }
+    
+    else if (action === 'awaiting_report_text') {
+      const { assignment_id } = context;
+
+      // 1. ค้นหาเอกสารและการมอบหมาย
+      const { data: assign } = await supabaseAdmin
+        .from('doc_assignments')
+        .select('*, incoming_docs(subject)')
+        .eq('id', assignment_id)
+        .single();
+
+      if (!assign) {
+        await replyToLine(replyToken, '❌ ไม่พบข้อมูลการมอบหมายงานนี้ในระบบค่ะ');
+        return;
+      }
+
+      // 2. อัปเดตการรายงานผล
+      await supabaseAdmin
+        .from('doc_assignments')
+        .update({
+          status: 'completed',
+          staff_report: userMsg,
+          reported_at: new Date().toISOString()
+        })
+        .eq('id', assignment_id);
+
+      // ลบ state
+      await supabaseAdmin.from('line_action_states').delete().eq('id', stateId);
+
+      await replyToLine(replyToken, `✅ บันทึกคำรายงานผลและส่งมอบงานเรื่อง "${assign.incoming_docs?.subject}" เสนอผู้อำนวยการเรียบร้อยแล้วค่ะ ขอบคุณมากนะคะคุณครู 🌸`);
+
+      // ค้นหาไลน์ ผอ. เพื่อส่งรายงานไปแจ้งเตือนโต้กลับ
+      const { data: director } = await supabaseAdmin
+        .from('profiles')
+        .select('line_user_id')
+        .eq('role', 'director')
+        .maybeSingle();
+
+      const docSubject = assign.incoming_docs?.subject || 'งานที่มอบหมาย';
+      const dirMessage = `📊 คุณครู ${profile.display_name} ได้รายงานผลงาน\nเรื่อง: ${docSubject}\n\nผลงาน: "${userMsg}"`;
+      
+      const dirActions = [
+        { label: '✅ ทราบ/ปิดงาน', type: 'postback' as const, data: `action=close&id=${assignment_id}`, color: '#1DB446' },
+        { label: '💬 สั่งเพิ่มเติม', type: 'postback' as const, data: `action=feedback&id=${assignment_id}`, color: '#007AFF' }
+      ];
+
+      await pushToLineFlex(
+        director?.line_user_id || undefined, // ผอ. หรือ กลุ่ม
+        '📊 สรุปรายงานการดำเนินงาน',
+        {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              { type: "text", text: "📊 สรุปผลรายงานการดำเนินงาน", weight: "bold", color: "#9C27B0", size: "sm" },
+              { type: "text", text: dirMessage, margin: "md", wrap: true, weight: "bold", size: "md" }
+            ]
+          },
+          footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: dirActions.map(act => ({
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: act.color || "#1DB446",
+              action: { type: "postback", label: act.label, data: act.data }
+            }))
+          }
+        }
+      );
+    }
+    
+    else if (action === 'awaiting_feedback_text') {
+      const { assignment_id } = context;
+
+      // 1. ค้นหาเอกสารและการมอบหมาย
+      const { data: assign } = await supabaseAdmin
+        .from('doc_assignments')
+        .select('*, incoming_docs(subject), assignee_id')
+        .eq('id', assignment_id)
+        .single();
+
+      if (!assign) {
+        await replyToLine(replyToken, '❌ ไม่พบข้อมูลการมอบหมายงานนี้ในระบบค่ะ');
+        return;
+      }
+
+      // 2. อัปเดต feedback ผอ. และถอยสถานะกลับไปเป็น acknowledged (เพื่อให้ครูแก้ไขและส่งงานได้อีกรอบ)
+      await supabaseAdmin
+        .from('doc_assignments')
+        .update({
+          status: 'acknowledged',
+          director_feedback: userMsg
+        })
+        .eq('id', assignment_id);
+
+      // ลบ state
+      await supabaseAdmin.from('line_action_states').delete().eq('id', stateId);
+
+      await replyToLine(replyToken, `✅ บันทึกคำสั่งการเพิ่มเติมเรียบร้อยและส่งแจ้งคุณครูเรียบร้อยแล้วค่ะ 🌸`);
+
+      // ค้นหาไลน์ครูเพื่อยิง feedback
+      const { data: teacher } = await supabaseAdmin
+        .from('teachers')
+        .select('line_user_id, prefix, first_name, last_name')
+        .eq('id', assign.assignee_id)
+        .maybeSingle();
+
+      const docSubject = assign.incoming_docs?.subject || 'งานที่มอบหมาย';
+      const teacherName = teacher ? `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}` : 'ครูผู้รับงาน';
+      
+      const teacherMsg = `📌 ผอ. มีคำแนะนำ/สั่งการเพิ่มเติม\nเรื่อง: ${docSubject}\n\nคำสั่ง ผอ.: "${userMsg}"\n\nรบกวนคุณครูดำเนินการเพิ่มเติม และรายงานผลส่งกลับอีกครั้งเมื่อเสร็จงานนะคะ 🌸`;
+      
+      const teacherActions = [
+        { label: '📄 ดูเอกสาร', type: 'uri' as const, uri: assign.report_file_urls?.[0] || 'https://school-admin-psi.vercel.app' },
+        { label: '📝 รายงานผลใหม่', type: 'postback' as const, data: `action=report&id=${assignment_id}`, color: '#9C27B0' }
+      ];
+
+      if (teacher?.line_user_id) {
+        await pushToLineFlex(teacher.line_user_id, '📌 คำสั่งการเพิ่มเติมจาก ผอ.', {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              { type: "text", text: "📌 คำสั่งการเพิ่มเติมจากผู้อำนวยการ", weight: "bold", color: "#ff8c00", size: "sm" },
+              { type: "text", text: teacherMsg, margin: "md", wrap: true, weight: "bold", size: "md" }
+            ]
+          },
+          footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: teacherActions.map(act => ({
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: act.color || "#1DB446",
+              action: act.type === 'uri' ? { type: "uri", label: act.label, uri: act.uri } : { type: "postback", label: act.label, data: act.data }
+            }))
+          }
+        });
+      } else {
+        // ส่งกลุ่ม
+        const groupMsg = `ถึง: ${teacherName}\nเรื่อง: ${docSubject}\n\nคำสั่ง ผอ. เพิ่มเติม: "${userMsg}"\n\nกรุณาดำเนินการต่อและกดส่งงานใหม่เมื่อเรียบร้อยค่ะ`;
+        await pushToLineFlex(undefined, '📢 คำสั่งการเพิ่มเติมถึงคุณครู', {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              { type: "text", text: "📢 คำสั่งเพิ่มเติมจากผู้อำนวยการ", weight: "bold", color: "#ff8c00", size: "sm" },
+              { type: "text", text: groupMsg, margin: "md", wrap: true, weight: "bold", size: "md" }
+            ]
+          },
+          footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: teacherActions.map(act => ({
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: act.color || "#1DB446",
+              action: act.type === 'uri' ? { type: "uri", label: act.label, uri: act.uri } : { type: "postback", label: act.label, data: act.data }
+            }))
+          }
+        });
+      }
+    }
+  } catch (err: any) {
+    console.error('handlePendingAction error:', err);
+    await replyToLine(replyToken, `❌ ดำเนินการขั้นตอนต่อเนื่องไม่สำเร็จ: ${err.message}`);
+  }
 }
