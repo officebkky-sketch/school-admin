@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-installer
+.git
+คู่มือติดตั้ง
+.vercel
+build_final
+out
+release
+*.exe
+*.msi
+*.zip
+*.log

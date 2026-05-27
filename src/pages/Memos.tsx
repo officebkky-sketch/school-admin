@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { sendLineNotification } from '../lib/lineNotify';
+import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
 import { generateAIDraft } from '../lib/aiService';
 import Modal from '../components/Modal';
 import { 
@@ -25,6 +25,8 @@ export default function Memos() {
   const { user, profile } = useAuth();
   const [docs, setDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const currentYearBE = new Date().getFullYear() + 543;
+  const [selectedYear, setSelectedYear] = useState<number | null>(currentYearBE);
   const [latestNumber, setLatestNumber] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,7 +36,6 @@ export default function Memos() {
   const [directorOpinion, setDirectorOpinion] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<any>(null);
-  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   const [formData, setFormData] = useState({
     memo_number: '',
@@ -56,9 +57,6 @@ export default function Memos() {
 
   useEffect(() => { 
     fetchDocs(); 
-  }, [selectedYear]);
-
-  useEffect(() => {
     fetchSettings();
   }, []);
 
@@ -76,34 +74,66 @@ export default function Memos() {
     }
   }
 
-  async function fetchDocs() {
+  async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
     try {
-      const yearCE = parseInt(selectedYear) - 543;
-      const startDate = `${yearCE}-01-01`;
-      const endDate = `${yearCE}-12-31`;
-      
-      const { data } = await supabase
-        .from('memos')
-        .select('*')
-        .gte('memo_date', startDate)
-        .lte('memo_date', endDate)
-        .order('created_at', { ascending: false });
-        
+      let query = supabase.from('memos').select('*');
+      if (yearToFetch) {
+        query = query.eq('doc_year', yearToFetch);
+      }
+      const { data } = await query.order('created_at', { ascending: false });
       setDocs(data || []);
-      if (data && data.length > 0) {
+      
+      if (yearToFetch) {
+        const { data: latestSeqDoc } = await supabase
+          .from('memos')
+          .select('memo_number')
+          .eq('doc_year', yearToFetch)
+          .order('doc_sequence', { ascending: false })
+          .limit(1);
+        if (latestSeqDoc && latestSeqDoc.length > 0) {
+          setLatestNumber(latestSeqDoc[0].memo_number);
+        } else {
+          setLatestNumber('');
+        }
+      } else if (data && data.length > 0) {
         setLatestNumber(data[0].memo_number);
       } else {
         setLatestNumber('');
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.error(e);
     }
+    setLoading(false);
   }
 
   const isDirector = profile?.role === 'director' || profile?.role === 'admin';
+
+  const getNextMemoNumber = (customDate = formData.memo_date) => {
+    const docDateObj = new Date(customDate);
+    const targetYear = docDateObj.getFullYear() + 543;
+    
+    const yearDocs = docs.filter(d => d.doc_year === targetYear);
+    if (yearDocs.length === 0) {
+      return `1/${targetYear}`;
+    }
+    
+    let maxNum = 0;
+    yearDocs.forEach(d => {
+      if (d.doc_sequence && d.doc_sequence > maxNum) {
+        maxNum = d.doc_sequence;
+      } else if (d.memo_number) {
+        const match = d.memo_number.match(/^(\d+)/);
+        if (match) {
+          const num = parseInt(match[1]);
+          if (num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    });
+    return `${maxNum + 1}/${targetYear}`;
+  };
 
   async function handleStatusUpdate(id: string, newStatus: string) {
     try {
@@ -497,8 +527,22 @@ export default function Memos() {
         requester_signature_url: profile?.signature_url || ''
       };
 
-      const { error } = await supabase.from('memos').insert([{ 
-        memo_number: formData.memo_number,
+      const docDateObj = new Date(formData.memo_date);
+      const docYear = docDateObj.getFullYear() + 543;
+
+      // ค้นหา sequence ถัดไป
+      const { data: seqData } = await supabase
+        .from('memos')
+        .select('doc_sequence')
+        .eq('doc_year', docYear)
+        .order('doc_sequence', { ascending: false })
+        .limit(1);
+      
+      const docSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const finalMemoNumber = formData.memo_number.trim() || `${docSeq}/${docYear}`;
+
+      const { data: insertedDocs, error } = await supabase.from('memos').insert([{ 
+        memo_number: finalMemoNumber,
         subject: formData.subject,
         requester: formData.requester,
         department: formData.department,
@@ -506,14 +550,46 @@ export default function Memos() {
         remark: JSON.stringify(extraData),
         file_url, 
         status: formData.online_submit ? 'pending' : 'approved',
-        created_by: user?.id 
-      }]);
+        created_by: user?.id,
+        doc_year: docYear,
+        doc_sequence: docSeq
+      }]).select();
 
       if (error) throw new Error(`บันทึกข้อมูลไม่สำเร็จ: ${error.message}`);
+      const insertedDoc = insertedDocs?.[0];
 
-      // 3. Send LINE Notification
-      const lineMessage = `\n📝 บันทึกข้อความใหม่\nเลขที่: ${formData.memo_number}\nเรื่อง: ${formData.subject}\nผู้เสนอ: ${formData.requester}\n\nตรวจสอบและพิมพ์ได้ที่ระบบงานสารบรรณ`;
-      sendLineNotification(lineMessage);
+      // ดึงไลน์ ผอ. เพื่อเสนอตรง
+      const { data: dirProfile } = await supabase
+        .from('profiles')
+        .select('line_user_id')
+        .eq('role', 'director')
+        .maybeSingle();
+
+      if (formData.online_submit) {
+        const lineMessage = `เรื่อง: ${formData.subject}\nผู้เสนอ: ${formData.requester}\nหน่วยงาน: ${formData.department}`;
+        const lineActions: any[] = [
+          { label: '✅ อนุมัติลงนาม', type: 'postback', data: `action=approve_doc&type=memo&id=${insertedDoc?.id || ''}`, color: '#1DB446' },
+          { label: '❌ ส่งกลับแก้ไข', type: 'postback', data: `action=reject_doc&type=memo&id=${insertedDoc?.id || ''}`, color: '#FF3B30' }
+        ];
+        if (file_url) {
+          lineActions.unshift({ label: '📄 ดูร่างบันทึก', type: 'uri', uri: file_url });
+        }
+        await sendInteractiveFlexMessage(
+          dirProfile?.line_user_id || undefined,
+          '⏳ เสนออนุมัติบันทึกข้อความ',
+          lineMessage,
+          lineActions
+        );
+      } else {
+        const lineMessage = `เลขที่บันทึก: ${finalMemoNumber}\nเรื่อง: ${formData.subject}\nผู้เสนอ: ${formData.requester}`;
+        const lineActions = file_url ? [{ label: '📄 ดูเอกสาร', type: 'uri' as const, uri: file_url }] : [];
+        await sendInteractiveFlexMessage(
+          undefined, // ส่งเข้ากลุ่ม
+          '📝 บันทึกข้อความใหม่ (ลงทะเบียนตรง)',
+          lineMessage,
+          lineActions
+        );
+      }
 
       setIsModalOpen(false);
       resetForm();
@@ -548,31 +624,30 @@ export default function Memos() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="flex-1 max-w-xl flex items-center gap-3">
+        <div className="relative flex-1 max-w-2xl flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input type="text" placeholder="ค้นหาบันทึกข้อความ..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
-            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
-            >
-              {Array.from({ length: 5 }, (_, i) => {
-                const year = new Date().getFullYear() + 543 - i;
-                return (
-                  <option key={year} value={year.toString()}>
-                    {year}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          
+          <select 
+            value={selectedYear || ''} 
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : null;
+              setSelectedYear(val);
+              fetchDocs(val);
+            }}
+            className="p-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs font-bold text-slate-700 text-sm h-[48px]"
+          >
+            <option value="">ดูทั้งหมด</option>
+            <option value={currentYearBE}>{currentYearBE}</option>
+            <option value={currentYearBE - 1}>{currentYearBE - 1}</option>
+            <option value={currentYearBE - 2}>{currentYearBE - 2}</option>
+          </select>
+
           {latestNumber && (
-            <div className="shrink-0 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs">
-              <span className="text-[10px] font-black text-blue-500 uppercase tracking-tighter">ล่าสุด:</span>
+            <div className="shrink-0 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs h-[48px] flex items-center">
+              <span className="text-[10px] font-black text-blue-500 uppercase tracking-tighter mr-1">ล่าสุด:</span>
               <span className="text-xs font-black text-blue-600 tracking-tight">{latestNumber}</span>
             </div>
           )}

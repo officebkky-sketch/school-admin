@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFileToDrive, deleteFileFromDrive, uploadToSupabase, deleteFromSupabase } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { sendLineNotification } from '../lib/lineNotify';
+import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
 import Modal from '../components/Modal';
@@ -26,6 +26,8 @@ export default function IncomingDocs() {
   const { user, profile } = useAuth();
   const [docs, setDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const currentYearBE = new Date().getFullYear() + 543;
+  const [selectedYear, setSelectedYear] = useState<number | null>(currentYearBE);
   const [latestNumber, setLatestNumber] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -33,6 +35,29 @@ export default function IncomingDocs() {
   const [isSaving, setIsSaving] = useState(false);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [selectedDoc, setSelectedDoc] = useState<any>(null);
+
+  const openNewDocModal = async () => {
+    setIsModalOpen(true);
+    const currentYear = new Date().getFullYear() + 543;
+    try {
+      const { data: seqData } = await supabase
+        .from('incoming_docs')
+        .select('doc_sequence')
+        .eq('doc_year', currentYear)
+        .order('doc_sequence', { ascending: false })
+        .limit(1);
+      
+      const nextSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      setFormData(prev => ({
+        ...prev,
+        doc_number: nextSeq.toString(),
+        doc_date: new Date().toISOString().split('T')[0],
+        stamp_page: 1
+      }));
+    } catch (e) {
+      console.error('Failed to auto-generate doc sequence:', e);
+    }
+  };
 
   // Assignment Form State
   const [assignForm, setAssignForm] = useState({
@@ -60,32 +85,38 @@ export default function IncomingDocs() {
 
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   useEffect(() => { 
     fetchDocs(); 
-  }, [selectedYear]);
-
-  useEffect(() => {
     fetchTeachers();
   }, []);
 
-  async function fetchDocs() {
+  async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
     try {
-      const yearCE = parseInt(selectedYear) - 543;
-      const startDate = `${yearCE}-01-01`;
-      const endDate = `${yearCE}-12-31`;
+      let query = supabase.from('incoming_docs').select('*');
       
-      const { data } = await supabase
-        .from('incoming_docs')
-        .select('*')
-        .gte('doc_date', startDate)
-        .lte('doc_date', endDate)
-        .order('created_at', { ascending: false });
-        
+      if (yearToFetch) {
+        query = query.eq('doc_year', yearToFetch);
+      }
+      
+      const { data } = await query.order('created_at', { ascending: false });
       setDocs(data || []);
-      if (data && data.length > 0) {
+      
+      // ดึงเลขล่าสุดของปีนี้มาโชว์
+      if (yearToFetch) {
+        const { data: latestSeqDoc } = await supabase
+          .from('incoming_docs')
+          .select('doc_number')
+          .eq('doc_year', yearToFetch)
+          .order('doc_sequence', { ascending: false })
+          .limit(1);
+        if (latestSeqDoc && latestSeqDoc.length > 0) {
+          setLatestNumber(latestSeqDoc[0].doc_number);
+        } else {
+          setLatestNumber('');
+        }
+      } else if (data && data.length > 0) {
         setLatestNumber(data[0].doc_number);
       } else {
         setLatestNumber('');
@@ -169,23 +200,30 @@ export default function IncomingDocs() {
       }
 
       // 2. Insert Assignment
-      const { error } = await supabase.from('doc_assignments').insert([{
+      const { data: insertedAssigns, error } = await supabase.from('doc_assignments').insert([{
         doc_id: selectedDoc.id,
         assignee_id: assignForm.teacher_id,
         instruction: assignForm.instruction,
         status: 'pending'
-      }]);
+      }]).select();
 
       if (error) throw error;
+      const insertedAssign = insertedAssigns?.[0];
 
       // Notify Teacher via LINE (with Fallback to Group)
       const teacher = teachers.find(t => t.id === assignForm.teacher_id);
       const teacherName = teacher ? `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}` : 'ครูผู้รับผิดชอบ';
       
-      const lineAttachments = [{ label: '📄 ดูเอกสารสั่งการ', url: selectedDoc.file_url }];
+      const lineActions = [
+        { label: '📄 ดูเอกสารสั่งการ', type: 'uri' as const, uri: selectedDoc.file_url },
+        { label: '✅ รับทราบงาน', type: 'postback' as const, data: `action=acknowledge&id=${insertedAssign?.id || ''}`, color: '#007AFF' }
+      ];
+      
       if (Array.isArray(selectedDoc.attachment_urls)) {
         selectedDoc.attachment_urls.forEach((url: string, i: number) => {
-          lineAttachments.push({ label: `📎 ไฟล์แนบ ${i + 1}`, url: url });
+          if (lineActions.length < 4) {
+            lineActions.push({ label: `📎 แนบ ${i + 1}`, type: 'uri' as const, uri: url });
+          }
         });
       }
 
@@ -193,23 +231,23 @@ export default function IncomingDocs() {
       try {
         if (teacher?.line_user_id) {
           // ส่งตรงถึงครูผู้รับมอบหมาย
-          const personalMsg = `📌 คุณครูมีงานมอบหมายใหม่\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+          const personalMsg = `เรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
           console.log(`[LINE NOTIFY] Sending to teacher: ${teacherName} (ID: ${teacher.line_user_id})`);
-          const result = await sendLineNotification(personalMsg, teacher.line_user_id, lineAttachments);
+          const result = await sendInteractiveFlexMessage(teacher.line_user_id, '📌 มีงานมอบหมายถึงคุณครู', personalMsg, lineActions);
           if (result) {
             lineNotifyStatus = `✅ แจ้งเตือน LINE ถึง${teacherName}แล้ว`;
           } else {
             // ถ้าส่งตรงไม่สำเร็จ → Fallback ไปกลุ่ม
             console.warn('[LINE NOTIFY] Personal push failed, falling back to group...');
-            const groupMsg = `📢 มอบหมายงานใหม่\nถึง: ${teacherName}\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
-            await sendLineNotification(groupMsg, undefined, lineAttachments);
+            const groupMsg = `ถึง: ${teacherName}\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+            await sendInteractiveFlexMessage(undefined, '📢 มอบหมายงานใหม่', groupMsg, lineActions);
             lineNotifyStatus = `⚠️ ส่ง LINE ตรงไม่สำเร็จ → แจ้งผ่านกลุ่มแทนแล้ว`;
           }
         } else {
           // ครูไม่มี line_user_id → Fallback ส่งไปกลุ่มเลย
           console.warn(`[LINE NOTIFY] Teacher ${teacherName} has no line_user_id. Sending to group instead.`);
-          const groupMsg = `📢 มอบหมายงานใหม่\nถึง: ${teacherName}\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\n\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
-          const result = await sendLineNotification(groupMsg, undefined, lineAttachments);
+          const groupMsg = `ถึง: ${teacherName}\nเรื่อง: ${selectedDoc.subject}\nเลขที่: ${selectedDoc.doc_number}\nคำสั่งการ: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+          const result = await sendInteractiveFlexMessage(undefined, '📢 มอบหมายงานใหม่', groupMsg, lineActions);
           if (result) {
             lineNotifyStatus = `📣 ${teacherName}ยังไม่ผูก LINE → แจ้งผ่านกลุ่มแทนแล้ว`;
           } else {
@@ -302,15 +340,30 @@ export default function IncomingDocs() {
         att_urls.push(url);
       }
 
+      const docDateObj = new Date(formData.doc_date);
+      const docYear = docDateObj.getFullYear() + 543;
+      
+      // หาเลข sequence จังหวะเซฟจริง
+      const { data: seqData } = await supabase
+        .from('incoming_docs')
+        .select('doc_sequence')
+        .eq('doc_year', docYear)
+        .order('doc_sequence', { ascending: false })
+        .limit(1);
+      
+      const docSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const finalDocNum = formData.doc_number.trim() || docSeq.toString();
+
       const extraData = {
         sender_doc_number: formData.sender_doc_number,
         sender_doc_date: formData.sender_doc_date,
         proposal_summary: proposalData.summary,
-        proposal_text: proposalData.proposal
+        proposal_text: proposalData.proposal,
+        stamp_page: formData.stamp_page // เก็บเลขหน้าประทับเสนอ
       };
 
-      const { error } = await supabase.from('incoming_docs').insert([{
-        doc_number: formData.doc_number,
+      const { data: insertedDocs, error } = await supabase.from('incoming_docs').insert([{
+        doc_number: finalDocNum,
         from_agency: formData.from_agency,
         subject: formData.subject,
         doc_date: formData.doc_date,
@@ -319,14 +372,33 @@ export default function IncomingDocs() {
         file_url,
         attachment_urls: att_urls,
         status: 'pending',
-        created_by: user?.id
-      }]);
+        created_by: user?.id,
+        doc_year: docYear,
+        doc_sequence: docSeq
+      }]).select();
 
       if (error) throw error;
+      const insertedDoc = insertedDocs?.[0];
 
-      const regMsg = `ลงรับหนังสือใหม่ (รอเกษียณ)\nเรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่: ${formData.doc_number}`;
-      const regAttachments = [{ label: '📄 ดูต้นฉบับหนังสือ', url: file_url }];
-      await sendLineNotification(regMsg, undefined, regAttachments);
+      // ค้นหาไลน์ ผอ. เพื่อเสนอตรง
+      const { data: dirProfile } = await supabase
+        .from('profiles')
+        .select('line_user_id')
+        .eq('role', 'director')
+        .maybeSingle();
+
+      const regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
+      const regActions = [
+        { label: '📄 ดูต้นฉบับหนังสือ', type: 'uri' as const, uri: file_url },
+        { label: '✍️ เกษียณสั่งการ', type: 'postback' as const, data: `action=start_assign&id=${insertedDoc?.id || ''}`, color: '#1DB446' }
+      ];
+
+      await sendInteractiveFlexMessage(
+        dirProfile?.line_user_id || undefined,
+        '📥 เสนอหนังสือรอเกษียณ',
+        regMsg,
+        regActions
+      );
       
       setIsModalOpen(false);
       resetForm();
@@ -400,37 +472,36 @@ export default function IncomingDocs() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="flex-1 max-w-xl flex items-center gap-3">
+        <div className="relative flex-1 max-w-2xl flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input type="text" placeholder="ค้นหาหนังสือรับ..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
-            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
-            >
-              {Array.from({ length: 5 }, (_, i) => {
-                const year = new Date().getFullYear() + 543 - i;
-                return (
-                  <option key={year} value={year.toString()}>
-                    {year}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          
+          <select 
+            value={selectedYear || ''} 
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : null;
+              setSelectedYear(val);
+              fetchDocs(val);
+            }}
+            className="p-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs font-bold text-slate-700 text-sm h-[48px]"
+          >
+            <option value="">ดูทั้งหมด</option>
+            <option value={currentYearBE}>{currentYearBE}</option>
+            <option value={currentYearBE - 1}>{currentYearBE - 1}</option>
+            <option value={currentYearBE - 2}>{currentYearBE - 2}</option>
+          </select>
+
           {latestNumber && (
-            <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs">
-              <span className="text-[10px] font-black text-brand-primary uppercase tracking-tighter">ล่าสุด:</span>
+            <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs h-[48px] flex items-center">
+              <span className="text-[10px] font-black text-brand-primary uppercase tracking-tighter mr-1">ล่าสุด:</span>
               <span className="text-xs font-black text-brand-primary tracking-tight">{latestNumber}</span>
             </div>
           )}
         </div>
         {isDirector && (
-          <button onClick={() => setIsModalOpen(true)} className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-all">
+          <button onClick={openNewDocModal} className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-all">
             <FilePlus size={20} /> ลงรับหนังสือใหม่
           </button>
         )}
@@ -486,9 +557,22 @@ export default function IncomingDocs() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {isDirector && (
-                        <button onClick={() => { setSelectedDoc(doc); setIsAssignModalOpen(true); }} className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-lg transition-colors flex items-center gap-1.5 font-bold text-xs" title="เกษียณสั่งการ/มอบหมาย">
-                          <UserCheck size={18} /> เกษียณ
+                      {doc.status === 'pending' && isDirector && (
+                        <button onClick={() => { 
+                          setSelectedDoc(doc); 
+                          let prevStampPage = 1;
+                          if (doc.remark) {
+                            try {
+                              const extra = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark);
+                              if (extra && extra.stamp_page) {
+                                prevStampPage = parseInt(extra.stamp_page) || 1;
+                              }
+                            } catch (e) { console.warn('Failed to parse remark for stamp_page', e); }
+                          }
+                          setAssignForm({ teacher_id: '', instruction: '', stamp_page: prevStampPage });
+                          setIsAssignModalOpen(true); 
+                        }} className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-lg transition-colors flex items-center gap-1.5 font-bold text-xs" title="เกษียณสั่งการ/มอบหมาย">
+                          <UserCheck size={14} /> มอบหมายงาน
                         </button>
                       )}
                       {isAdmin && (

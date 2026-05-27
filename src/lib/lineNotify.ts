@@ -16,10 +16,8 @@ export async function sendLineNotification(message: string, specificToId?: strin
       .select('line_channel_access_token, line_group_id')
       .single();
 
-    const channelAccessToken = settings?.line_channel_access_token;
+    const channelAccessToken = settings?.line_channel_access_token || undefined;
     const groupId = settings?.line_group_id;
-
-    if (!channelAccessToken) return;
 
     const targetId = specificToId || groupId;
     if (!targetId) return;
@@ -84,9 +82,25 @@ export async function sendLineNotification(message: string, specificToId?: strin
       };
     }
 
-    // ดึงค่า Vercel URL แบบไดนามิกจากโปรไฟล์โรงเรียนที่เลือก
-    const profile = getActiveSchoolProfile();
-    let vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    // ดึงค่า Vercel URL แบบไดนามิกจากโปรไฟล์โรงเรียนที่เลือก (ใช้ window.location.origin เป็นหลักเมื่อทำงานในเบราว์เซอร์ปกติ)
+    let vercelBaseUrl = '';
+    const isWebUrl = typeof window !== 'undefined' && 
+                      window.location && 
+                      window.location.origin && 
+                      window.location.protocol.startsWith('http') &&
+                      !window.location.origin.includes('localhost') && 
+                      !window.location.origin.includes('127.0.0.1');
+
+    if (isWebUrl) {
+      vercelBaseUrl = window.location.origin;
+    } else {
+      const profile = getActiveSchoolProfile();
+      vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    }
+
+    if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
+      vercelBaseUrl = `https://${vercelBaseUrl}`;
+    }
     if (vercelBaseUrl.endsWith('/')) {
       vercelBaseUrl = vercelBaseUrl.slice(0, -1);
     }
@@ -102,16 +116,183 @@ export async function sendLineNotification(message: string, specificToId?: strin
       })
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Failed to send notification via Vercel:', errorData.error?.message || errorData.message);
-      return undefined;
+    let resData: any;
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        resData = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(text.substring(0, 150) || "Empty Response");
+      }
+    } catch (parseErr: any) {
+      throw new Error(`Server Response Error (URL: ${webhookUrl} | Status ${response.status}): ${parseErr.message}`);
     }
 
-    return await response.json();
+    if (!response.ok) {
+      const detail = resData?.error?.message || resData?.message || JSON.stringify(resData);
+      throw new Error(`Vercel Webhook Error (URL: ${webhookUrl}): ${response.status} - ${detail}`);
+    }
+
+    if (resData.success === false) {
+      const detail = resData.error?.message || JSON.stringify(resData.error);
+      throw new Error(`LINE API Error: ${detail}`);
+    }
+    return resData;
 
   } catch (error: any) {
     console.error('LINE Notification Error:', error);
-    return undefined;
+    throw error;
+  }
+}
+
+interface ActionItem {
+  label: string;
+  type: 'uri' | 'postback';
+  uri?: string;
+  data?: string;
+  color?: string;
+}
+
+/**
+ * ส่ง Flex Message พร้อมปุ่มโต้ตอบโต้กลับ (Postback) หรือเปิดลิงก์ (URI)
+ */
+export async function sendInteractiveFlexMessage(
+  specificToId: string | undefined,
+  title: string,
+  message: string,
+  actions: ActionItem[] = []
+) {
+  try {
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('line_channel_access_token, line_group_id')
+      .single();
+
+    const channelAccessToken = settings?.line_channel_access_token || undefined;
+    const groupId = settings?.line_group_id;
+
+    const targetId = specificToId || groupId;
+    if (!targetId) return;
+
+    const payloadObj = {
+      to: targetId,
+      messages: [{
+        type: "flex",
+        altText: title,
+        contents: {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              {
+                type: "text",
+                text: title,
+                weight: "bold",
+                color: "#9C27B0", // สีม่วงพรีเมียม
+                size: "sm"
+              },
+              {
+                type: "text",
+                text: message.trim(),
+                margin: "md",
+                wrap: true,
+                weight: "bold",
+                size: "md",
+                color: "#333333"
+              }
+            ]
+          },
+          footer: actions.length > 0 ? {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: actions.map(act => {
+              if (act.type === 'uri' && !act.uri) return null;
+              if (act.type === 'postback' && !act.data) return null;
+
+              const buttonAction: any = {
+                type: act.type,
+                label: act.label
+              };
+              if (act.type === 'uri') {
+                buttonAction.uri = act.uri;
+              } else if (act.type === 'postback') {
+                buttonAction.data = act.data;
+              }
+              return {
+                type: "button",
+                style: "primary",
+                height: "sm",
+                color: act.color || "#1DB446",
+                action: buttonAction
+              };
+            }).filter(Boolean) as any[]
+          } : undefined
+        }
+      }]
+    };
+
+    // ดึงค่า Vercel URL แบบไดนามิกจากโปรไฟล์โรงเรียนที่เลือก (ใช้ window.location.origin เป็นหลักเมื่อทำงานในเบราว์เซอร์ปกติ)
+    let vercelBaseUrl = '';
+    const isWebUrl = typeof window !== 'undefined' && 
+                      window.location && 
+                      window.location.origin && 
+                      window.location.protocol.startsWith('http') &&
+                      !window.location.origin.includes('localhost') && 
+                      !window.location.origin.includes('127.0.0.1');
+
+    if (isWebUrl) {
+      vercelBaseUrl = window.location.origin;
+    } else {
+      const profile = getActiveSchoolProfile();
+      vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    }
+
+    if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
+      vercelBaseUrl = `https://${vercelBaseUrl}`;
+    }
+    if (vercelBaseUrl.endsWith('/')) {
+      vercelBaseUrl = vercelBaseUrl.slice(0, -1);
+    }
+    const webhookUrl = `${vercelBaseUrl}/api/line-webhook`;
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        payload: payloadObj,
+        token: channelAccessToken
+      })
+    });
+
+    let resData: any;
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        resData = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(text.substring(0, 150) || "Empty Response");
+      }
+    } catch (parseErr: any) {
+      throw new Error(`Server Response Error (URL: ${webhookUrl} | Status ${response.status}): ${parseErr.message}`);
+    }
+
+    if (!response.ok) {
+      const detail = resData?.error?.message || resData?.message || JSON.stringify(resData);
+      throw new Error(`Vercel Webhook Error (URL: ${webhookUrl}): ${response.status} - ${detail}`);
+    }
+
+    if (resData.success === false) {
+      const detail = resData.error?.message || JSON.stringify(resData.error);
+      throw new Error(`LINE API Error: ${detail}`);
+    }
+    return resData;
+
+  } catch (error: any) {
+    console.error('LINE Interactive Flex Error:', error);
+    throw error;
   }
 }

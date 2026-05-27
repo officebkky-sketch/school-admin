@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { sendLineNotification } from '../lib/lineNotify';
+import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
 import Modal from '../components/Modal';
 import { 
   Search, 
@@ -25,6 +25,8 @@ export default function OutgoingDocs() {
   const { user, profile } = useAuth();
   const [docs, setDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const currentYearBE = new Date().getFullYear() + 543;
+  const [selectedYear, setSelectedYear] = useState<number | null>(currentYearBE);
   const [latestNumber, setLatestNumber] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -32,7 +34,6 @@ export default function OutgoingDocs() {
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<any>(null);
   const [incomingDocs, setIncomingDocs] = useState<any[]>([]);
-  const [selectedYear, setSelectedYear] = useState<string>((new Date().getFullYear() + 543).toString());
 
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [selectedDocForApproval, setSelectedDocForApproval] = useState<any>(null);
@@ -64,9 +65,6 @@ export default function OutgoingDocs() {
 
   useEffect(() => { 
     fetchDocs(); 
-  }, [selectedYear]);
-
-  useEffect(() => {
     fetchSettings();
     fetchIncomingDocs();
   }, []);
@@ -90,30 +88,37 @@ export default function OutgoingDocs() {
     setIncomingDocs(data || []);
   }
 
-  async function fetchDocs() {
+  async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
     try {
-      const yearCE = parseInt(selectedYear) - 543;
-      const startDate = `${yearCE}-01-01`;
-      const endDate = `${yearCE}-12-31`;
-      
-      const { data } = await supabase
-        .from('outgoing_docs')
-        .select('*')
-        .gte('doc_date', startDate)
-        .lte('doc_date', endDate)
-        .order('created_at', { ascending: false });
+      let query = supabase.from('outgoing_docs').select('*');
+      if (yearToFetch) {
+        query = query.eq('doc_year', yearToFetch);
+      }
+      const { data } = await query.order('created_at', { ascending: false });
       setDocs(data || []);
-      if (data && data.length > 0) {
+      
+      if (yearToFetch) {
+        const { data: latestSeqDoc } = await supabase
+          .from('outgoing_docs')
+          .select('doc_number')
+          .eq('doc_year', yearToFetch)
+          .order('doc_sequence', { ascending: false })
+          .limit(1);
+        if (latestSeqDoc && latestSeqDoc.length > 0) {
+          setLatestNumber(latestSeqDoc[0].doc_number);
+        } else {
+          setLatestNumber('');
+        }
+      } else if (data && data.length > 0) {
         setLatestNumber(data[0].doc_number);
       } else {
         setLatestNumber('');
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.error(e);
     }
+    setLoading(false);
   }
 
   const toThaiNumerals = (text: string) => {
@@ -131,44 +136,32 @@ export default function OutgoingDocs() {
 
   const [aiPurpose, setAiPurpose] = useState('');
 
-  const getNextDocNumber = () => {
+  const getNextDocNumber = (customDate = formData.doc_date) => {
     const prefix = settings?.school_doc_prefix || 'ศธ 04225.016/';
+    const docDateObj = new Date(customDate);
+    const targetYear = docDateObj.getFullYear() + 543;
     
-    // ดึงปี พ.ศ. และ ค.ศ. จาก formData.doc_date เพื่อใช้กรองการรันเลข
-    const targetDateStr = formData?.doc_date || new Date().toISOString().split('T')[0];
-    const targetYearCE = new Date(targetDateStr).getFullYear();
-    
-    // กรอง docs ใน state ที่มี doc_date อยู่ในปีเดียวกัน
-    const docsInSameYear = docs.filter(d => {
-      if (!d.doc_date) return false;
-      const dYear = new Date(d.doc_date).getFullYear();
-      return dYear === targetYearCE;
-    });
-
-    if (docsInSameYear.length === 0) {
+    const yearDocs = docs.filter(d => d.doc_year === targetYear);
+    if (yearDocs.length === 0) {
       return `${prefix}1`;
     }
     
-    // ค้นหาเลขส่งล่าสุดที่เป็นรูปแบบ prefix ในปีเดียวกัน
-    const validDocs = docsInSameYear.filter(d => d.doc_number && d.doc_number.startsWith(prefix));
+    const validDocs = yearDocs.filter(d => d.doc_number && d.doc_number.startsWith(prefix));
     if (validDocs.length === 0) {
-      // หากไม่มีที่ตรงกับ prefix เลย ลองดึงเลขล่าสุดของปีนี้มาแกะ
-      const latest = docsInSameYear[0].doc_number || '';
-      const match = latest.match(/\/(\d+)/);
-      if (match) {
-        return `${prefix}${parseInt(match[1]) + 1}`;
-      }
       return `${prefix}1`;
     }
     
-    // หาเลขรันล่าสุดของปีนี้
     let maxNum = 0;
     validDocs.forEach(d => {
-      const match = d.doc_number.match(/\/(\d+)/);
-      if (match) {
-        const num = parseInt(match[1]);
-        if (num > maxNum) {
-          maxNum = num;
+      if (d.doc_sequence && d.doc_sequence > maxNum) {
+        maxNum = d.doc_sequence;
+      } else {
+        const match = d.doc_number.match(/\/(\d+)/);
+        if (match) {
+          const num = parseInt(match[1]);
+          if (num > maxNum) {
+            maxNum = num;
+          }
         }
       }
     });
@@ -743,8 +736,23 @@ ${userDetail}
         footer_text: formData.footer_text
       };
 
-      const { error } = await supabase.from('outgoing_docs').insert([{ 
-        doc_number: formData.doc_number,
+      const docDateObj = new Date(formData.doc_date);
+      const docYear = docDateObj.getFullYear() + 543;
+
+      // ค้นหา sequence ถัดไปของปีนี้ ณ จังหวะเซฟจริง
+      const { data: seqData } = await supabase
+        .from('outgoing_docs')
+        .select('doc_sequence')
+        .eq('doc_year', docYear)
+        .order('doc_sequence', { ascending: false })
+        .limit(1);
+      
+      const docSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const prefix = settings?.school_doc_prefix || 'ศธ 04225.016/';
+      const finalDocNumber = formData.doc_number.trim() || `${prefix}${docSeq}`;
+
+      const { data: insertedDocs, error } = await supabase.from('outgoing_docs').insert([{ 
+        doc_number: finalDocNumber,
         from_agency: formData.from_agency,
         to_agency: formData.to_agency,
         subject: formData.subject,
@@ -754,18 +762,46 @@ ${userDetail}
         remark: JSON.stringify(extraData),
         file_url, 
         status: formData.online_submit ? 'pending' : 'sent',
-        created_by: user?.id 
-      }]);
+        created_by: user?.id,
+        doc_year: docYear,
+        doc_sequence: docSeq
+      }]).select();
 
       if (error) throw new Error(`บันทึกข้อมูลไม่สำเร็จ: ${error.message}`);
+      const insertedDoc = insertedDocs?.[0];
 
-      let lineMessage = '';
+      // ดึงไลน์ ผอ. เพื่อเสนอตรง
+      const { data: dirProfile } = await supabase
+        .from('profiles')
+        .select('line_user_id')
+        .eq('role', 'director')
+        .maybeSingle();
+
       if (formData.online_submit) {
-        lineMessage = `\n⏳ เสนอหนังสือส่งออนไลน์\nเลขที่: ${formData.doc_number}\nเรื่อง: ${formData.subject}\nถึง: ${formData.to_agency}\nผู้เสนอ: ${profile?.display_name || ''}\n\nกรุณาเข้าตรวจสอบและลงนามในระบบงานสารบรรณ`;
+        const lineMessage = `เรื่อง: ${formData.subject}\nถึง: ${formData.to_agency}\nผู้เสนอ: ${profile?.display_name || ''}`;
+        const lineActions: any[] = [
+          { label: '✅ อนุมัติลงนาม', type: 'postback', data: `action=approve_doc&type=outgoing&id=${insertedDoc?.id || ''}`, color: '#1DB446' },
+          { label: '❌ ส่งกลับแก้ไข', type: 'postback', data: `action=reject_doc&type=outgoing&id=${insertedDoc?.id || ''}`, color: '#FF3B30' }
+        ];
+        if (file_url) {
+          lineActions.unshift({ label: '📄 ดูร่างเอกสาร', type: 'uri', uri: file_url });
+        }
+        await sendInteractiveFlexMessage(
+          dirProfile?.line_user_id || undefined,
+          '⏳ เสนออนุมัติหนังสือส่ง',
+          lineMessage,
+          lineActions
+        );
       } else {
-        lineMessage = `\n📤 หนังสือส่งใหม่ (ลงทะเบียนตรง)\nเลขที่: ${formData.doc_number}\nเรื่อง: ${formData.subject}\nถึง: ${formData.to_agency}\n\nตรวจสอบได้ที่ระบบงานสารบรรณ`;
+        const lineMessage = `เลขที่ส่ง: ${finalDocNumber}\nเรื่อง: ${formData.subject}\nถึง: ${formData.to_agency}`;
+        const lineActions = file_url ? [{ label: '📄 ดูเอกสาร', type: 'uri' as const, uri: file_url }] : [];
+        await sendInteractiveFlexMessage(
+          undefined, // ส่งเข้ากลุ่ม
+          '📤 หนังสือส่งออกใหม่ (ลงทะเบียนตรง)',
+          lineMessage,
+          lineActions
+        );
       }
-      sendLineNotification(lineMessage);
 
       setIsModalOpen(false);
       resetForm();
@@ -809,31 +845,30 @@ ${userDetail}
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-4">
-        <div className="flex-1 max-w-xl flex items-center gap-3">
+        <div className="relative flex-1 max-w-2xl flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-4 top-3.5 text-slate-400" size={20} />
             <input type="text" placeholder="ค้นหาหนังสือส่ง..." className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-2xl shadow-xs">
-            <span className="text-xs font-bold text-slate-400">ปี พ.ศ.</span>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="text-sm font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
-            >
-              {Array.from({ length: 5 }, (_, i) => {
-                const year = new Date().getFullYear() + 543 - i;
-                return (
-                  <option key={year} value={year.toString()}>
-                    {year}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          
+          <select 
+            value={selectedYear || ''} 
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value) : null;
+              setSelectedYear(val);
+              fetchDocs(val);
+            }}
+            className="p-3 bg-white border border-slate-200 rounded-2xl outline-hidden shadow-xs font-bold text-slate-700 text-sm h-[48px]"
+          >
+            <option value="">ดูทั้งหมด</option>
+            <option value={currentYearBE}>{currentYearBE}</option>
+            <option value={currentYearBE - 1}>{currentYearBE - 1}</option>
+            <option value={currentYearBE - 2}>{currentYearBE - 2}</option>
+          </select>
+
           {latestNumber && (
-            <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs">
-              <span className="text-[10px] font-black text-brand-primary uppercase tracking-tighter">ล่าสุด:</span>
+            <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs h-[48px] flex items-center">
+              <span className="text-[10px] font-black text-brand-primary uppercase tracking-tighter mr-1">ล่าสุด:</span>
               <span className="text-xs font-black text-brand-primary tracking-tight">{latestNumber}</span>
             </div>
           )}
