@@ -421,7 +421,7 @@ export default function Settings() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-slate-50 rounded-3xl">
             <div>
               <h4 className="font-black text-slate-800 text-md">Smart School Admin (V2)</h4>
-              <p className="text-xs text-slate-500 font-bold mt-1">ระบบบริหารจัดการข้อมูลโรงเรียนบ้านควนโคกยา</p>
+              <p className="text-xs text-slate-500 font-bold mt-1">ระบบบริหารจัดการข้อมูลโรงเรียน</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
