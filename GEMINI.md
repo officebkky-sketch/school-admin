@@ -65,7 +65,13 @@
 ---
 
 ### 📅 บันทึกแผนงานล่าสุด
-- **๒๑ พฤษภาคม ๒๕๖๙ (ปัจจุบัน):**
+- **๒๘ พฤษภาคม ๒๕๖๙ (ปัจจุบัน):**
+    - **ระบบบริหารจัดการสิทธิ์ผู้ใช้งาน (Access Control Refactoring) [ความปลอดภัยและความเป็นส่วนตัว]:**
+        - **Granular Permissions Matrix:** ปรับโครงสร้างสิทธิ์การเข้าถึงเมนูต่างๆ ของบัญชีระดับ "ครู (Teacher)" ให้จำกัดเฉพาะเมนูสิทธิ์พื้นฐาน และย้ายเมนูงานวิชาการและงานงบประมาณไปควบคุมด้วยสิทธิ์พิเศษทั้งหมด
+        - **New Permission Keys:** ติดตั้งสิทธิ์พิเศษใหม่ 2 รายการ ได้แก่ สิทธิ์งานวิชาการ (`access_academic`) และสิทธิ์งานงบประมาณ (`access_finance`) ลงในหน้าจัดการสิทธิ์ ([Users.tsx](file:///C:/Users/Phairot%20M/Desktop/school-admin/src/pages/Users.tsx))
+        - **Double-Gate Security Verification:** อัปเดตเงื่อนไข Sidebar Menu ใน [App.tsx](file:///C:/Users/Phairot%20M/Desktop/school-admin/src/App.tsx) เพื่อตรวจสอบสิทธิ์รายหมวดหมู่ และเพิ่มระบบดีดกลับหน้าแดชบอร์ดอัตโนมัติใน `useEffect` เมื่อตรวจพบการเข้าใช้งานหน้าควบคุมโดยไม่ได้รับสิทธิ์
+        - **Access Audit Document:** จัดทำคู่มือรายงานและวิเคราะห์ช่องโหว่ความปลอดภัยระดับสิทธิ์การเข้าถึงและ RLS ฐานข้อมูล บันทึกไว้ในไฟล์ [ACCESS_CONTROL_AUDIT.md](file:///C:/Users/Phairot%20M/Desktop/school-admin/ACCESS_CONTROL_AUDIT.md)
+- **๒๑ พฤษภาคม ๒๕๖๙:**
     - **ระบบ LINE OA Connect [ความสำเร็จครั้งใหญ่]:**
         - **Webhook Server:** ติดตั้งระบบ Webhook ในรูปแบบ Vercel Serverless Function (`api/line-webhook.ts`) รองรับการสื่อสาร ๒ ทาง (Two-way communication)
         - **Email Authentication:** พัฒนาระบบยืนยันตัวตนอัจฉริยะผ่านอีเมลใน LINE (Case-insensitive) พร้อมผูกบัญชีเข้ากับฐานข้อมูลโรงเรียนอัตโนมัติ
