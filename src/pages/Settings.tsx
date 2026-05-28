@@ -421,12 +421,12 @@ export default function Settings() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-slate-50 rounded-3xl">
             <div>
               <h4 className="font-black text-slate-800 text-md">Smart School Admin (V2)</h4>
-              <p className="text-xs text-slate-500 font-bold mt-1">ระบบบริหารจัดการข้อมูลโรงเรียนบ้านควนโคกยา</p>
+              <p className="text-xs text-slate-500 font-bold mt-1">ระบบบริหารจัดการข้อมูลโรงเรียน</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.0'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.4'}
               </span>
             </div>
           </div>
@@ -435,9 +435,58 @@ export default function Settings() {
             <h4 className="font-black text-slate-800 text-sm border-l-4 border-brand-primary pl-3 uppercase tracking-tight">ประวัติการปรับปรุง (Changelog)</h4>
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
-                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary"></div>
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-800">v1.1.0</span>
+                  <span className="text-xs font-bold text-slate-800">v1.1.4</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(28 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงระบบสิทธิ์ของครู (Teacher) แยกสิทธิ์พื้นฐานและสิทธิ์พิเศษ</li>
+                  <li>เพิ่มสิทธิ์พิเศษตัวใหม่สำหรับงานวิชาการ (`access_academic`) และงานงบประมาณ (`access_finance`)</li>
+                  <li>ติดตั้งระบบ Double-Gate Verification ดีดผู้ใช้กลับหน้าแดชบอร์ดอัตโนมัติหากไม่มีสิทธิ์</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">v1.1.3</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(27 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงการโหลดฟอนต์ไทย `THSarabunNew.ttf` ใน Vercel Serverless Function</li>
+                  <li>เพิ่มระบบล้างแคชภาพ (Cache-Busting) สำหรับไฟล์ PDF หลัง ผอ. ประทับตราเกษียณเพื่อป้องกันการแสดงไฟล์เก่า</li>
+                  <li>ปรับโครงสร้างการตั้งชื่อตัวติดตั้งเดสก์ท็อปให้เสถียรกับการอัปโหลดขึ้น GitHub Releases</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">v1.1.2</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(27 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงระบบกรองปีการศึกษา (Year System Filter) และรีเซ็ตเลขที่เอกสารอัตโนมัติประจำปี พ.ศ.</li>
+                  <li>พัฒนา LINE Interactive Webhook และการเก็บสถานะสนทนาแบบขั้นตอน (Multi-step Chatbot) ด้วยตาราง `line_action_states`</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">v1.1.1</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(26 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับแต่งการสกัดคำค้นหา RAG คลังเอกสารใน LINE Webhook และแก้ไขบั๊ก TypeScript Compile</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">v1.1.0</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 พ.ค. 2569)</span>
                 </div>
                 <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
