@@ -19,7 +19,7 @@
 3. **การสร้างตารางข้อมูล (Migration)**:
    * เมื่อเข้าสู่หน้าแดชบอร์ดโครงการ -> ไปที่เมนูด้านซ้าย เลือกไอคอน **SQL Editor** (รูปสัญลักษณ์ `>_`)
    * คลิก **New Query**
-   * คัดลอกโค้ด SQL จากไฟล์ [supabase_schema.sql](file:///C:/Users/bkky9/OneDrive/Desktop/school-admin-multischool/supabase_schema.sql) ในแอปไปวางทั้งหมด
+   * คัดลอกโค้ด SQL จากไฟล์ [supabase_schema.sql](./supabase_schema.sql) ในแอปไปวางทั้งหมด
    * คลิกปุ่ม **Run** ด้านขวาล่าง
    * ตรวจสอบว่าระบบขึ้นคำว่า `Success. No rows returned` แสดงว่าตารางและระบบ RLS ทั้งหมดถูกสร้างขึ้นเรียบร้อยค่ะ
 4. **เปิดการใช้งาน Storage (สำหรับเก็บโลโก้และไฟล์ชั่วคราว)**:
@@ -61,7 +61,7 @@
 หากโรงเรียนใหม่ต้องการจัดเก็บไฟล์สแกนหนังสือราชการไว้บน Google Drive ส่วนตัวของตนเอง:
 
 1. **สร้างไฟล์ Script**: เข้าไปที่ [Google Drive](https://drive.google.com) ของบัญชีโรงเรียน -> คลิก **New (ใหม่)** -> **More (เพิ่มเติม)** -> **Google Apps Script**
-2. **ใส่โค้ดระบบ**: คัดลอกซอร์สโค้ดจากไฟล์ [google_drive_script.js](file:///C:/Users/bkky9/OneDrive/Desktop/school-admin-multischool/google_drive_script.js) ในแอปไปวางแทนที่โค้ดเดิมทั้งหมดในหน้าต่างสคริปต์
+2. **ใส่โค้ดระบบ**: คัดลอกซอร์สโค้ดจากไฟล์ [google_drive_script.js](./google_drive_script.js) ในแอปไปวางแทนที่โค้ดเดิมทั้งหมดในหน้าต่างสคริปต์
 3. **ตั้งชื่อโครงการ**: เปลี่ยนชื่อด้านซ้ายบนเป็น `School Admin Drive Uploader`
 4. **เปิดการใช้งาน (Deploy)**:
    * คลิกปุ่ม **Deploy (การทำงานใช้จริง)** ที่มุมขวาบน -> เลือก **New deployment (การใช้งานใช้จริงรายการใหม่)**

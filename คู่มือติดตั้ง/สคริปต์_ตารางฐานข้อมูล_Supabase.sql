@@ -5,8 +5,12 @@ CREATE TABLE profiles (
   email TEXT,
   role TEXT DEFAULT 'guest', -- admin, director, teacher, guest, student
   status TEXT DEFAULT 'active',
+  extra_permissions JSONB DEFAULT '{}',
+  signature_url TEXT,
+  line_user_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  last_login TIMESTAMPTZ
+  last_login TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 2. Students Table
@@ -71,6 +75,8 @@ CREATE TABLE incoming_docs (
   ai_status TEXT,
   ai_suggestion TEXT,
   ai_score TEXT,
+  doc_year INTEGER,
+  doc_sequence INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -89,6 +95,8 @@ CREATE TABLE outgoing_docs (
   remark TEXT,
   file_url TEXT,
   status TEXT DEFAULT 'pending',
+  doc_year INTEGER,
+  doc_sequence INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -104,6 +112,8 @@ CREATE TABLE orders (
   remark TEXT,
   file_url TEXT,
   status TEXT DEFAULT 'pending',
+  doc_year INTEGER,
+  doc_sequence INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -121,6 +131,8 @@ CREATE TABLE memos (
   remark TEXT,
   file_url TEXT,
   status TEXT DEFAULT 'pending',
+  doc_year INTEGER,
+  doc_sequence INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -328,6 +340,16 @@ CREATE INDEX IF NOT EXISTS idx_ai_skills_teacher ON ai_skills(teacher_id);
 CREATE INDEX IF NOT EXISTS idx_ai_kb_teacher ON ai_knowledge_base(teacher_id);
 CREATE INDEX IF NOT EXISTS idx_ai_kb_folder ON ai_knowledge_base(folder_id);
 
+-- 15.5 Line Action States Table (สำหรับบอท LINE)
+CREATE TABLE line_action_states (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id TEXT NOT NULL,          -- LINE userId
+  action TEXT NOT NULL,           -- e.g., 'awaiting_instruction', 'awaiting_teacher_select'
+  context JSONB DEFAULT '{}',     -- Context data (doc_id, teacher_id, etc.)
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 minutes')
+);
+
 -- 16. Utility Bills (ระบบเบิกค่าสาธารณูปโภค)
 CREATE TABLE IF NOT EXISTS utilities (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -433,6 +455,16 @@ CREATE TABLE budget_transfers (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 2.5 Vendors Table (ร้านค้า/คู่สัญญา)
+CREATE TABLE vendors (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  vendor_name TEXT NOT NULL,
+  address TEXT,
+  tax_id TEXT,
+  phone TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 3. สร้างตารางจัดซื้อจัดจ้าง (Procurement Tasks)
 CREATE TABLE procurement_projects (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -530,3 +562,275 @@ BEGIN
   RETURN result;
 END;
 $$;
+
+
+-- =====================================================================
+-- DATABASE ACCESS SECURITY & RLS POLICIES FOR 13 TABLES + VENDORS + LINE STATES
+-- =====================================================================
+
+-- 1. Students Table (ข้อมูลนักเรียน)
+ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated staff to view students" ON students
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('teacher', 'director', 'admin')
+    )
+  );
+
+CREATE POLICY "Allow authorized staff to manage students" ON students
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_student_affairs')::boolean = true)
+      )
+    )
+  );
+
+-- 2. Teachers Table (ข้อมูลครู)
+ALTER TABLE teachers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to view teachers" ON teachers
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow authorized staff to manage teachers" ON teachers
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_hr')::boolean = true)
+      )
+    )
+  );
+
+-- 3. Incoming Documents (หนังสือรับ)
+ALTER TABLE incoming_docs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authorized staff to view incoming docs" ON incoming_docs
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_administrative')::boolean = true)
+      )
+    )
+  );
+
+CREATE POLICY "Allow authorized staff to manage incoming docs" ON incoming_docs
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_administrative')::boolean = true)
+      )
+    )
+  );
+
+-- 4. Outgoing Documents (หนังสือส่ง)
+ALTER TABLE outgoing_docs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authorized staff to view outgoing docs" ON outgoing_docs
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_administrative')::boolean = true)
+      )
+    )
+  );
+
+CREATE POLICY "Allow authorized staff to manage outgoing docs" ON outgoing_docs
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_administrative')::boolean = true)
+      )
+    )
+  );
+
+-- 5. Orders Table (คำสั่ง)
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated staff to view orders" ON orders
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow director/admin to manage orders" ON orders
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
+    )
+  );
+
+-- 6. Memos Table (บันทึกข้อความ)
+ALTER TABLE memos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated staff to view memos" ON memos
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow owners and admin/director to manage memos" ON memos
+  FOR ALL USING (
+    auth.uid() = created_by 
+    OR EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
+    )
+  );
+
+-- 7. Attendance Table (บันทึกเวลาเรียน)
+ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated staff to view attendance" ON attendance
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow teachers and student affairs to manage attendance" ON attendance
+  FOR ALL USING (
+    auth.uid() = teacher_id 
+    OR EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_student_affairs')::boolean = true)
+      )
+    )
+  );
+
+-- 8. WFH Logs Table (ลงเวลาปฏิบัติงาน WFH)
+ALTER TABLE wfh_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow users to view own logs, staff to view all" ON wfh_logs
+  FOR SELECT USING (
+    auth.uid() = user_id 
+    OR EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_hr')::boolean = true)
+      )
+    )
+  );
+
+CREATE POLICY "Allow users to manage own WFH logs" ON wfh_logs
+  FOR ALL USING (auth.uid() = user_id);
+
+-- 9. Library Books Table (หนังสือห้องสมุด)
+ALTER TABLE library_books ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to view books" ON library_books
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow academic staff to manage books" ON library_books
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+-- 10. Library Borrow Table (การยืม-คืนหนังสือ)
+ALTER TABLE library_borrow ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to view borrow logs" ON library_borrow
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow academic staff to manage borrow logs" ON library_borrow
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+-- 11. Library Usage Logs (บันทึกเข้าใช้ห้องสมุด)
+ALTER TABLE library_usage_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to view usage logs" ON library_usage_logs
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow academic staff to manage usage logs" ON library_usage_logs
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+-- 12. Teacher Duties Table (เวรครูประจำวัน)
+ALTER TABLE teacher_duties ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to view teacher duties" ON teacher_duties
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow hr staff to manage teacher duties" ON teacher_duties
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_hr')::boolean = true)
+      )
+    )
+  );
+
+-- 13. Document Assignments (ระบบสั่งการ/ติดตามงาน)
+ALTER TABLE doc_assignments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to view assignments" ON doc_assignments
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow authorized staff to manage assignments" ON doc_assignments
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_administrative')::boolean = true)
+      )
+    )
+  );
+
+-- 14. Vendors Table (ร้านค้า/คู่สัญญา)
+ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Everyone can view vendors" ON vendors
+  FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated users can manage vendors" ON vendors
+  FOR ALL USING (auth.uid() IS NOT NULL);
+
+-- 15. Line Action States Table (สำหรับบอท LINE)
+ALTER TABLE line_action_states ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow service role full access to line_action_states" ON line_action_states
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
