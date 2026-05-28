@@ -78,6 +78,7 @@
         - **New Permission Keys:** ติดตั้งสิทธิ์พิเศษใหม่ 2 รายการ ได้แก่ สิทธิ์งานวิชาการ (`access_academic`) และสิทธิ์งานงบประมาณ (`access_finance`) ลงในหน้าจัดการสิทธิ์ ([Users.tsx](file:///C:/Users/Phairot%20M/Desktop/school-admin/src/pages/Users.tsx))
         - **Double-Gate Security Verification:** อัปเดตเงื่อนไข Sidebar Menu ใน [App.tsx](file:///C:/Users/Phairot%20M/Desktop/school-admin/src/App.tsx) เพื่อตรวจสอบสิทธิ์รายหมวดหมู่ และเพิ่มระบบดีดกลับหน้าแดชบอร์ดอัตโนมัติใน `useEffect` เมื่อตรวจพบการเข้าใช้งานหน้าควบคุมโดยไม่ได้รับสิทธิ์
         - **Access Audit Document:** จัดทำคู่มือรายงานและวิเคราะห์ช่องโหว่ความปลอดภัยระดับสิทธิ์การเข้าถึงและ RLS ฐานข้อมูล บันทึกไว้ในไฟล์ [ACCESS_CONTROL_AUDIT.md](file:///C:/Users/Phairot%20M/Desktop/school-admin/ACCESS_CONTROL_AUDIT.md)
+        - **LINE Bot Feature Roadmap:** บันทึกแผนพัฒนาปรับปรุงการตอบกลับของแชทบอท โดยเตรียมอัปเกรดคำสั่ง "งานรอสั่งการ" และ "งานรอเกษียณ" ให้ตอบกลับเป็น Flex Message Carousel (การ์ดสไลด์แบบเลื่อน) ดึงข้อมูลตาราง `incoming_docs` (สถานะ `pending`) พร้อมปุ่มกดสั่งการ เพื่ออำนวยความสะดวกในการกดเกษียณงานผ่าน LINE ทันทีโดยมีความปลอดภัยสูงและไม่มีความเสี่ยงกระทบระบบหลัก
 - **๒๑ พฤษภาคม ๒๕๖๙:**
     - **ระบบ LINE OA Connect [ความสำเร็จครั้งใหญ่]:**
         - **Webhook Server:** ติดตั้งระบบ Webhook ในรูปแบบ Vercel Serverless Function (`api/line-webhook.ts`) รองรับการสื่อสาร ๒ ทาง (Two-way communication)
