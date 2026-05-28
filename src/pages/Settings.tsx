@@ -426,7 +426,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.0'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.4'}
               </span>
             </div>
           </div>
