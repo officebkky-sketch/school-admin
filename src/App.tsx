@@ -162,8 +162,38 @@ function App() {
   useEffect(() => {
     if (isGuest && activeTab !== 'dashboard') {
       setActiveTab('dashboard');
+      return;
     }
-  }, [isGuest, activeTab]);
+    
+    // ตรวจสอบสิทธิ์แบบละเอียดและดีดกลับหน้าแดชบอร์ด หากผู้ใช้ระดับครูไม่มีสิทธิ์ในหน้าดังกล่าว
+    if (user && profile && !isAdmin && !isDirector) {
+      const extraPerms = profile.extra_permissions || {};
+      
+      const isRestrictedDoc = activeTab === 'incoming' || activeTab === 'outgoing' || activeTab === 'orders';
+      const isRestrictedStaff = activeTab === 'teachers' || activeTab === 'wfh';
+      const isRestrictedReport = activeTab === 'reports' || activeTab === 'lec';
+      const isRestrictedStudent = activeTab === 'students' || activeTab === 'attendance_report';
+      const isRestrictedAcademic = activeTab === 'academic' || activeTab === 'library';
+      const isRestrictedFinance = activeTab === 'finance' || activeTab === 'utilities' || activeTab === 'free_education';
+      const isRestrictedAdmin = activeTab === 'users' || activeTab === 'settings';
+      
+      if (isRestrictedDoc && !extraPerms.access_administrative) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedStaff && !extraPerms.access_hr) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedReport && !extraPerms.access_reports) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedStudent && !extraPerms.access_student_affairs) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedAcademic && !extraPerms.access_academic) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedFinance && !extraPerms.access_finance) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedAdmin && !isAdmin) {
+        setActiveTab('dashboard');
+      }
+    }
+  }, [user, profile, activeTab, isGuest, isAdmin, isDirector]);
 
   const hasProfiles = getSchoolProfiles().length > 0;
 
@@ -185,9 +215,12 @@ function App() {
   }
 
   const extraPerms = profile?.extra_permissions || {};
-  const canAccessRegistration = !isGuest && (!isTeacher || extraPerms.access_administrative);
-  const canAccessStaff = !isGuest && (!isTeacher || extraPerms.access_hr);
+  const canAccessRegistration = !isGuest && (isAdmin || isDirector || extraPerms.access_administrative);
+  const canAccessStaff = !isGuest && (isAdmin || isDirector || extraPerms.access_hr);
   const canAccessReports = !isGuest && (isDirector || extraPerms.access_reports);
+  const canAccessStudentAffairs = !isGuest && (isAdmin || isDirector || extraPerms.access_student_affairs);
+  const canAccessAcademic = !isGuest && (isAdmin || isDirector || extraPerms.access_academic);
+  const canAccessFinance = !isGuest && (isAdmin || isDirector || extraPerms.access_finance);
 
   return (
     <div className="min-h-screen flex bg-slate-50">
@@ -217,33 +250,32 @@ function App() {
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานสารบรรณ</div>
               {canAccessRegistration && <SidebarItem icon={<FileDown size={20} />} label="หนังสือรับ" active={activeTab === 'incoming'} onClick={() => setActiveTab('incoming')} />}
               {canAccessRegistration && <SidebarItem icon={<FileUp size={20} />} label="หนังสือส่ง" active={activeTab === 'outgoing'} onClick={() => setActiveTab('outgoing')} />}
-              {isDirector && <SidebarItem icon={<Book size={20} />} label="คำสั่ง" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />}
+              {canAccessRegistration && <SidebarItem icon={<Book size={20} />} label="คำสั่ง" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />}
               <SidebarItem icon={<MessageSquare size={20} />} label="บันทึกข้อความ" active={activeTab === 'memos'} onClick={() => setActiveTab('memos')} />
               <SidebarItem icon={<ClipboardList size={20} />} label="ติดตามงาน/สั่งการ" active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} />
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">นวัตกรรม AI</div>
               <SidebarItem icon={<Bot size={20} />} label="AI Cowork" active={activeTab === 'ai_cowork'} onClick={() => setActiveTab('ai_cowork')} />
 
-              <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานวิชาการ</div>
+              {canAccessAcademic && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานวิชาการ</div>}
+              {canAccessAcademic && <SidebarItem icon={<GraduationCap size={20} />} label="ระบบวิชาการ" active={activeTab === 'academic'} onClick={() => setActiveTab('academic')} />}
+              {canAccessAcademic && <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />}
 
-              <SidebarItem icon={<GraduationCap size={20} />} label="ระบบวิชาการ" active={activeTab === 'academic'} onClick={() => setActiveTab('academic')} />
-              <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />
+              {canAccessFinance && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานงบประมาณ</div>}
+              {canAccessFinance && <SidebarItem icon={<Wallet size={20} />} label="การเงิน/พัสดุ" active={activeTab === 'finance'} onClick={() => setActiveTab('finance')} />}
+              {canAccessFinance && <SidebarItem icon={<Droplets size={20} />} label="เบิกค่าสาธารณูปโภค" active={activeTab === 'utilities'} onClick={() => setActiveTab('utilities')} />}
+              {canAccessFinance && <SidebarItem icon={<Coins size={20} />} label="จ่ายเงินเรียนฟรี" active={activeTab === 'free_education'} onClick={() => setActiveTab('free_education')} />}
 
-              <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานงบประมาณ</div>
-              <SidebarItem icon={<Wallet size={20} />} label="การเงิน/พัสดุ" active={activeTab === 'finance'} onClick={() => setActiveTab('finance')} />
-              <SidebarItem icon={<Droplets size={20} />} label="เบิกค่าสาธารณูปโภค" active={activeTab === 'utilities'} onClick={() => setActiveTab('utilities')} />
-              <SidebarItem icon={<Coins size={20} />} label="จ่ายเงินเรียนฟรี" active={activeTab === 'free_education'} onClick={() => setActiveTab('free_education')} />
-
-              <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบุคคล</div>
+              {canAccessStaff && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบุคคล</div>}
               {canAccessStaff && <SidebarItem icon={<UserCheck size={20} />} label="จัดการข้อมูลครู" active={activeTab === 'teachers'} onClick={() => setActiveTab('teachers')} />}
-              <SidebarItem icon={<Clock size={20} />} label="ลงเวลาปฏิบัติงาน" active={activeTab === 'wfh'} onClick={() => setActiveTab('wfh')} />
+              {canAccessStaff && <SidebarItem icon={<Clock size={20} />} label="ลงเวลาปฏิบัติงาน" active={activeTab === 'wfh'} onClick={() => setActiveTab('wfh')} />}
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบริหารทั่วไป</div>
-              <SidebarItem icon={<Users size={20} />} label="ข้อมูลนักเรียน" active={activeTab === 'students'} onClick={() => setActiveTab('students')} />
-              {isDirector && <SidebarItem icon={<Printer size={20} />} label="พิมพ์รายชื่อ" active={activeTab === 'custom_print'} onClick={() => setActiveTab('custom_print')} />}
-              {isDirector && <SidebarItem icon={<PieChart size={20} />} label="รายงาน LEC" active={activeTab === 'lec'} onClick={() => setActiveTab('lec')} />}
+              {canAccessStudentAffairs && <SidebarItem icon={<Users size={20} />} label="ข้อมูลนักเรียน" active={activeTab === 'students'} onClick={() => setActiveTab('students')} />}
+              <SidebarItem icon={<Printer size={20} />} label="พิมพ์รายชื่อ" active={activeTab === 'custom_print'} onClick={() => setActiveTab('custom_print')} />
+              {canAccessReports && <SidebarItem icon={<PieChart size={20} />} label="รายงาน LEC" active={activeTab === 'lec'} onClick={() => setActiveTab('lec')} />}
               <SidebarItem icon={<Clock size={20} />} label="บันทึกเวลาเรียน" active={activeTab === 'attendance'} onClick={() => setActiveTab('attendance')} />
-              <SidebarItem icon={<BarChart3 size={20} />} label="รายงานเวลาเรียน" active={activeTab === 'attendance_report'} onClick={() => setActiveTab('attendance_report')} />
+              {canAccessStudentAffairs && <SidebarItem icon={<BarChart3 size={20} />} label="รายงานเวลาเรียน" active={activeTab === 'attendance_report'} onClick={() => setActiveTab('attendance_report')} />}
               
               {isAdmin && (
                 <>

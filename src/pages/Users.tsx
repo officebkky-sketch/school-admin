@@ -16,7 +16,9 @@ import {
   Clock,
   FileDown,
   PieChart,
-  Save
+  Save,
+  GraduationCap,
+  Wallet
 } from 'lucide-react';
 
 export default function UsersManagement() {
@@ -31,10 +33,12 @@ export default function UsersManagement() {
   const [selectedUserForPerm, setSelectedUserForPerm] = useState<any>(null);
 
   const MODULE_PERMISSIONS = [
-    { key: 'access_administrative', label: 'งานสารบรรณ (รับ-ส่ง)', icon: <FileDown size={18} /> },
-    { key: 'access_hr', label: 'งานบุคคล (จัดการข้อมูลครู)', icon: <UserCheck size={18} /> },
-    { key: 'access_student_affairs', label: 'งานทะเบียน/กิจการนักเรียน', icon: <UsersIcon size={18} /> },
-    { key: 'access_reports', label: 'งานรายงานและสถิติ', icon: <PieChart size={18} /> },
+    { key: 'access_administrative', label: 'งานสารบรรณ (รับ-ส่ง/คำสั่ง)', icon: <FileDown size={18} /> },
+    { key: 'access_hr', label: 'งานบุคคล (จัดการครู/WFH)', icon: <UserCheck size={18} /> },
+    { key: 'access_student_affairs', label: 'งานทะเบียน (ข้อมูลนักเรียน/รายงานเวลาเรียน)', icon: <UsersIcon size={18} /> },
+    { key: 'access_reports', label: 'งานรายงานและสถิติ (รายงานวิเคราะห์/LEC)', icon: <PieChart size={18} /> },
+    { key: 'access_academic', label: 'งานวิชาการ (ระบบวิชาการ/ห้องสมุด)', icon: <GraduationCap size={18} /> },
+    { key: 'access_finance', label: 'งานงบประมาณ (การเงิน/พัสดุ/สาธารณูปโภค/เรียนฟรี)', icon: <Wallet size={18} /> },
   ];
 
   useEffect(() => {
