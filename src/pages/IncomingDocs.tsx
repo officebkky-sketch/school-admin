@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFileToDrive, deleteFileFromDrive, uploadToSupabase, deleteFromSupabase } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
+import { sendLineNotification, sendInteractiveFlexMessage, sendBulkFlexCarousel } from '../lib/lineNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
 import Modal from '../components/Modal';
@@ -85,9 +85,12 @@ export default function IncomingDocs() {
 
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [isHolding, setIsHolding] = useState(false);
+  const [selectedHoldingIds, setSelectedHoldingIds] = useState<string[]>([]);
 
   useEffect(() => { 
     fetchDocs(); 
+
     fetchTeachers();
   }, []);
 
@@ -371,7 +374,7 @@ export default function IncomingDocs() {
         remark: JSON.stringify(extraData),
         file_url,
         attachment_urls: att_urls,
-        status: 'pending',
+        status: isHolding ? 'waiting_proposal' : 'pending',
         created_by: user?.id,
         doc_year: docYear,
         doc_sequence: docSeq
@@ -380,36 +383,99 @@ export default function IncomingDocs() {
       if (error) throw error;
       const insertedDoc = insertedDocs?.[0];
 
-      // ค้นหาไลน์ ผอ. เพื่อเสนอตรง
+      let lineNotifyStatus = '';
+      if (!isHolding) {
+        // ค้นหาไลน์ ผอ. เพื่อเสนอตรง
+        const { data: dirProfile } = await supabase
+          .from('profiles')
+          .select('line_user_id')
+          .eq('role', 'director')
+          .maybeSingle();
+
+        const regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
+        const regActions = [
+          { label: '📄 ดูต้นฉบับหนังสือ', type: 'uri' as const, uri: file_url },
+          { label: '✍️ เกษียณสั่งการ', type: 'postback' as const, data: `action=start_assign&id=${insertedDoc?.id || ''}`, color: '#1DB446' }
+        ];
+
+        try {
+          await sendInteractiveFlexMessage(
+            dirProfile?.line_user_id || undefined,
+            '📥 เสนอหนังสือรอเกษียณ',
+            regMsg,
+            regActions
+          );
+          lineNotifyStatus = ' และเสนอผู้บริหารผ่าน LINE เรียบร้อยแล้ว';
+        } catch (lineErr) {
+          console.error('[LINE NOTIFY ERROR]', lineErr);
+          lineNotifyStatus = ' แต่ไม่สามารถส่งแจ้งเตือน LINE ได้ (กรุณาเสนอหนังสือแบบกลุ่มแทน)';
+        }
+      } else {
+        lineNotifyStatus = ' (พักรอเสนอผู้บริหารเรียบร้อย)';
+      }
+      
+      setIsModalOpen(false);
+      resetForm();
+      fetchDocs();
+      alert(`ลงรับหนังสือเรียบร้อยแล้ว${lineNotifyStatus}`);
+
+    } catch (err: any) {
+      alert(`บันทึกไม่สำเร็จ: ${err.message}`);
+    } finally { setIsSaving(false); }
+  }
+
+  async function handleBulkPropose() {
+    if (selectedHoldingIds.length === 0) return;
+    if (selectedHoldingIds.length > 10) {
+      alert('การส่ง Flex Carousel จำกัดสูงสุด 10 ฉบับต่อครั้ง เพื่อไม่ให้เกินข้อจำกัดของระบบ LINE');
+      return;
+    }
+    
+    if (!confirm(`คุณต้องการเสนอหนังสือที่เลือกจำนวน ${selectedHoldingIds.length} ฉบับไปยังผู้บริหารพร้อมกันใช่หรือไม่?`)) return;
+    
+    setIsSaving(true);
+    try {
+      const docsToPropose = docs.filter(d => selectedHoldingIds.includes(d.id));
+      
       const { data: dirProfile } = await supabase
         .from('profiles')
         .select('line_user_id')
         .eq('role', 'director')
         .maybeSingle();
 
-      const regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
-      const regActions = [
-        { label: '📄 ดูต้นฉบับหนังสือ', type: 'uri' as const, uri: file_url },
-        { label: '✍️ เกษียณสั่งการ', type: 'postback' as const, data: `action=start_assign&id=${insertedDoc?.id || ''}`, color: '#1DB446' }
-      ];
+      const carouselItems = docsToPropose.map(d => ({
+        id: d.id,
+        subject: d.subject || '',
+        from_agency: d.from_agency || '',
+        doc_number: d.doc_number || '',
+        file_url: d.file_url || ''
+      }));
 
-      await sendInteractiveFlexMessage(
+      await sendBulkFlexCarousel(
         dirProfile?.line_user_id || undefined,
-        '📥 เสนอหนังสือรอเกษียณ',
-        regMsg,
-        regActions
+        `📥 เสนอหนังสือรอเกษียณใหม่ (${selectedHoldingIds.length} ฉบับ)`,
+        carouselItems
       );
-      
-      setIsModalOpen(false);
-      resetForm();
+
+      const { error } = await supabase
+        .from('incoming_docs')
+        .update({ status: 'pending' })
+        .in('id', selectedHoldingIds);
+
+      if (error) throw error;
+
+      alert(`เสนอหนังสือจำนวน ${selectedHoldingIds.length} ฉบับไปยัง LINE ผอ. เรียบร้อยแล้ว`);
+      setSelectedHoldingIds([]);
       fetchDocs();
-      alert('ลงรับหนังสือเรียบร้อยแล้ว');
     } catch (err: any) {
-      alert(`บันทึกไม่สำเร็จ: ${err.message}`);
-    } finally { setIsSaving(false); }
+      alert('เสนอไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function resetForm() {
+
     setFormData({ 
       doc_number: '', 
       from_agency: '', 
@@ -425,7 +491,9 @@ export default function IncomingDocs() {
     setMainFile(null);
     setAttachments([]);
     setAssignForm({ teacher_id: '', instruction: '', stamp_page: 1 });
+    setIsHolding(false);
   }
+
 
   const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -507,10 +575,35 @@ export default function IncomingDocs() {
         )}
       </div>
 
+      {selectedHoldingIds.length > 0 && (
+        <div className="mb-4 p-4 bg-purple-50 border border-purple-100 rounded-[24px] flex items-center justify-between animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 bg-purple-500 rounded-full animate-ping"></span>
+            <p className="text-sm font-black text-purple-950">เลือกหนังสือรอเสนอ {selectedHoldingIds.length} ฉบับ (จำกัดไม่เกิน 10 ฉบับ)</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setSelectedHoldingIds([])} 
+              className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              ยกเลิก
+            </button>
+            <button 
+              onClick={handleBulkPropose} 
+              disabled={isSaving || selectedHoldingIds.length > 10} 
+              className="bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-100 hover:bg-purple-700 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
+            >
+              <Send size={12} /> เสนอ ผอ. พร้อมกัน (Flex Carousel)
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-[32px] border border-slate-100 overflow-hidden shadow-sm">
         <table className="w-full text-left">
           <thead className="bg-slate-50/50 border-b border-slate-100">
             <tr>
+              {hasAccess && <th className="w-12 px-4 py-4 text-center"></th>}
               <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">เลขที่รับ / วันที่</th>
               <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">เรื่อง</th>
               <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">เอกสาร</th>
@@ -519,12 +612,30 @@ export default function IncomingDocs() {
           </thead>
           <tbody className="divide-y divide-slate-50">
             {loading ? (
-              <tr><td colSpan={4} className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-brand-primary" /></td></tr>
+              <tr><td colSpan={hasAccess ? 5 : 4} className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-brand-primary" /></td></tr>
             ) : docs.length === 0 ? (
-              <tr><td colSpan={4} className="py-20 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</td></tr>
+              <tr><td colSpan={hasAccess ? 5 : 4} className="py-20 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</td></tr>
             ) : (
               docs.filter(d => d.subject?.includes(searchTerm)).map(doc => (
                 <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
+                  {hasAccess && (
+                    <td className="px-4 py-4 text-center">
+                      {doc.status === 'waiting_proposal' && (
+                        <input 
+                          type="checkbox" 
+                          checked={selectedHoldingIds.includes(doc.id)} 
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedHoldingIds([...selectedHoldingIds, doc.id]);
+                            } else {
+                              setSelectedHoldingIds(selectedHoldingIds.filter(id => id !== doc.id));
+                            }
+                          }}
+                          className="w-4 h-4 text-brand-primary border-slate-300 rounded focus:ring-brand-primary/20 cursor-pointer"
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="px-6 py-4">
                     <div className="font-bold text-slate-800 text-sm">{doc.doc_number}</div>
                     <div className="text-[10px] text-slate-400">{doc.doc_date}</div>
@@ -537,6 +648,12 @@ export default function IncomingDocs() {
                         <span className="flex items-center gap-1 text-[9px] font-medium text-red-500 bg-red-50/50 px-1.5 py-0.5 rounded-sm">
                           <div className="w-1 h-1 bg-red-400 rounded-full"></div>
                           รอ ผอ. เกษียณ
+                        </span>
+                      )}
+                      {doc.status === 'waiting_proposal' && (
+                        <span className="flex items-center gap-1 text-[9px] font-medium text-purple-500 bg-purple-50/50 px-1.5 py-0.5 rounded-sm">
+                          <div className="w-1 h-1 bg-purple-400 rounded-full"></div>
+                          รอเสนอผู้บริหาร
                         </span>
                       )}
                     </div>
@@ -588,6 +705,7 @@ export default function IncomingDocs() {
           </tbody>
         </table>
       </div>
+
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="ลงรับหนังสือใหม่">
         <form onSubmit={handleSave} className="space-y-6">
@@ -669,10 +787,24 @@ export default function IncomingDocs() {
                 </div>
              </div>
           </div>
+          <div className="flex items-center gap-2.5 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
+            <input 
+              type="checkbox" 
+              id="isHolding" 
+              checked={isHolding} 
+              onChange={e => setIsHolding(e.target.checked)}
+              className="w-5 h-5 text-brand-primary border-slate-300 rounded focus:ring-brand-primary/20 cursor-pointer"
+            />
+            <label htmlFor="isHolding" className="text-xs font-black text-slate-700 cursor-pointer select-none">
+              📥 พักหนังสือรอเสนอภายหลัง (ไม่ส่งแจ้งเตือน LINE ผอ. ทันที)
+            </label>
+          </div>
+
           <button type="submit" disabled={isSaving || !mainFile} className="w-full bg-brand-primary text-white py-4.5 rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50">
-            {isSaving ? <Loader2 className="animate-spin" /> : <Save />} บันทึกและพักไฟล์รอเกษียณ
+            {isSaving ? <Loader2 className="animate-spin" /> : <Save />} {isHolding ? 'บันทึกและพักรอเสนอ' : 'บันทึกและเสนอ ผอ. ทันที'}
           </button>
         </form>
+
       </Modal>
 
       <Modal isOpen={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} title="เกษียณหนังสือและมอบหมายงาน">

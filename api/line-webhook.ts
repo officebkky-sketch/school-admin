@@ -96,10 +96,13 @@ export default async function handler(req: any, res: any) {
             // เช็คว่าเป็นคำสั่งเรียกดูงานค้างของครูหรือไม่
             if (userMsg === 'รายงานผล' || userMsg === 'ส่งงาน' || userMsg.includes('งานค้าง')) {
               await handleListPending(event, new URLSearchParams(''), profile);
+            } else if ((profile.role === 'director' || profile.role === 'admin') && (userMsg.includes('รอสั่งการ') || userMsg.includes('รอเกษียณ'))) {
+              await handleListPendingDocs(event, profile);
             } else {
               await handleFastAI(event.replyToken, userMsg, profile);
             }
           }
+
         } else {
           if (userMsg.includes('@')) {
             const { data: found } = await supabaseAdmin.from('profiles').select('*').eq('email', userMsg.toLowerCase().trim()).maybeSingle();
@@ -1689,7 +1692,84 @@ async function handleListPending(event: any, params: URLSearchParams, profile: a
   }
 }
 
+async function handleListPendingDocs(event: any, profile: any) {
+  const replyToken = event.replyToken;
+  if (profile.role !== 'director' && profile.role !== 'admin') {
+    await replyToLine(replyToken, '❌ ขออภัยค่ะ เมนูนี้สำหรับผู้อำนวยการเช็คหนังสือรอเกษียณเท่านั้นนะคะ 🌸');
+    return;
+  }
+
+  try {
+    const { data: pendingDocs } = await supabaseAdmin
+      .from('incoming_docs')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (!pendingDocs || pendingDocs.length === 0) {
+      await replyToLine(replyToken, '🎉 ยินดีด้วยค่ะ! ไม่มีหนังสือราชการรอผู้อำนวยการเกษียณค้างอยู่เลยนะคะ 🌸');
+      return;
+    }
+
+    const flexContents = {
+      type: "carousel",
+      contents: pendingDocs.map((doc, index) => {
+        let documentUrl = doc.file_url || 'https://google.com';
+        return {
+          type: "bubble",
+          body: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              { type: "text", text: `📥 หนังสือรับรอเกษียณ (${index + 1}/${pendingDocs.length})`, weight: "bold", color: "#9C27B0", size: "xs" },
+              { type: "text", text: doc.subject || 'ไม่มีหัวเรื่อง', weight: "bold", size: "sm", wrap: true, margin: "md", color: "#333333" },
+              { type: "text", text: `จาก: ${doc.from_agency || '-'}`, size: "xs", color: "#777777", margin: "xs", wrap: true },
+              { type: "text", text: `เลขรับ: ${doc.doc_number || '-'}`, size: "xs", color: "#777777", margin: "xs" }
+            ]
+          },
+          footer: {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: [
+              {
+                type: "button",
+                style: "primary",
+                height: "sm",
+                color: "#007AFF",
+                action: {
+                  type: "uri",
+                  label: "📄 ดูต้นฉบับหนังสือ",
+                  uri: documentUrl
+                }
+              },
+              {
+                type: "button",
+                style: "primary",
+                height: "sm",
+                color: "#1DB446",
+                action: {
+                  type: "postback",
+                  label: "✍️ เกษียณสั่งการ",
+                  data: `action=start_assign&id=${doc.id}`
+                }
+              }
+            ]
+          }
+        };
+      })
+    };
+
+    await replyToLineFlex(replyToken, '📥 รายการหนังสือรอเกษียณ', flexContents);
+  } catch (err: any) {
+    console.error('handleListPendingDocs error:', err);
+    await replyToLine(replyToken, `❌ ดึงรายการหนังสือรอเกษียณไม่สำเร็จ: ${err.message}`);
+  }
+}
+
 async function handleReport(event: any, params: URLSearchParams, profile: any) {
+
   const assignmentId = params.get('id');
   const replyToken = event.replyToken;
 

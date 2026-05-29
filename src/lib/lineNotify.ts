@@ -296,3 +296,187 @@ export async function sendInteractiveFlexMessage(
     throw error;
   }
 }
+
+export interface CarouselItem {
+  id: string;
+  subject: string;
+  from_agency: string;
+  doc_number: string;
+  file_url: string;
+}
+
+/**
+ * ส่งหนังสือรับหลายฉบับพร้อมกันในรูปแบบ Flex Message Carousel ไปยังผู้รับ (ผอ. หรือไลน์กลุ่ม)
+ */
+export async function sendBulkFlexCarousel(
+  specificToId: string | undefined,
+  title: string,
+  items: CarouselItem[]
+) {
+  try {
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('line_channel_access_token, line_group_id')
+      .single();
+
+    const channelAccessToken = settings?.line_channel_access_token || undefined;
+    const groupId = settings?.line_group_id;
+
+    const targetId = specificToId || groupId;
+    if (!targetId) return;
+
+    if (items.length === 0) return;
+
+    const bubbles = items.map((item, index) => {
+      let documentUrl = item.file_url || '';
+      return {
+        type: "bubble",
+        body: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            {
+              type: "text",
+              text: `📥 เสนอหนังสือรอเกษียณ (${index + 1}/${items.length})`,
+              weight: "bold",
+              color: "#9C27B0",
+              size: "xs"
+            },
+            {
+              type: "text",
+              text: item.subject,
+              weight: "bold",
+              size: "sm",
+              wrap: true,
+              margin: "md",
+              color: "#333333"
+            },
+            {
+              type: "box",
+              layout: "vertical",
+              margin: "md",
+              spacing: "xs",
+              contents: [
+                {
+                  type: "text",
+                  text: `จาก: ${item.from_agency}`,
+                  size: "xxs",
+                  color: "#666666",
+                  wrap: true
+                },
+                {
+                  type: "text",
+                  text: `เลขรับ: ${item.doc_number}`,
+                  size: "xxs",
+                  color: "#666666"
+                }
+              ]
+            }
+          ]
+        },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            {
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: "#007AFF",
+              action: {
+                type: "uri",
+                label: "📄 ดูต้นฉบับหนังสือ",
+                uri: documentUrl
+              }
+            },
+            {
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: "#1DB446",
+              action: {
+                type: "postback",
+                label: "✍️ เกษียณสั่งการ",
+                data: `action=start_assign&id=${item.id}`
+              }
+            }
+          ]
+        }
+      };
+    });
+
+    const payloadObj = {
+      to: targetId,
+      messages: [{
+        type: "flex",
+        altText: title,
+        contents: {
+          type: "carousel",
+          contents: bubbles
+        }
+      }]
+    };
+
+    let vercelBaseUrl = '';
+    const isWebUrl = typeof window !== 'undefined' && 
+                      window.location && 
+                      window.location.origin && 
+                      window.location.protocol.startsWith('http') &&
+                      !window.location.origin.includes('localhost') && 
+                      !window.location.origin.includes('127.0.0.1');
+
+    if (isWebUrl) {
+      vercelBaseUrl = window.location.origin;
+    } else {
+      const profile = getActiveSchoolProfile();
+      vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    }
+
+    if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
+      vercelBaseUrl = `https://${vercelBaseUrl}`;
+    }
+    if (vercelBaseUrl.endsWith('/')) {
+      vercelBaseUrl = vercelBaseUrl.slice(0, -1);
+    }
+    const webhookUrl = `${vercelBaseUrl}/api/line-webhook`;
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        payload: payloadObj,
+        token: channelAccessToken
+      })
+    });
+
+    let resData: any;
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        resData = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(text.substring(0, 150) || "Empty Response");
+      }
+    } catch (parseErr: any) {
+      throw new Error(`Server Response Error (URL: ${webhookUrl} | Status ${response.status}): ${parseErr.message}`);
+    }
+
+    if (!response.ok) {
+      const detail = resData?.error?.message || resData?.message || JSON.stringify(resData);
+      throw new Error(`Vercel Webhook Error (URL: ${webhookUrl}): ${response.status} - ${detail}`);
+    }
+
+    if (resData.success === false) {
+      const detail = resData.error?.message || JSON.stringify(resData.error);
+      throw new Error(`LINE API Error: ${detail}`);
+    }
+    return resData;
+
+  } catch (error: any) {
+    console.error('LINE Bulk Flex Carousel Error:', error);
+    throw error;
+  }
+}
+
