@@ -438,12 +438,14 @@ export default function Settings() {
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.4</span>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(28 พ.ค. 2569)</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(28-29 พ.ค. 2569)</span>
                 </div>
                 <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
                   <li>ปรับปรุงระบบสิทธิ์ของครู (Teacher) แยกสิทธิ์พื้นฐานและสิทธิ์พิเศษ</li>
                   <li>เพิ่มสิทธิ์พิเศษตัวใหม่สำหรับงานวิชาการ (`access_academic`) และงานงบประมาณ (`access_finance`)</li>
                   <li>ติดตั้งระบบ Double-Gate Verification ดีดผู้ใช้กลับหน้าแดชบอร์ดอัตโนมัติหากไม่มีสิทธิ์</li>
+                  <li>เพิ่มการส่งกลุ่ม "งานรอสั่งการ" ของ ผอ. และการโต้ตอบของบอท LINE ด้วยรูปแบบ Flex Message Carousel</li>
+                  <li>เผยแพร่และอัปโหลดไฟล์ตัวติดตั้งเดสก์ท็อป (Windows Setup) v1.1.4 ขึ้นสู่ GitHub Releases</li>
                 </ul>
               </div>
 
