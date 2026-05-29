@@ -142,6 +142,15 @@ function App() {
 
   useEffect(() => {
     async function fetchSchoolName() {
+      const activeProfile = getActiveSchoolProfile();
+      if (!activeProfile) {
+        // หากยังไม่มีการตั้งค่าโปรไฟล์โรงเรียนจริง ให้ดึงค่าโรงเรียนตัวอย่างจาก env แทนการยิง API ไปหา placeholder URL
+        setSchoolName(import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา');
+        setSchoolLogo('');
+        setLocalGovName('');
+        return;
+      }
+
       try {
         const { data } = await supabase.from('settings').select('school_name, school_logo_url, local_gov_name').single();
         if (data?.school_name) setSchoolName(data.school_name);
@@ -152,7 +161,8 @@ function App() {
       }
     }
     fetchSchoolName();
-  }, []);
+  }, [user]);
+
 
   const isAdmin = profile?.role === 'admin';
   const isDirector = profile?.role === 'director' || isAdmin;
