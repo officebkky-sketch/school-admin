@@ -72,12 +72,18 @@
 ---
 
 ### 📅 บันทึกแผนงานล่าสุด
-- **๒๘ พฤษภาคม ๒๕๖๙ (ปัจจุบัน):**
+- **๒๙ พฤษภาคม ๒๕๖๙ (ปัจจุบัน - v1.1.4 Release):**
+    - **ระบบแจ้งเตือนและแชทบอท LINE (Flex Carousel for Proactive Actions):**
+        - **Flex Message Carousel (งานรอสั่งการ):** พัฒนาระบบส่งกลุ่ม "งานรอสั่งการ (Waiting Proposal)" ไปยังกลุ่ม LINE ของ ผอ. และการโต้ตอบของคำสั่งบอท LINE โดยตอบกลับด้วยรูปแบบ Flex Message Carousel (การ์ดสไลด์แบบเลื่อน) ดึงรายการหนังสือรับสถานะ `pending` แบบ Dynamic พร้อมปุ่มลิงก์สั่งการ
+        - **Backend Integration:** อัปเดตฟังก์ชัน `lineNotify.ts` และ Webhook Server (`api/line-webhook.ts`) เพื่อเชื่อมต่อข้อมูลและประมวลผลคำสั่งอย่างสมบูรณ์
+    - **การจัดทำ Release & Deploy (Desktop Client v1.1.4):**
+        - **GitHub Releases Deployment:** คอมไพล์และบิวด์ระบบเดสก์ท็อปผ่าน `electron-builder` ร่วมกับ GitHub Token อัปโหลดตัวติดตั้งหลัก `school-admin-v2-setup-1.1.4.exe` และ `.blockmap` ขึ้นสู่ระบบ GitHub Releases ภายใต้เวอร์ชัน 1.1.4 สำเร็จเสร็จสิ้น
+- **๒๘ พฤษภาคม ๒๕๖๙:**
     - **ระบบบริหารจัดการสิทธิ์ผู้ใช้งาน (Access Control Refactoring) [ความปลอดภัยและความเป็นส่วนตัว]:**
         - **Granular Permissions Matrix:** ปรับโครงสร้างสิทธิ์การเข้าถึงเมนูต่างๆ ของบัญชีระดับ "ครู (Teacher)" ให้จำกัดเฉพาะเมนูสิทธิ์พื้นฐาน และย้ายเมนูงานวิชาการและงานงบประมาณไปควบคุมด้วยสิทธิ์พิเศษทั้งหมด
-        - **New Permission Keys:** ติดตั้งสิทธิ์พิเศษใหม่ 2 รายการ ได้แก่ สิทธิ์งานวิชาการ (`access_academic`) และสิทธิ์งานงบประมาณ (`access_finance`) ลงในหน้าจัดการสิทธิ์ ([Users.tsx](file:///C:/Users/Phairot%20M/Desktop/school-admin/src/pages/Users.tsx))
-        - **Double-Gate Security Verification:** อัปเดตเงื่อนไข Sidebar Menu ใน [App.tsx](file:///C:/Users/Phairot%20M/Desktop/school-admin/src/App.tsx) เพื่อตรวจสอบสิทธิ์รายหมวดหมู่ และเพิ่มระบบดีดกลับหน้าแดชบอร์ดอัตโนมัติใน `useEffect` เมื่อตรวจพบการเข้าใช้งานหน้าควบคุมโดยไม่ได้รับสิทธิ์
-        - **Access Audit Document:** จัดทำคู่มือรายงานและวิเคราะห์ช่องโหว่ความปลอดภัยระดับสิทธิ์การเข้าถึงและ RLS ฐานข้อมูล บันทึกไว้ในไฟล์ [ACCESS_CONTROL_AUDIT.md](file:///C:/Users/Phairot%20M/Desktop/school-admin/ACCESS_CONTROL_AUDIT.md)
+        - **New Permission Keys:** ติดตั้งสิทธิ์พิเศษใหม่ 2 รายการ ได้แก่ สิทธิ์งานวิชาการ (`access_academic`) และสิทธิ์งานงบประมาณ (`access_finance`) ลงในหน้าจัดการสิทธิ์ ([Users.tsx](file:///C:/Users/bkky9/OneDrive/Desktop/school-admin-multischool/src/pages/Users.tsx))
+        - **Double-Gate Security Verification:** อัปเดตเงื่อนไข Sidebar Menu ใน [App.tsx](file:///C:/Users/bkky9/OneDrive/Desktop/school-admin-multischool/src/App.tsx) เพื่อตรวจสอบสิทธิ์รายหมวดหมู่ และเพิ่มระบบดีดกลับหน้าแดชบอร์ดอัตโนมัติใน `useEffect` เมื่อตรวจพบการเข้าใช้งานหน้าควบคุมโดยไม่ได้รับสิทธิ์
+        - **Access Audit Document:** จัดทำคู่มือรายงานและวิเคราะห์ช่องโหว่ความปลอดภัยระดับสิทธิ์การเข้าถึงและ RLS ฐานข้อมูล บันทึกไว้ในไฟล์ [ACCESS_CONTROL_AUDIT.md](file:///C:/Users/bkky9/OneDrive/Desktop/school-admin-multischool/ACCESS_CONTROL_AUDIT.md)
         - **LINE Bot Feature Roadmap:** บันทึกแผนพัฒนาปรับปรุงการตอบกลับของแชทบอท โดยเตรียมอัปเกรดคำสั่ง "งานรอสั่งการ" และ "งานรอเกษียณ" ให้ตอบกลับเป็น Flex Message Carousel (การ์ดสไลด์แบบเลื่อน) ดึงข้อมูลตาราง `incoming_docs` (สถานะ `pending`) พร้อมปุ่มกดสั่งการ เพื่ออำนวยความสะดวกในการกดเกษียณงานผ่าน LINE ทันทีโดยมีความปลอดภัยสูงและไม่มีความเสี่ยงกระทบระบบหลัก
 - **๒๑ พฤษภาคม ๒๕๖๙:**
     - **ระบบ LINE OA Connect [ความสำเร็จครั้งใหญ่]:**
