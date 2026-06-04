@@ -836,3 +836,44 @@ ALTER TABLE line_action_states ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow service role full access to line_action_states" ON line_action_states
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- ==========================================================
+-- 🛠️ AUTOMATIC USER PROFILE CREATION & ADMIN ACCESS CONTROL (เพิ่มเติม)
+-- ==========================================================
+
+-- 1. สร้าง Function คัดลอกข้อมูลเมื่อมีผู้สมัครสมาชิกใหม่
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, display_name, email, role, status)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)),
+    new.email,
+    'guest',
+    'active'
+  );
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 2. สร้าง Trigger เพื่อผูกเหตุการณ์สมัครสมาชิกใหม่เข้ากับฟังก์ชันข้างต้น
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 3. สร้างฟังก์ชันเช็คสิทธิ์แอดมิน เพื่อป้องกันปัญหา Recursion ในระบบ RLS
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. สร้างนโยบาย RLS ให้ Admin สามารถอัปเดตข้อมูลโปรไฟล์ของทุกคนได้
+CREATE POLICY "Admins can update all profiles." ON profiles
+  FOR UPDATE
+  USING (public.is_admin());
+
