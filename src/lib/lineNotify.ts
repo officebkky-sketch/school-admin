@@ -5,6 +5,35 @@ interface Attachment {
   url: string;
 }
 
+function getWebhookUrl(): string {
+  let vercelBaseUrl = '';
+  const isWebUrl = typeof window !== 'undefined' && 
+                    window.location && 
+                    window.location.origin && 
+                    window.location.protocol.startsWith('http') &&
+                    !window.location.origin.includes('localhost') && 
+                    !window.location.origin.includes('127.0.0.1');
+
+  if (isWebUrl) {
+    vercelBaseUrl = window.location.origin;
+  } else {
+    const profile = getActiveSchoolProfile();
+    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+  }
+
+  if (!vercelBaseUrl || vercelBaseUrl.includes('localhost') || vercelBaseUrl.includes('127.0.0.1')) {
+    vercelBaseUrl = 'https://school-admin-psi.vercel.app';
+  }
+
+  if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
+    vercelBaseUrl = `https://${vercelBaseUrl}`;
+  }
+  if (vercelBaseUrl.endsWith('/')) {
+    vercelBaseUrl = vercelBaseUrl.slice(0, -1);
+  }
+  return `${vercelBaseUrl}/api/line-webhook`;
+}
+
 /**
  * ส่งการแจ้งเตือนผ่าน LINE Messaging API
  * รองรับข้อความธรรมดา และ Flex Message พร้อมปุ่มกด
@@ -82,29 +111,7 @@ export async function sendLineNotification(message: string, specificToId?: strin
       };
     }
 
-    // ดึงค่า Vercel URL แบบไดนามิกจากโปรไฟล์โรงเรียนที่เลือก (ใช้ window.location.origin เป็นหลักเมื่อทำงานในเบราว์เซอร์ปกติ)
-    let vercelBaseUrl = '';
-    const isWebUrl = typeof window !== 'undefined' && 
-                      window.location && 
-                      window.location.origin && 
-                      window.location.protocol.startsWith('http') &&
-                      !window.location.origin.includes('localhost') && 
-                      !window.location.origin.includes('127.0.0.1');
-
-    if (isWebUrl) {
-      vercelBaseUrl = window.location.origin;
-    } else {
-      const profile = getActiveSchoolProfile();
-      vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
-    }
-
-    if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
-      vercelBaseUrl = `https://${vercelBaseUrl}`;
-    }
-    if (vercelBaseUrl.endsWith('/')) {
-      vercelBaseUrl = vercelBaseUrl.slice(0, -1);
-    }
-    const webhookUrl = `${vercelBaseUrl}/api/line-webhook`;
+    const webhookUrl = getWebhookUrl();
 
     // ส่งข้อมูลไปประมวลผลที่ Vercel server (เพื่อ bypass CORS และใช้ Token ที่ถูกต้อง)
     const response = await fetch(webhookUrl, {
@@ -234,29 +241,7 @@ export async function sendInteractiveFlexMessage(
       }]
     };
 
-    // ดึงค่า Vercel URL แบบไดนามิกจากโปรไฟล์โรงเรียนที่เลือก (ใช้ window.location.origin เป็นหลักเมื่อทำงานในเบราว์เซอร์ปกติ)
-    let vercelBaseUrl = '';
-    const isWebUrl = typeof window !== 'undefined' && 
-                      window.location && 
-                      window.location.origin && 
-                      window.location.protocol.startsWith('http') &&
-                      !window.location.origin.includes('localhost') && 
-                      !window.location.origin.includes('127.0.0.1');
-
-    if (isWebUrl) {
-      vercelBaseUrl = window.location.origin;
-    } else {
-      const profile = getActiveSchoolProfile();
-      vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
-    }
-
-    if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
-      vercelBaseUrl = `https://${vercelBaseUrl}`;
-    }
-    if (vercelBaseUrl.endsWith('/')) {
-      vercelBaseUrl = vercelBaseUrl.slice(0, -1);
-    }
-    const webhookUrl = `${vercelBaseUrl}/api/line-webhook`;
+    const webhookUrl = getWebhookUrl();
 
     const response = await fetch(webhookUrl, {
       method: 'POST',
@@ -303,6 +288,7 @@ export interface CarouselItem {
   from_agency: string;
   doc_number: string;
   file_url: string;
+  attachment_urls?: string[];
 }
 
 /**
@@ -390,6 +376,18 @@ export async function sendBulkFlexCarousel(
                 uri: documentUrl
               }
             },
+            // ไฟล์แนบเพิ่มเติม (ถ้ามี)
+            ...(Array.isArray(item.attachment_urls) ? item.attachment_urls.map((url, idx) => ({
+              type: "button",
+              style: "primary",
+              height: "sm",
+              color: "#3F51B5",
+              action: {
+                type: "uri",
+                label: `📎 ไฟล์แนบที่ ${idx + 1}`,
+                uri: url
+              }
+            })) : []),
             {
               type: "button",
               style: "primary",
@@ -418,28 +416,7 @@ export async function sendBulkFlexCarousel(
       }]
     };
 
-    let vercelBaseUrl = '';
-    const isWebUrl = typeof window !== 'undefined' && 
-                      window.location && 
-                      window.location.origin && 
-                      window.location.protocol.startsWith('http') &&
-                      !window.location.origin.includes('localhost') && 
-                      !window.location.origin.includes('127.0.0.1');
-
-    if (isWebUrl) {
-      vercelBaseUrl = window.location.origin;
-    } else {
-      const profile = getActiveSchoolProfile();
-      vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
-    }
-
-    if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
-      vercelBaseUrl = `https://${vercelBaseUrl}`;
-    }
-    if (vercelBaseUrl.endsWith('/')) {
-      vercelBaseUrl = vercelBaseUrl.slice(0, -1);
-    }
-    const webhookUrl = `${vercelBaseUrl}/api/line-webhook`;
+    const webhookUrl = getWebhookUrl();
 
     const response = await fetch(webhookUrl, {
       method: 'POST',

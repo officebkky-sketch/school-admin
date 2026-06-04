@@ -1604,6 +1604,9 @@ async function handleAcknowledge(event: any, params: URLSearchParams, profile: a
     const docSubject = assignment.incoming_docs?.subject || 'หนังสือสั่งการ';
     await replyToLine(replyToken, `✅ รับทราบงานเรื่อง "${docSubject}" เรียบร้อยแล้วค่ะ ขอให้การทำงานเป็นไปได้ด้วยดีนะคะคุณครู 🌸✨`);
 
+    // แจ้งเตือนในกลุ่มไลน์โรงเรียน
+    await pushToLine(undefined, `👍 คุณครู ${profile.display_name} กดรับทราบงานเรื่อง "${docSubject}" เรียบร้อยแล้วค่ะ 🌸`);
+
     // แจ้งเตือน ผอ.
     const { data: director } = await supabaseAdmin
       .from('profiles')

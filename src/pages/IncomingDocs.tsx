@@ -385,22 +385,32 @@ export default function IncomingDocs() {
 
       let lineNotifyStatus = '';
       if (!isHolding) {
-        // ค้นหาไลน์ ผอ. เพื่อเสนอตรง
-        const { data: dirProfile } = await supabase
-          .from('profiles')
-          .select('line_user_id')
-          .eq('role', 'director')
-          .maybeSingle();
-
         const regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
-        const regActions = [
-          { label: '📄 ดูต้นฉบับหนังสือ', type: 'uri' as const, uri: file_url },
-          { label: '✍️ เกษียณสั่งการ', type: 'postback' as const, data: `action=start_assign&id=${insertedDoc?.id || ''}`, color: '#1DB446' }
+        const regActions: any[] = [
+          { label: '📄 ดูต้นฉบับหนังสือ', type: 'uri' as const, uri: file_url }
         ];
+
+        if (Array.isArray(att_urls) && att_urls.length > 0) {
+          att_urls.forEach((url, i) => {
+            regActions.push({
+              label: `📎 ไฟล์แนบที่ ${i + 1}`,
+              type: 'uri' as const,
+              uri: url,
+              color: '#3F51B5'
+            });
+          });
+        }
+
+        regActions.push({ 
+          label: '✍️ เกษียณสั่งการ', 
+          type: 'postback' as const, 
+          data: `action=start_assign&id=${insertedDoc?.id || ''}`, 
+          color: '#1DB446' 
+        });
 
         try {
           await sendInteractiveFlexMessage(
-            dirProfile?.line_user_id || undefined,
+            undefined, // ส่งเข้าไลน์กลุ่มที่กำหนดใน Settings
             '📥 เสนอหนังสือรอเกษียณ',
             regMsg,
             regActions
@@ -437,22 +447,17 @@ export default function IncomingDocs() {
     try {
       const docsToPropose = docs.filter(d => selectedHoldingIds.includes(d.id));
       
-      const { data: dirProfile } = await supabase
-        .from('profiles')
-        .select('line_user_id')
-        .eq('role', 'director')
-        .maybeSingle();
-
       const carouselItems = docsToPropose.map(d => ({
         id: d.id,
         subject: d.subject || '',
         from_agency: d.from_agency || '',
         doc_number: d.doc_number || '',
-        file_url: d.file_url || ''
+        file_url: d.file_url || '',
+        attachment_urls: Array.isArray(d.attachment_urls) ? d.attachment_urls : []
       }));
 
       await sendBulkFlexCarousel(
-        dirProfile?.line_user_id || undefined,
+        undefined, // ส่งเข้าไลน์กลุ่มที่กำหนดใน Settings
         `📥 เสนอหนังสือรอเกษียณใหม่ (${selectedHoldingIds.length} ฉบับ)`,
         carouselItems
       );
