@@ -147,7 +147,7 @@ export async function applyDigitalStamps(
       const propY = 140; 
       const maxRetirementWidth = width / 2.3;
 
-      targetPage.drawText(`เรียน ผู้อำนวยการโรงเรียนบ้านควนโคกยา`, {
+      targetPage.drawText(`เรียน ผู้อำนวยการโรงเรียน`, {
         x: propX,
         y: propY + 115,
         size: fontSize + 1,

@@ -163,7 +163,7 @@ export default function IncomingDocs() {
             {
               order: assignForm.instruction,
               signer: setts?.director_name || 'ผู้อำนวยการโรงเรียน',
-              position: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
+              position: 'ผู้อำนวยการโรงเรียน',
               date: new Date().toISOString().split('T')[0],
               signatureUrl: setts?.director_signature_url,
               pageNumber: assignForm.stamp_page // User selected page
