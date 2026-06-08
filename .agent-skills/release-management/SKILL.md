@@ -1,3 +1,10 @@
+---
+name: multi-school-release-management
+description: >-
+  Manages version bumping, compiling, Vercel deploying, and Electron building 
+  for multiple schools (koko and school2) in the school-admin project.
+---
+
 # Skill: Multi-School Release & Deployment Management 🚀🏫
 
 ทักษะนี้ระบุขั้นตอนการทำงานมาตรฐานสำหรับการอัปเดตเวอร์ชัน, การคอมไพล์โค้ด (Vite), การ Deploy ขึ้น Vercel Production และการสร้างตัวติดตั้งเดสก์ท็อป (Electron) แยกรายโรงเรียน พร้อมการอัปโหลดขึ้น GitHub Releases
