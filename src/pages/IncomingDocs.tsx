@@ -154,7 +154,7 @@ export default function IncomingDocs() {
           
           const pdfBuffer = await response.arrayBuffer();
           const { data: setts } = await supabase.from('settings').select('director_name, director_signature_url').single();
-
+ 
           console.log('Applying Director Stamp...');
           const stampedBytes = await applyDigitalStamps(
             pdfBuffer,
