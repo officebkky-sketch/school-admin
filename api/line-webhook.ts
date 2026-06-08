@@ -282,7 +282,7 @@ function formatFallbackResponse(context: string, userMsg: string): string {
 
 async function handleFastAI(replyToken: string, message: string, _profile: any) {
   try {
-    const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();
+    const { data: sets } = await supabaseAdmin.from('settings').select('school_name, gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();
     let apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key || '';
     if (apiKey.includes(',')) {
       const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
@@ -290,6 +290,7 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
     }
     const openaiApiKey = process.env.OPENAI_API_KEY;
     const currentYear = sets?.current_academic_year || '2569';
+    const schoolName = sets?.school_name || 'โรงเรียน';
     
     console.log(`[LINE WEBHOOK] Message received: "${message}"`);
     
@@ -298,7 +299,7 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
     console.log(`[LINE WEBHOOK] Context Data size: ${contextData.length} chars`);
 
     // 2. High-Speed Direct Prompting with Extraction Tag
-    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยครูเพศหญิงของโรงเรียนบ้านควนโคกยา (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยครูเพศหญิงของ${schoolName} (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
 ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู" (ห้ามใช้หางเสียง "ครับ" หรือคำพูดเชิงผู้ชายเด็ดขาด)
 กฎเหล็ก:
 - ตอบเฉพาะ "คำตอบสุดท้ายที่จะส่งให้ครู" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
@@ -774,7 +775,7 @@ async function handleReceiptOCR(replyToken: string, messageId: string, _profile:
     const base64Image = Buffer.from(arrayBuffer).toString('base64');
 
     // 2. ดึง API Key
-    const { data: sets } = await supabaseAdmin.from('settings').select('gemini_api_key').single();
+    const { data: sets } = await supabaseAdmin.from('settings').select('school_name, gemini_api_key').single();
     let apiKey = sets?.gemini_api_key || '';
     if (apiKey.includes(',')) {
       const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
@@ -786,7 +787,8 @@ async function handleReceiptOCR(replyToken: string, messageId: string, _profile:
     }
 
     // 3. เรียก Gemini Multimodal OCR
-    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยฝ่ายพัสดุและงบประมาณโรงเรียนบ้านควนโคกยา
+    const schoolName = sets?.school_name || 'โรงเรียน';
+    const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยฝ่ายพัสดุและงบประมาณ${schoolName}
 ภารกิจ: วิเคราะห์สแกนรูปภาพใบเสร็จ/บิลค่าใช้จ่ายนี้ และสรุปผลออกมาในรูปแบบราชการที่เข้าใจง่าย
 กฎเหล็ก:
 - ตอบข้อมูลสกัดออกมาให้ชัดเจนดังนี้:
@@ -1167,34 +1169,73 @@ async function executeDocAssignment(docId: string, teacherId: string, instructio
           const stampedBytes = await applyStampsOnServer(pdfBuffer, {
             order: instruction,
             signer: settings?.director_name || profile.display_name || 'ผู้อำนวยการโรงเรียน',
-            position: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
+            position: 'ผู้อำนวยการโรงเรียน',
             date: new Date().toISOString().split('T')[0],
             signatureUrl: settings?.director_signature_url || profile.signature_url,
             pageNumber: proposalStampPage // ประทับตราหน้าเดียวกับใบเสนอ
           });
 
-          // อัปโหลดไฟล์ประทับตราทับไปที่ Supabase
+          // อัปโหลดไฟล์ประทับตราทับไปที่ Supabase Storage ก่อนเพื่อสำรองข้อมูลชั่วคราว
           const pathSegments = doc.file_url.split('/');
           const fileName = pathSegments[pathSegments.length - 1].split('?')[0];
           
-          const { error: uploadErr } = await supabaseAdmin
+          await supabaseAdmin
             .storage
             .from('temp_docs')
             .upload(fileName, stampedBytes, { contentType: 'application/pdf', upsert: true });
 
-          if (uploadErr) {
-            console.error('Failed to upload stamped PDF back to Supabase:', uploadErr.message);
-          } else {
-            // ดึง publicUrl ใหม่และใส่ timestamp เพื่อป้องกัน cache
-            const { data: publicData } = supabaseAdmin
-              .storage
-              .from('temp_docs')
-              .getPublicUrl(fileName);
-            
-            if (publicData?.publicUrl) {
-              finalFileUrl = `${publicData.publicUrl}?t=${Date.now()}`;
-              console.log('Successfully stamped and updated file_url:', finalFileUrl);
+          // ดึง publicUrl จาก Supabase ไว้ก่อน (เป็น Fallback กรณี Google Drive อัปโหลดไม่ผ่าน)
+          const { data: publicData } = supabaseAdmin
+            .storage
+            .from('temp_docs')
+            .getPublicUrl(fileName);
+          
+          if (publicData?.publicUrl) {
+            finalFileUrl = `${publicData.publicUrl}?t=${Date.now()}`;
+          }
+
+          // ดำเนินการอัปโหลดขึ้น Google Drive ผ่าน Google Apps Script (GAS)
+          const gasUrl = process.env.VITE_GAS_URL || 'https://script.google.com/macros/s/AKfycbw52uo8upPX6SiZ_W4dD9MUrocA3DkZm3XnE-eU4uE3vvOtOAK4VhXcLIf71PGVsvxj/exec';
+          const base64 = Buffer.from(stampedBytes).toString('base64');
+          const sanitizedSubject = doc.subject.replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 50);
+          const finalFileName = `${doc.doc_number}_เรื่อง_${sanitizedSubject}.pdf`;
+
+          console.log(`[LINE WEBHOOK] Uploading stamped PDF to Google Drive via GAS: ${gasUrl}`);
+          try {
+            const driveRes = await fetch(gasUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                folder: 'incoming',
+                filename: finalFileName,
+                mimeType: 'application/pdf',
+                base64: base64
+              })
+            });
+
+            if (driveRes.ok) {
+              const driveResult = await driveRes.json();
+              if (driveResult.status === 'success' && driveResult.url) {
+                finalFileUrl = driveResult.url;
+                console.log('Successfully uploaded to Google Drive from Webhook:', finalFileUrl);
+
+                // ลบไฟล์ชั่วคราวใน Supabase Storage เพื่อประหยัดพื้นที่เมื่อเก็บใน Drive สำเร็จแล้ว
+                try {
+                  await supabaseAdmin.storage.from('temp_docs').remove([fileName]);
+                  console.log('Cleaned up temporary Supabase file:', fileName);
+                } catch (cleanupErr) {
+                  console.warn('Failed to clean up temporary Supabase file:', cleanupErr);
+                }
+              } else {
+                console.error('GAS Upload failed on script side:', driveResult.message);
+              }
+            } else {
+              console.error('GAS Upload returned HTTP error status:', driveRes.status);
             }
+          } catch (driveErr) {
+            console.error('Failed to communicate with GAS for Google Drive upload:', driveErr);
           }
         }
       } catch (pdfErr) {
