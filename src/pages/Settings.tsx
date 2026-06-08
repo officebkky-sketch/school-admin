@@ -500,30 +500,43 @@ export default function Settings() {
             </h4>
             <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed">
               สำหรับไฟล์ PDF ที่ผู้อำนวยการเคยสั่งการหรือเกษียณหนังสือผ่านระบบ LINE OA ก่อนการอัปเดตระบบ 
-              ไฟล์เหล่านั้นจะยังคงเก็บค้างอยู่ในระบบจัดเก็บชั่วคราว (Supabase Storage) 
-              ท่านสามารถใช้เครื่องมือนี้ในการสแกนดึงไฟล์เก่าทั้งหมดเหล่านั้นไปจัดเก็บถาวรใน Google Drive และอัปเดตลิงก์ในระบบให้ถูกต้องโดยอัตโนมัติ
-            </p>
-
-            {migrationStatus && (
-              <div className="mt-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm space-y-2">
-                <p className="text-xs font-bold text-slate-600">{migrationStatus}</p>
-                {isMigrating && (
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="bg-indigo-600 h-2 rounded-full transition-all duration-300" 
-                      style={{ width: `${migrationProgress}%` }}
-                    ></div>
-                  </div>
-                )}
+              ไฟล์เหล่านั�                {import.meta.env.VITE_APP_VERSION || '1.1.5'}
+              </span>
+            </div>
+          </div>
+ 
+          <div className="space-y-4">
+            <h4 className="font-black text-slate-800 text-sm border-l-4 border-brand-primary pl-3 uppercase tracking-tight">ประวัติการปรับปรุง (Changelog)</h4>
+            <div className="space-y-3 pl-4">
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.5</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(8 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>แก้ไขปัญหาตำแหน่งผู้อำนวยการโรงเรียนในตราประทับเกษียณ ผอ. ของโรงเรียนที่ 2 ไม่ให้มีชื่อโรงเรียนแรกปะปน</li>
+                  <li>เพิ่มระบบการส่งไฟล์ที่สแตมป์เกษียณผ่าน LINE ไปจัดเก็บถาวรใน Google Drive ประจำแต่ละโรงเรียนโดยอัตโนมัติ</li>
+                  <li>ติดตั้งเครื่องมือโอนย้ายไฟล์ประวัติเอกสารย้อนหลังที่เกษียณผ่าน LINE เข้าสู่ Google Drive ในหน้าตั้งค่า</li>
+                  <li>เพิ่มคอลัมน์เลือกพิมพ์รายชื่อนักเรียนแบบกำหนดเอง ได้แก่ ชื่อบิดา, ชื่อมารดา, ศาสนา และสถานะความด้อยโอกาส</li>
+                  <li>แก้ไขบั๊กการนำเข้าข้อมูลนักเรียน (Import Excel) ให้คำนำหน้าและชื่อจริงของผู้ปกครอง บิดา มารดา รวมกันได้อย่างถูกต้อง</li>
+                </ul>
               </div>
-            )}
 
-            <div className="mt-4 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={handleMigrateOldFiles}
-                disabled={isMigrating}
-                className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.4</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(28-29 พ.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงระบบสิทธิ์ของครู (Teacher) แยกสิทธิ์พื้นฐานและสิทธิ์พิเศษ</li>
+                  <li>เพิ่มสิทธิ์พิเศษตัวใหม่สำหรับงานวิชาการ (`access_academic`) และงานงบประมาณ (`access_finance`)</li>
+                  <li>ติดตั้งระบบ Double-Gate Verification ดีดผู้ใช้กลับหน้าแดชบอร์ดอัตโนมัติหากไม่มีสิทธิ์</li>
+                  <li>เพิ่มการส่งกลุ่ม "งานรอสั่งการ" ของ ผอ. และการโต้ตอบของบอท LINE ด้วยรูปแบบ Flex Message Carousel</li>
+                  <li>เผยแพร่และอัปโหลดไฟล์ตัวติดตั้งเดสก์ท็อป (Windows Setup) v1.1.4 ขึ้นสู่ GitHub Releases</li>
+                </ul>
+              </div>95 transition-all disabled:opacity-50 flex items-center gap-2"
               >
                 {isMigrating ? (
                   <>
