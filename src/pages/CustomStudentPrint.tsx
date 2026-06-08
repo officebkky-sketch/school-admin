@@ -35,7 +35,8 @@ export default function CustomStudentPrint() {
 
   const [selectedColumns, setSelectedColumns] = useState({
     student_id: true, prefix_name: true, national_id: false, class_room: true,
-    birth_date: false, parent_name: false, address: false, status: true,
+    birth_date: false, parent_name: false, father_name: false, mother_name: false,
+    religion: false, disadvantage_status: false, address: false, status: true,
   });
 
   const fetchInitialData = async () => {
@@ -102,7 +103,11 @@ export default function CustomStudentPrint() {
         ${selectedColumns.national_id ? `<td>${toThaiDigits(s.national_id || '-')}</td>` : ''}
         ${selectedColumns.class_room ? `<td>${s.class_level}/${toThaiDigits(s.room)}</td>` : ''}
         ${selectedColumns.birth_date ? `<td>${formatThaiDate(s.birth_date)}</td>` : ''}
-        ${selectedColumns.parent_name ? `<td style="text-align:left;">${s.parent_first_name} ${s.parent_last_name}</td>` : ''}
+        ${selectedColumns.parent_name ? `<td style="text-align:left;">${s.parent_first_name || '-'} ${s.parent_last_name || ''}</td>` : ''}
+        ${selectedColumns.father_name ? `<td style="text-align:left;">${s.father_first_name || '-'} ${s.father_last_name || ''}</td>` : ''}
+        ${selectedColumns.mother_name ? `<td style="text-align:left;">${s.mother_first_name || '-'} ${s.mother_last_name || ''}</td>` : ''}
+        ${selectedColumns.religion ? `<td>${s.religion || '-'}</td>` : ''}
+        ${selectedColumns.disadvantage_status ? `<td style="text-align:left;">${s.disadvantage_status || '-'}</td>` : ''}
         ${selectedColumns.address ? `<td style="text-align:left; font-size: 13pt;">${toThaiDigits(s.address_no)} ม.${toThaiDigits(s.moo)} ต.${s.sub_district}</td>` : ''}
         ${selectedColumns.status ? `<td>${s.graduation_status}</td>` : ''}
         ${customColumns.map(() => `<td></td>`).join('')}
@@ -118,6 +123,10 @@ export default function CustomStudentPrint() {
         ${selectedColumns.class_room ? '<th style="width:70px;">ชั้น/ห้อง</th>' : ''}
         ${selectedColumns.birth_date ? '<th style="width:100px;">วันเกิด</th>' : ''}
         ${selectedColumns.parent_name ? '<th style="text-align:left;">ผู้ปกครอง</th>' : ''}
+        ${selectedColumns.father_name ? '<th style="text-align:left;">ชื่อบิดา</th>' : ''}
+        ${selectedColumns.mother_name ? '<th style="text-align:left;">ชื่อมารดา</th>' : ''}
+        ${selectedColumns.religion ? '<th style="width:80px;">ศาสนา</th>' : ''}
+        ${selectedColumns.disadvantage_status ? '<th style="text-align:left;">ความด้อยโอกาส</th>' : ''}
         ${selectedColumns.address ? '<th style="text-align:left; width:200px;">ที่อยู่</th>' : ''}
         ${selectedColumns.status ? '<th style="width:80px;">สถานะ</th>' : ''}
         ${customColumns.map(col => `<th style="min-width:100px;">${col}</th>`).join('')}
@@ -211,7 +220,20 @@ export default function CustomStudentPrint() {
           </div>
           <div className="lg:col-span-2 space-y-8">
             <h4 className="font-black text-slate-700 text-xs uppercase tracking-widest flex items-center gap-2"><CheckSquare size={16} /> 2. เลือกคอลัมน์</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><ColumnToggle label="เลขประจำตัว" active={selectedColumns.student_id} onClick={() => toggleColumn('student_id')} /><ColumnToggle label="ชื่อ-นามสกุล" active={selectedColumns.prefix_name} onClick={() => toggleColumn('prefix_name')} /><ColumnToggle label="เลขประชาชน" active={selectedColumns.national_id} onClick={() => toggleColumn('national_id')} /><ColumnToggle label="ชั้น/ห้อง" active={selectedColumns.class_room} onClick={() => toggleColumn('class_room')} /><ColumnToggle label="วันเกิด" active={selectedColumns.birth_date} onClick={() => toggleColumn('birth_date')} /><ColumnToggle label="ผู้ปกครอง" active={selectedColumns.parent_name} onClick={() => toggleColumn('parent_name')} /><ColumnToggle label="ที่อยู่" active={selectedColumns.address} onClick={() => toggleColumn('address')} /><ColumnToggle label="สถานะ" active={selectedColumns.status} onClick={() => toggleColumn('status')} /></div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <ColumnToggle label="เลขประจำตัว" active={selectedColumns.student_id} onClick={() => toggleColumn('student_id')} />
+              <ColumnToggle label="ชื่อ-นามสกุล" active={selectedColumns.prefix_name} onClick={() => toggleColumn('prefix_name')} />
+              <ColumnToggle label="เลขประชาชน" active={selectedColumns.national_id} onClick={() => toggleColumn('national_id')} />
+              <ColumnToggle label="ชั้น/ห้อง" active={selectedColumns.class_room} onClick={() => toggleColumn('class_room')} />
+              <ColumnToggle label="วันเกิด" active={selectedColumns.birth_date} onClick={() => toggleColumn('birth_date')} />
+              <ColumnToggle label="ผู้ปกครอง" active={selectedColumns.parent_name} onClick={() => toggleColumn('parent_name')} />
+              <ColumnToggle label="ชื่อบิดา" active={selectedColumns.father_name} onClick={() => toggleColumn('father_name')} />
+              <ColumnToggle label="ชื่อมารดา" active={selectedColumns.mother_name} onClick={() => toggleColumn('mother_name')} />
+              <ColumnToggle label="ศาสนา" active={selectedColumns.religion} onClick={() => toggleColumn('religion')} />
+              <ColumnToggle label="ความด้อยโอกาส" active={selectedColumns.disadvantage_status} onClick={() => toggleColumn('disadvantage_status')} />
+              <ColumnToggle label="ที่อยู่" active={selectedColumns.address} onClick={() => toggleColumn('address')} />
+              <ColumnToggle label="สถานะ" active={selectedColumns.status} onClick={() => toggleColumn('status')} />
+            </div>
             <div className="pt-8 space-y-4"><h4 className="font-black text-slate-700 text-xs uppercase tracking-widest flex items-center gap-2"><LayoutGrid size={16} /> 3. เพิ่มคอลัมน์เปล่า</h4><div className="flex gap-2"><input type="text" placeholder="ชื่อคอลัมน์ เช่น ลายมือชื่อ" className="flex-1 p-3.5 bg-white border border-slate-200 rounded-2xl font-bold" value={newColumnName} onChange={e => setNewColumnName(e.target.value)} /><button onClick={addCustomColumn} className="px-6 py-3 bg-slate-800 text-white rounded-2xl font-bold text-sm">เพิ่ม</button></div>{customColumns.length > 0 && <div className="flex flex-wrap gap-2 mt-4">{customColumns.map((col, index) => <div key={index} className="flex items-center gap-2 bg-brand-primary/10 text-brand-primary px-4 py-2 rounded-xl font-bold text-xs border border-brand-primary/20">{col}<button onClick={() => removeCustomColumn(index)}>×</button></div>)}</div>}</div>
             <div className="pt-10 border-t border-slate-50 flex items-center justify-between"><div><p className="text-xl font-black text-slate-800">พบ {students.length} คน</p></div><button onClick={handlePrint} disabled={students.length === 0} className="bg-brand-primary text-white px-10 py-5 rounded-[28px] font-black text-lg flex items-center gap-3 shadow-xl"><Printer size={24} /> เริ่มพิมพ์รายงาน</button></div>
           </div>

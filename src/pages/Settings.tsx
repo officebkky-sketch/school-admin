@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { uploadToSupabase } from '../lib/storage';
+import { uploadToSupabase, uploadFileToDrive, deleteFromSupabase } from '../lib/storage';
 import { 
   Save, 
   Loader2, 
@@ -39,6 +39,10 @@ export default function Settings() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sigPreviewUrl, setSigPreviewUrl] = useState<string | null>(null);
 
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState('');
+  const [migrationProgress, setMigrationProgress] = useState(0);
+
   useEffect(() => {
     fetchSettings();
   }, []);
@@ -63,6 +67,78 @@ export default function Settings() {
       setLoading(false);
     }
   }
+
+  const handleMigrateOldFiles = async () => {
+    if (!confirm('ยืนยันที่จะโอนย้ายไฟล์เอกสารที่เคยเกษียณผ่าน LINE ในอดีตเข้า Google Drive หรือไม่? (ระบบจะค้นหาและย้ายไฟล์ให้เฉพาะเอกสารที่เก็บอยู่ใน Supabase ชั่วคราว)')) return;
+    setIsMigrating(true);
+    setMigrationStatus('กำลังค้นหาเอกสารเก่า...');
+    setMigrationProgress(0);
+
+    try {
+      // 1. ดึงรายการเอกสารรับ (incoming_docs) ที่เกษียณแล้ว (assigned)
+      const { data: docs, error } = await supabase
+        .from('incoming_docs')
+        .select('id, doc_number, subject, file_url')
+        .eq('status', 'assigned');
+
+      if (error) throw error;
+
+      // คัดกรองเฉพาะไฟล์ที่เป็น Supabase Storage
+      const targetDocs = (docs || []).filter(doc => doc.file_url && doc.file_url.includes('supabase.co'));
+
+      if (targetDocs.length === 0) {
+        setMigrationStatus('🎉 ไม่พบไฟล์เอกสารค้างใน Supabase แล้ว! เอกสารทั้งหมดอยู่ใน Google Drive เรียบร้อยดีค่ะ');
+        setIsMigrating(false);
+        return;
+      }
+
+      let successCount = 0;
+      for (let i = 0; i < targetDocs.length; i++) {
+        const doc = targetDocs[i];
+        setMigrationStatus(`[${i + 1}/${targetDocs.length}] กำลังย้ายเรื่อง: "${doc.subject.substring(0, 30)}..."`);
+        
+        try {
+          // 1. Fetch file จาก Supabase
+          const response = await fetch(doc.file_url);
+          if (!response.ok) throw new Error('ดาวน์โหลดไฟล์จาก Supabase ล้มเหลว');
+          const blob = await response.blob();
+
+          // 2. สร้างอ็อบเจกต์ไฟล์
+          const sanitized = doc.subject.replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 50);
+          const fileName = `${doc.doc_number}_เรื่อง_${sanitized}.pdf`;
+          const file = new File([blob], fileName, { type: 'application/pdf' });
+
+          // 3. ส่งเข้า Google Drive
+          const gDriveUrl = await uploadFileToDrive(file, 'incoming', fileName.replace('.pdf', ''));
+          
+          // 4. อัปเดตใน Supabase Database
+          const { error: updateErr } = await supabase
+            .from('incoming_docs')
+            .update({ file_url: gDriveUrl })
+            .eq('id', doc.id);
+
+          if (updateErr) throw updateErr;
+
+          // 5. ลบไฟล์เดิมใน Supabase Storage
+          const tempPath = doc.file_url.split('/').pop()?.split('?')[0];
+          if (tempPath) {
+            await deleteFromSupabase('temp_docs', tempPath);
+          }
+
+          successCount++;
+        } catch (err: any) {
+          console.error(`Failed to migrate doc ID ${doc.id}:`, err);
+        }
+        setMigrationProgress(Math.round(((i + 1) / targetDocs.length) * 100));
+      }
+
+      setMigrationStatus(`✅ โอนย้ายไฟล์เอกสารเก่าสำเร็จ ${successCount} จากทั้งหมด ${targetDocs.length} รายการแล้วค่ะ 🌸`);
+    } catch (err: any) {
+      setMigrationStatus(`❌ เกิดข้อผิดพลาดในการโอนย้าย: ${err.message}`);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -406,6 +482,65 @@ export default function Settings() {
         </div>
       </form>
 
+      {/* Section: System Migration Tools */}
+      <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden mb-8 mt-8">
+        <div className="p-8 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
+          <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+            <Sparkles size={24} />
+          </div>
+          <div>
+            <h3 className="font-black text-slate-800 text-lg uppercase tracking-tight">เครื่องมือจัดการเอกสารย้อนหลัง</h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Document Sync & Migration Tools</p>
+          </div>
+        </div>
+        <div className="p-8 space-y-6">
+          <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100/50">
+            <h4 className="font-black text-slate-800 text-sm flex items-center gap-2">
+              🔄 โอนย้ายไฟล์เอกสารที่สั่งการผ่าน LINE ในอดีตเข้า Google Drive
+            </h4>
+            <p className="text-xs text-slate-500 font-bold mt-2 leading-relaxed">
+              สำหรับไฟล์ PDF ที่ผู้อำนวยการเคยสั่งการหรือเกษียณหนังสือผ่านระบบ LINE OA ก่อนการอัปเดตระบบ 
+              ไฟล์เหล่านั้นจะยังคงเก็บค้างอยู่ในระบบจัดเก็บชั่วคราว (Supabase Storage) 
+              ท่านสามารถใช้เครื่องมือนี้ในการสแกนดึงไฟล์เก่าทั้งหมดเหล่านั้นไปจัดเก็บถาวรใน Google Drive และอัปเดตลิงก์ในระบบให้ถูกต้องโดยอัตโนมัติ
+            </p>
+
+            {migrationStatus && (
+              <div className="mt-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm space-y-2">
+                <p className="text-xs font-bold text-slate-600">{migrationStatus}</p>
+                {isMigrating && (
+                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-2 rounded-full transition-all duration-300" 
+                      style={{ width: `${migrationProgress}%` }}
+                    ></div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handleMigrateOldFiles}
+                disabled={isMigrating}
+                className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {isMigrating ? (
+                  <>
+                    <Loader2 className="animate-spin" size={16} />
+                    กำลังโอนย้ายไฟล์... ({migrationProgress}%)
+                  </>
+                ) : (
+                  <>
+                    <span>เริ่มโอนย้ายไฟล์ไป Google Drive</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Section: About & Changelog */}
       <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
         <div className="p-8 border-b border-slate-50 flex items-center gap-4 bg-slate-50/30">
@@ -426,7 +561,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.4'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.5'}
               </span>
             </div>
           </div>
@@ -437,7 +572,23 @@ export default function Settings() {
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-800">v1.1.4</span>
+                  <span className="text-xs font-bold text-slate-800">v1.1.5</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(8 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>แก้ไขปัญหาตำแหน่งผู้อำนวยการโรงเรียนในตราประทับเกษียณ ผอ. ของโรงเรียนที่ 2 ไม่ให้มีชื่อโรงเรียนแรกปะปน</li>
+                  <li>เพิ่มระบบการส่งไฟล์ที่สแตมป์เกษียณผ่าน LINE ไปจัดเก็บถาวรใน Google Drive ประจำแต่ละโรงเรียนโดยอัตโนมัติ</li>
+                  <li>ติดตั้งเครื่องมือโอนย้ายไฟล์ประวัติเอกสารย้อนหลังที่เกษียณผ่าน LINE เข้าสู่ Google Drive ในหน้าตั้งค่า</li>
+                  <li>เพิ่มคอลัมน์เลือกพิมพ์รายชื่อนักเรียนแบบกำหนดเอง ได้แก่ ชื่อบิดา, ชื่อมารดา, ศาสนา และสถานะความด้อยโอกาส</li>
+                  <li>แก้ไขบั๊กการนำเข้าข้อมูลนักเรียน (Import Excel) ให้คำนำหน้าและชื่อจริงของผู้ปกครอง บิดา มารดา รวมกันได้อย่างถูกต้อง</li>
+                  <li>เผยแพร่และอัปโหลดไฟล์ตัวติดตั้งเดสก์ท็อป (Windows Setup) v1.1.5 ขึ้นสู่ GitHub Releases</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400">v1.1.4</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(28-29 พ.ค. 2569)</span>
                 </div>
                 <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
