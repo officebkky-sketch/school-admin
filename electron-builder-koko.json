@@ -1,0 +1,26 @@
+{
+  "appId": "com.schooladmin.koko",
+  "productName": "โรงเรียนบ้านควนโคกยา",
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "officebkky-sketch",
+      "repo": "school-admin"
+    }
+  ],
+  "directories": {
+    "output": "dist-installer"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "โรงเรียนบ้านควนโคกยา",
+    "deleteAppDataOnUninstall": false
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "public/logo.png",
+    "artifactName": "${name}-koko-setup-${version}.${ext}"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "appId": "com.schooladmin.school2",
+  "productName": "ระบบบริหารจัดการข้อมูลโรงเรียน",
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "officebkky-sketch",
+      "repo": "school-admin"
+    }
+  ],
+  "directories": {
+    "output": "dist-installer"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "ระบบบริหารจัดการข้อมูลโรงเรียน",
+    "deleteAppDataOnUninstall": false
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "public/logo.png",
+    "artifactName": "${name}-school2-setup-${version}.${ext}"
+  }
+}
