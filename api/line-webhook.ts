@@ -1216,7 +1216,7 @@ async function executeDocAssignment(docId: string, teacherId: string, instructio
             });
 
             if (driveRes.ok) {
-              const driveResult = await driveRes.json();
+              const driveResult = (await driveRes.json()) as any;
               if (driveResult.status === 'success' && driveResult.url) {
                 finalFileUrl = driveResult.url;
                 console.log('Successfully uploaded to Google Drive from Webhook:', finalFileUrl);
