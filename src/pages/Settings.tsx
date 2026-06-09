@@ -561,7 +561,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.5'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.6'}
               </span>
             </div>
           </div>
@@ -571,6 +571,19 @@ export default function Settings() {
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.6</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(9 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงระบบตราประทับ ผอ. ในการเกษียณสั่งการ ให้ดึงข้อมูลชื่อโรงเรียนจากหน้าตั้งค่าโดยอัตโนมัติ (Dynamic School Name on Stamping)</li>
+                  <li>แยกการแสดงผลและข้อมูลอย่างเป็นอิสระ 100% สำหรับการใช้งานระบบ Multi-School ของแต่ละสถานศึกษา</li>
+                  <li>เผยแพร่และอัปโหลดไฟล์ตัวติดตั้งเดสก์ท็อป (Windows Setup) v1.1.6 ขึ้นสู่ GitHub Releases</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.5</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(8 มิ.ย. 2569)</span>

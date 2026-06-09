@@ -72,7 +72,11 @@
 ---
 
 ### 📅 บันทึกแผนงานล่าสุด
-- **๒๙ พฤษภาคม ๒๕๖๙ (ปัจจุบัน - v1.1.4 Release):**
+- **๙ มิถุนายน ๒๕๖๙ (ปัจจุบัน - v1.1.6 Release):**
+    - **ระบบตราประทับ ผอ. แบบ Dynamic (Dynamic School Name on Stamping):**
+        - ปรับปรุงให้ดึงชื่อโรงเรียน (`school_name`) จากตารางตั้งค่าระบบมาแสดงผลร่วมกับตำแหน่ง ผอ. บนตราประทับ PDF อัตโนมัติ (เช่น "ผู้อำนวยการโรงเรียนบ้านควนโคกยา" หรือชื่อโรงเรียนใหม่อื่นๆ ตามที่สลับ Instance) ช่วยให้ระบบมีความยืดหยุ่นและแยกข้อมูลข้ามโรงเรียนได้อย่างสมบูรณ์แบบ 100%
+        - แก้ไขไฟล์ [IncomingDocs.tsx](file:///C:/Users/bkky9/OneDrive/Desktop/school-admin-multischool/src/pages/IncomingDocs.tsx) สำเร็จลุล่วงและอัปโหลดขึ้น GitHub Releases
+- **๒๙ พฤษภาคม ๒๕๖๙ (v1.1.4 Release):**
     - **ระบบแจ้งเตือนและแชทบอท LINE (Flex Carousel for Proactive Actions):**
         - **Flex Message Carousel (งานรอสั่งการ):** พัฒนาระบบส่งกลุ่ม "งานรอสั่งการ (Waiting Proposal)" ไปยังกลุ่ม LINE ของ ผอ. และการโต้ตอบของคำสั่งบอท LINE โดยตอบกลับด้วยรูปแบบ Flex Message Carousel (การ์ดสไลด์แบบเลื่อน) ดึงรายการหนังสือรับสถานะ `pending` แบบ Dynamic พร้อมปุ่มลิงก์สั่งการ
         - **Backend Integration:** อัปเดตฟังก์ชัน `lineNotify.ts` และ Webhook Server (`api/line-webhook.ts`) เพื่อเชื่อมต่อข้อมูลและประมวลผลคำสั่งอย่างสมบูรณ์
