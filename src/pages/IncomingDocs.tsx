@@ -153,8 +153,13 @@ export default function IncomingDocs() {
           if (!response.ok) throw new Error(`ไม่สามารถดาวน์โหลดไฟล์ได้ (Status: ${response.status})`);
           
           const pdfBuffer = await response.arrayBuffer();
-          const { data: setts } = await supabase.from('settings').select('director_name, director_signature_url').single();
+          const { data: setts } = await supabase.from('settings').select('school_name, director_name, director_signature_url').single();
  
+          const schoolLabel = setts?.school_name 
+            ? (setts.school_name.startsWith('โรงเรียน') ? setts.school_name : `โรงเรียน${setts.school_name}`)
+            : '';
+          const directorPosition = schoolLabel ? `ผู้อำนวยการ${schoolLabel}` : 'ผู้อำนวยการโรงเรียน';
+
           console.log('Applying Director Stamp...');
           const stampedBytes = await applyDigitalStamps(
             pdfBuffer,
@@ -163,7 +168,7 @@ export default function IncomingDocs() {
             {
               order: assignForm.instruction,
               signer: setts?.director_name || 'ผู้อำนวยการโรงเรียน',
-              position: 'ผู้อำนวยการโรงเรียน',
+              position: directorPosition,
               date: new Date().toISOString().split('T')[0],
               signatureUrl: setts?.director_signature_url,
               pageNumber: assignForm.stamp_page // User selected page
