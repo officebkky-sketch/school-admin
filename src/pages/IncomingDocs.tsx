@@ -229,7 +229,7 @@ export default function IncomingDocs() {
       
       if (Array.isArray(selectedDoc.attachment_urls)) {
         selectedDoc.attachment_urls.forEach((url: string, i: number) => {
-          if (lineActions.length < 4) {
+          if (lineActions.length < 10) {
             lineActions.push({ label: `📎 แนบ ${i + 1}`, type: 'uri' as const, uri: url });
           }
         });

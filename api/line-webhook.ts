@@ -1153,11 +1153,16 @@ async function executeDocAssignment(docId: string, teacherId: string, instructio
       } catch (e) { console.warn('Failed to parse doc.remark JSON:', e); }
     }
 
-    // 2. ดึงข้อมูล ผอ. จาก Settings สำหรับประทับตรา
+    // 2. ดึงข้อมูล ผอ. และโรงเรียน จาก Settings สำหรับประทับตรา
     const { data: settings } = await supabaseAdmin
       .from('settings')
-      .select('director_name, director_signature_url')
+      .select('school_name, director_name, director_signature_url')
       .single();
+
+    const schoolLabel = settings?.school_name 
+      ? (settings.school_name.startsWith('โรงเรียน') ? settings.school_name : `โรงเรียน${settings.school_name}`)
+      : '';
+    const directorPosition = schoolLabel ? `ผู้อำนวยการ${schoolLabel}` : 'ผู้อำนวยการโรงเรียน';
 
     // 3. เริ่มดำเนินการประทับตรา PDF บน server (ถ้าเป็นไฟล์ PDF และอยู่บน Supabase)
     let finalFileUrl = doc.file_url;
@@ -1169,7 +1174,7 @@ async function executeDocAssignment(docId: string, teacherId: string, instructio
           const stampedBytes = await applyStampsOnServer(pdfBuffer, {
             order: instruction,
             signer: settings?.director_name || profile.display_name || 'ผู้อำนวยการโรงเรียน',
-            position: 'ผู้อำนวยการโรงเรียน',
+            position: directorPosition,
             date: new Date().toISOString().split('T')[0],
             signatureUrl: settings?.director_signature_url || profile.signature_url,
             pageNumber: proposalStampPage // ประทับตราหน้าเดียวกับใบเสนอ
@@ -1284,7 +1289,7 @@ async function executeDocAssignment(docId: string, teacherId: string, instructio
     ];
     if (Array.isArray(doc.attachment_urls)) {
       doc.attachment_urls.forEach((url: string, i: number) => {
-        if (lineActions.length < 4) {
+        if (lineActions.length < 10) {
           lineActions.push({ label: `📎 แนบ ${i + 1}`, type: 'uri' as const, uri: url });
         }
       });
