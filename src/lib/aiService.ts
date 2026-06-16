@@ -71,8 +71,8 @@ export async function callGeminiAPI(
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               temperature,
-              maxOutputTokens,
-              responseMimeType
+              max_output_tokens: maxOutputTokens,
+              response_mime_type: responseMimeType
             }
           };
 
