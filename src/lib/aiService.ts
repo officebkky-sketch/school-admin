@@ -52,7 +52,14 @@ export async function callGeminiAPI(
 
   let modelsToTry = await getAvailableModels(keys[0]);
   if (modelsToTry.length === 0) {
-    modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+    modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
+    ];
   }
 
   const apiVersions = ["v1beta", "v1"];
@@ -71,13 +78,13 @@ export async function callGeminiAPI(
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               temperature,
-              max_output_tokens: maxOutputTokens,
-              response_mime_type: responseMimeType
+              maxOutputTokens,
+              responseMimeType
             }
           };
 
           if (systemInstruction) {
-            body.system_instruction = {
+            body.systemInstruction = {
               parts: [{ text: systemInstruction }]
             };
           }
@@ -157,7 +164,13 @@ export async function extractProjectsFromKnowledge(apiKey: string, academicYear:
     // 2. ระบบหมุนเวียน Model และ API Version เพื่อความเสถียร
     let modelsToTry = await getAvailableModels(apiKey);
     if (modelsToTry.length === 0) {
-      modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+      modelsToTry = [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+      ];
     }
     const apiVersions = ["v1beta", "v1"];
     const keys = getApiKeyList(apiKey);
@@ -267,8 +280,11 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) return [];
   
-  // โมเดลหลักที่แนะนำและเสถียรที่สุดในปัจจุบัน
+  // โมเดลหลักที่แนะนำและเสถียรที่สุดในปัจจุบัน (เน้นรุ่น Lite ที่ให้โควต้ารายวันสูง 500 RPD เพื่อหลีกเลี่ยง Rate Limit)
   const RECOMMENDED_MODELS = [
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash',
     'gemini-1.5-pro'
@@ -324,7 +340,13 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
     if (keys.length > 0) {
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
-        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+        modelsToTry = [
+          "gemini-3.1-flash-lite",
+          "gemini-3.5-flash",
+          "gemini-2.5-flash",
+          "gemini-2.0-flash",
+          "gemini-1.5-flash"
+        ];
       }
 
       const apiVersions = ["v1beta", "v1"];
@@ -416,7 +438,13 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
 
   let modelsToTry = await getAvailableModels(apiKey);
   if (modelsToTry.length === 0) {
-    modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash"
+    ];
   }
 
   const apiVersions = ["v1beta", "v1"];
