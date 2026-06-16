@@ -572,6 +572,45 @@ export default function Settings() {
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
                 <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.12</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(16 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับโมเดล AI หลักเป็น <strong>gemini-3.1-flash-lite</strong> เพื่อแก้ไขข้อจำกัด Rate Limit (โควต้ารายวัน 500 RPD) สำหรับบัญชี Free Tier</li>
+                  <li>แก้ไขปัญหา Error 400 จาก Google Server โดยเปลี่ยนพารามิเตอร์ส่งข้อมูลกลับเป็น CamelCase <code>responseMimeType</code> และ <code>systemInstruction</code></li>
+                  <li>แก้ไขระบบการจัดเก็บข้อมูลออนไลน์ด่าน AR บังคับใช้รหัส UUID v4 ป้องกันข้อผิดพลาดของ Supabase</li>
+                  <li>แยกสิทธิ์จัดการบทเรียน AR: ครูวิชาการ/ผอ. จัดการบทเรียนทั้งหมดได้ ครูทั่วไปจัดการได้เฉพาะของตนเอง</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.9</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(16 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>ปรับปรุงสิทธิ์หน้าจอเมนูควบคุม AR Algorithm ให้รองรับการเข้าถึงของคุณครูทุกคน</li>
+                  <li>แก้ไขระบบสแกนกล้องเว็บแคมในโหมด AR หากหาอุปกรณ์ไม่พบจะสลับมาใช้โหมดเมาส์/สัมผัสทันทีโดยไม่มีหน้าต่างแจ้งเตือน Error ขวางกั้น</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.7 - v1.1.8</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(15-16 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>พัฒนาระบบบอร์ดด่านการเรียนรู้ AR Algorithm "น้องชบาพาพิชิต" รูปแบบใหม่</li>
+                  <li>เชื่อมต่อโครงสร้างระบบฐานข้อมูลตาราง <code>ar_lessons</code> และ <code>ar_steps</code> ออนไลน์บน Supabase</li>
+                  <li>เพิ่มฟังก์ชันน้องชบาช่วยประมวลผลคิดออกแบบด่าน AR ผ่านทาง Gemini AI</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.6</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(9 มิ.ย. 2569)</span>
                 </div>
