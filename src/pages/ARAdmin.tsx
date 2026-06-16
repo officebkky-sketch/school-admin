@@ -165,16 +165,28 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     checkUser();
   }, []);
 
+  // สิทธิ์ฝ่ายวิชาการ/ผู้บริหาร
+  const isAcademicOrManagement = userProfile?.role === 'admin' || 
+                                 userProfile?.role === 'director' || 
+                                 userProfile?.extra_permissions?.access_academic === true;
+
   useEffect(() => {
     // 2. Fetch all lessons
     fetchLessons();
-  }, [currentUser]);
+  }, [currentUser, userProfile]);
 
   async function fetchLessons() {
     setLoading(true);
     try {
       const data = await getARLessons(currentUser?.id);
-      setLessons(data);
+      if (isAcademicOrManagement) {
+        // วิชาการ/ผู้บริหาร มองเห็นของทุกคนได้หมด
+        setLessons(data);
+      } else {
+        // ครูทั่วไปเห็นเฉพาะของตนเอง (created_by === currentUser.id) และด่านระบบเริ่มต้น ('teacher_default')
+        const filtered = data.filter(l => l.created_by === currentUser?.id || l.created_by === 'teacher_default');
+        setLessons(filtered);
+      }
     } catch (e) {
       console.error('Failed to fetch lessons:', e);
     } finally {
@@ -198,8 +210,8 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
 
   // Handle open editor for editing existing lesson
   function handleEditLesson(lesson: ARLesson) {
-    // Only allow editing if user is creator, or if not logged in (fallback admin)
-    const canEdit = !currentUser || lesson.created_by === currentUser.id || userProfile?.role === 'admin';
+    // ครูผู้สร้าง หรือ ฝ่ายวิชาการ/ผู้บริหาร สามารถแก้ไขได้
+    const canEdit = !currentUser || lesson.created_by === currentUser.id || isAcademicOrManagement;
     if (!canEdit) {
       alert('คุณไม่ได้รับอนุญาตให้แก้ไขบทเรียนของท่านอื่น (สามารถทำได้เฉพาะการคัดลอกบทเรียน)');
       return;
@@ -624,7 +636,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
                           </td>
                           <td className="p-5 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {isOwner ? (
+                              {isOwner || isAcademicOrManagement ? (
                                 <>
                                   <button 
                                     onClick={() => handleEditLesson(lesson)}
