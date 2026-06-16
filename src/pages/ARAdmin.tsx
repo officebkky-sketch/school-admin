@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { getARLessons, saveARLesson, deleteARLesson, type ARLesson, type ARStep } from '../lib/arService';
+import { getARLessons, saveARLesson, deleteARLesson, generateUUID, type ARLesson, type ARStep } from '../lib/arService';
 import { callGeminiAPI } from '../lib/aiService';
 import { 
   Plus, 
@@ -238,7 +238,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     }
     
     setLoading(true);
-    const newLessonId = `lesson_${Math.random().toString(36).substr(2, 9)}`;
+    const newLessonId = generateUUID();
     const duplicatedLesson: Omit<ARLesson, 'school_id'> = {
       id: newLessonId,
       created_by: currentUser?.id || 'teacher_default',
@@ -246,7 +246,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
       description: lesson.description,
       is_public: false, // Default private for duplicate
       steps: lesson.steps.map(s => ({
-        id: `step_${Math.random().toString(36).substr(2, 9)}`,
+        id: generateUUID(),
         lesson_id: newLessonId,
         step_order: s.step_order,
         step_text: s.step_text,
@@ -328,10 +328,10 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     }
 
     setSaveLoading(true);
-    const lessonId = editLessonId || `lesson_${Math.random().toString(36).substr(2, 9)}`;
+    const lessonId = editLessonId || generateUUID();
     
     const formattedSteps: ARStep[] = steps.map((s, idx) => ({
-      id: `step_${lessonId}_${idx}`,
+      id: generateUUID(),
       lesson_id: lessonId,
       step_order: s.step_order,
       step_text: s.step_text.trim(),

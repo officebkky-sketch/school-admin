@@ -267,25 +267,44 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) return [];
   
+  // โมเดลหลักที่แนะนำและเสถียรที่สุดในปัจจุบัน
+  const RECOMMENDED_MODELS = [
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
+  ];
+  
   for (const key of keys) {
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
       if (response.ok) {
         const data = await response.json();
-        return data.models
+        const apiModels: string[] = data.models
           ?.map((m: any) => m.name.replace('models/', ''))
-          .filter((name: string) => name.includes('gemini'))
-          .sort((a: string, b: string) => {
-            if (a.includes('flash') && !b.includes('flash')) return -1;
-            if (!a.includes('flash') && b.includes('flash')) return 1;
-            return b.localeCompare(a);
-          }) || [];
+          .filter((name: string) => name.includes('gemini')) || [];
+        
+        // คัดกรองเฉพาะโมเดลแนะนำที่มีอยู่ในสิทธิ์การใช้งาน
+        const available = RECOMMENDED_MODELS.filter(m => apiModels.includes(m));
+        if (available.length > 0) {
+          return available;
+        }
+
+        // หากไม่มีตัวแนะนำเลย ให้กรองเอาเฉพาะตัวมาตรฐานที่คีย์นั้นรองรับและเสถียร
+        return apiModels
+          .filter((name: string) => 
+            !name.includes('vision') && 
+            !name.includes('embedding') && 
+            !name.includes('lite') && 
+            !name.includes('latest') && 
+            (name.includes('1.5') || name.includes('2.0') || name.includes('2.5'))
+          )
+          .sort((a: string, b: string) => b.localeCompare(a));
       }
     } catch (e) {
       console.error(`List models error with key ${key.slice(0, 8)}...:`, e);
     }
   }
-  return [];
+  return RECOMMENDED_MODELS;
 }
 
 export interface DocumentInfo {

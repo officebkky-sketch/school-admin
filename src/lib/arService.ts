@@ -22,46 +22,54 @@ export interface ARLesson {
 
 const LOCAL_STORAGE_KEY = 'ar_lessons_local';
 
+export function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 // Default lessons template to seed the app initially
 const DEFAULT_LESSONS: ARLesson[] = [
   {
-    id: 'lesson_default_1',
+    id: 'd1111111-1111-1111-1111-111111111111',
     school_id: 'school_default',
     created_by: 'teacher_default',
     title: 'การตื่นนอนตอนเช้า ⏰',
     description: 'เรียงลำดับขั้นตอนการแก้ปัญหาการตื่นนอนให้เรียบร้อย',
     is_public: true,
     steps: [
-      { id: 'step_1_1', step_order: 1, step_text: 'ลืมตาตื่นนอน', emoji: '👀' },
-      { id: 'step_1_2', step_order: 2, step_text: 'พับผ้าห่มและจัดเตียง', emoji: '🛏️' },
-      { id: 'step_1_3', step_order: 3, step_text: 'ไปล้างหน้าและแปรงฟัน', emoji: '🧼' }
+      { id: 'f1111111-1111-1111-1111-111111111111', step_order: 1, step_text: 'ลืมตาตื่นนอน', emoji: '👀' },
+      { id: 'f1111111-2222-1111-1111-111111111111', step_order: 2, step_text: 'พับผ้าห่มและจัดเตียง', emoji: '🛏️' },
+      { id: 'f1111111-3333-1111-1111-111111111111', step_order: 3, step_text: 'ไปล้างหน้าและแปรงฟัน', emoji: '🧼' }
     ]
   },
   {
-    id: 'lesson_default_2',
+    id: 'd2222222-2222-2222-2222-222222222222',
     school_id: 'school_default',
     created_by: 'teacher_default',
     title: 'ขั้นตอนการแปรงฟัน 🪥',
     description: 'เรียงลำดับขั้นตอนการแปรงฟันให้ปากสะอาดสดชื่น',
     is_public: true,
     steps: [
-      { id: 'step_2_1', step_order: 1, step_text: 'บีบยาสีฟันใส่แปรง', emoji: '🧴' },
-      { id: 'step_2_2', step_order: 2, step_text: 'แปรงฟันให้ทั่วทุกซี่', emoji: '🦷' },
-      { id: 'step_2_3', step_order: 3, step_text: 'บ้วนปากด้วยน้ำสะอาด', emoji: '💧' }
+      { id: 'f2222222-1111-2222-2222-222222222222', step_order: 1, step_text: 'บีบยาสีฟันใส่แปรง', emoji: '🧴' },
+      { id: 'f2222222-2222-2222-2222-222222222222', step_order: 2, step_text: 'แปรงฟันให้ทั่วทุกซี่', emoji: '🦷' },
+      { id: 'f2222222-3333-2222-2222-222222222222', step_order: 3, step_text: 'บ้วนปากด้วยน้ำสะอาด', emoji: '💧' }
     ]
   },
   {
-    id: 'lesson_default_3',
+    id: 'd3333333-3333-3333-3333-333333333333',
     school_id: 'school_default',
     created_by: 'teacher_default',
     title: 'เรียงตัวเลขจากน้อยไปมาก 🔢',
     description: 'เรียงลำดับขั้นตอนตามกระบวนการคิดในการเรียงลำดับตัวเลขจากน้อยไปหามาก',
     is_public: true,
     steps: [
-      { id: 'step_3_1', step_order: 1, step_text: 'เปรียบเทียบค่าตัวเลขทั้งหมด', emoji: '🔍' },
-      { id: 'step_3_2', step_order: 2, step_text: 'หาตัวเลขที่มีค่าน้อยที่สุด', emoji: '⬇️' },
-      { id: 'step_3_3', step_order: 3, step_text: 'เขียนตัวเลขจากน้อยไปหามาก', emoji: '✍️' },
-      { id: 'step_3_4', step_order: 4, step_text: 'ตรวจสอบความถูกต้องอีกครั้ง', emoji: '✅' }
+      { id: 'f3333333-1111-3333-3333-333333333333', step_order: 1, step_text: 'เปรียบเทียบค่าตัวเลขทั้งหมด', emoji: '🔍' },
+      { id: 'f3333333-2222-3333-3333-333333333333', step_order: 2, step_text: 'หาตัวเลขที่มีค่าน้อยที่สุด', emoji: '⬇️' },
+      { id: 'f3333333-3333-3333-3333-333333333333', step_order: 3, step_text: 'เขียนตัวเลขจากน้อยไปหามาก', emoji: '✍️' },
+      { id: 'f3333333-4444-3333-3333-333333333333', step_order: 4, step_text: 'ตรวจสอบความถูกต้องอีกครั้ง', emoji: '✅' }
     ]
   }
 ];
@@ -166,8 +174,14 @@ export async function getARLessons(teacherId?: string): Promise<ARLesson[]> {
  */
 export async function saveARLesson(lesson: Omit<ARLesson, 'school_id' | 'created_at'> & { school_id?: string }, teacherId: string): Promise<boolean> {
   const schoolId = lesson.school_id || getCurrentSchoolId();
+  
+  // Enforce UUID format for lesson id
+  const isLessonUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lesson.id);
+  const lessonUUID = isLessonUUID ? lesson.id : generateUUID();
+
   const fullLesson: ARLesson = {
     ...lesson,
+    id: lessonUUID,
     school_id: schoolId,
     created_by: lesson.created_by || teacherId || 'teacher_default',
     slotsCount: lesson.steps.length
@@ -194,14 +208,17 @@ export async function saveARLesson(lesson: Omit<ARLesson, 'school_id' | 'created
         .delete()
         .eq('lesson_id', fullLesson.id);
 
-      // บันทึกขั้นตอนใหม่ลงไป
-      const stepsToInsert = fullLesson.steps.map(s => ({
-        id: s.id.startsWith('step_') ? s.id : `step_${Math.random().toString(36).substr(2, 9)}`,
-        lesson_id: fullLesson.id,
-        step_order: s.step_order,
-        step_text: s.step_text,
-        emoji: s.emoji
-      }));
+      // บันทึกขั้นตอนใหม่ลงไป โดยการแปลงหรือเจเนอเรต step ID ให้เป็น UUID
+      const stepsToInsert = fullLesson.steps.map(s => {
+        const isStepUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.id);
+        return {
+          id: isStepUUID ? s.id : generateUUID(),
+          lesson_id: fullLesson.id,
+          step_order: s.step_order,
+          step_text: s.step_text,
+          emoji: s.emoji
+        };
+      });
 
       const { error: stepsError } = await supabase
         .from('ar_steps')
@@ -209,10 +226,21 @@ export async function saveARLesson(lesson: Omit<ARLesson, 'school_id' | 'created
 
       if (!stepsError) {
         console.log('Saved successfully to Supabase!');
-        // ซิงค์ลง local storage ด้วยเพื่อการทำออฟไลน์
+        // ซิงค์ลง local storage ด้วยพร้อมข้อมูลที่แปลง ID เป็น UUID แล้ว
+        fullLesson.steps = stepsToInsert.map(s => ({
+          id: s.id,
+          lesson_id: s.lesson_id,
+          step_order: s.step_order,
+          step_text: s.step_text,
+          emoji: s.emoji
+        }));
         syncToLocalStorage(fullLesson);
         return true;
+      } else {
+        console.error('Error inserting steps to Supabase:', stepsError);
       }
+    } else {
+      console.error('Error upserting lesson to Supabase:', lessonError);
     }
   } catch (e) {
     console.warn('Failed to save to Supabase, saving locally:', e);

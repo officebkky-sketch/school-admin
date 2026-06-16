@@ -1,7 +1,7 @@
 @echo off
 title School Admin Release Publisher
 echo ==========================================================
-echo   [School Admin] Preparing to Publish v1.1.9 to GitHub...
+echo   [School Admin] Preparing to Publish v1.1.10 to GitHub...
 echo ==========================================================
 cd /d "C:\Users\bkky9\OneDrive\Desktop\school-admin-multischool"
 
@@ -17,10 +17,11 @@ echo ==========================================================
 git push origin multischool
 
 echo.
-echo [3/3] Packaging & Publishing Setup v1.1.9 to GitHub Releases...
+echo [3/3] Packaging & Publishing Setup v1.1.10 to GitHub Releases...
 echo ==========================================================
 echo * Note: This will build and upload assets (*.exe, *.blockmap, latest.yml)
 echo * If Windows prompts for GitHub login, please sign in to grant access.
+call npm run build
 npx electron-builder --publish always
 
 echo.
