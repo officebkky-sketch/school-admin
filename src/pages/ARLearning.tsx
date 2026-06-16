@@ -174,6 +174,21 @@ export default function ARLearning({ onBack }: ARLearningProps) {
     if (aiLoadingRef.current) aiLoadingRef.current.style.display = 'flex';
     
     try {
+      // 0. ตรวจสอบความพร้อมใช้งานของกล้องก่อนรันโมเดล เพื่อป้องกัน Popup Error เมื่อไม่มีอุปกรณ์
+      let hasWebcam = false;
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          hasWebcam = devices.some(device => device.kind === 'videoinput');
+        }
+      } catch (e) {
+        console.warn('Cannot query media devices, assuming no camera:', e);
+      }
+
+      if (!hasWebcam) {
+        throw new Error('ไม่พบอุปกรณ์กล้องเว็บแคมเชื่อมต่อกับคอมพิวเตอร์ของคุณ');
+      }
+
       // 1. Load MediaPipe JS files dynamically
       await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
       await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
