@@ -511,6 +511,13 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       }
     },
     {
+      keys: ['เขตพื้นที่บริการ', 'พื้นที่บริการ', 'ทร.14', 'ทร14', 'พฐ.03', 'พฐ03', 'เด็กเข้าเกณฑ์', 'เด็กในเขต'],
+      fetch: async () => {
+        const { data } = await supabase.from('service_area_students').select('prefix, first_name, last_name, gender, birth_date, moo, sub_district').limit(60);
+        return `ข้อมูลทะเบียนเด็กในเขตพื้นที่บริการ (ทร.14 / พฐ.03): ${JSON.stringify(data)}`;
+      }
+    },
+    {
       keys: ['โครงการ', 'งบประมาณ', 'งบ', 'เงินงบ', 'สถิติ', 'สรุป', 'ผลสัมฤทธิ์', 'จัดซื้อจัดจ้าง', 'พัสดุ', 'ซื้อจ้าง'],
       fetch: async () => {
         const { data: projects } = await supabase.from('school_projects').select('project_name, planned_amount, spent_amount, status, budget_allocations(budget_type, category_name)').eq('academic_year', currentYear);
