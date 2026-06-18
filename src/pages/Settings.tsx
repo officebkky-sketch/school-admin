@@ -572,6 +572,19 @@ export default function Settings() {
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
                 <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.13</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(18 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มระบบโมดูล <strong>เด็กในเขตพื้นที่บริการ (ทร.14/พฐ.03)</strong> นำเข้าข้อมูล จัดเรียงตามหมู่และ ก-ฮ พร้อมส่งออก พฐ.03 แนวนอน</li>
+                  <li>แก้ไขสิทธิ์ระบบเบิกค่าสาธารณูปโภค ให้ ผอ. และแอดมิน อนุมัติ/ลบรายการเบิกจ่ายของทุกคนได้สำเร็จ (แก้บั๊ก RLS บล็อก)</li>
+                  <li>ปิดช่องโหว่ความปลอดภัยบน Supabase: เปิด RLS ตารางจัดสรรงบประมาณ และจำกัดสิทธิ์ SELECT ตาราง <code>profiles</code> และ <code>settings</code> ให้เฉพาะคนที่ล็อกอินแล้วเท่านั้น</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.12</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(16 มิ.ย. 2569)</span>
                 </div>
