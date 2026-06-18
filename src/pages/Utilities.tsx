@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import { 
   Zap, 
   Droplets, 
@@ -31,6 +32,7 @@ interface UtilityItem {
 }
 
 export default function Utilities() {
+  const { user, profile } = useAuth();
   const [bills, setUtilities] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,6 +53,8 @@ export default function Utilities() {
   const [items, setItems] = useState<UtilityItem[]>([
     { meter_number: '', book_number: '', receipt_number: '', units_used: '', amount: '' }
   ]);
+
+  const isDirectorOrAdmin = profile?.role === 'director' || profile?.role === 'admin';
 
   const fetchUtilities = async () => {
     setLoading(true);
@@ -327,7 +331,7 @@ export default function Utilities() {
                       >
                         <Printer size={18} />
                       </button>
-                      {bill.status === 'pending' && (
+                      {bill.status === 'pending' && isDirectorOrAdmin && (
                         <button 
                           onClick={() => handleUpdateStatus(bill.id, 'approved')}
                           className="p-2 text-slate-400 hover:text-green-500 bg-slate-50 rounded-xl transition-all" 
@@ -336,7 +340,9 @@ export default function Utilities() {
                           <ShieldCheck size={18} />
                         </button>
                       )}
-                      <button onClick={() => handleDelete(bill.id)} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-xl transition-all" title="ลบรายการ"><Trash2 size={18} /></button>
+                      {(isDirectorOrAdmin || bill.created_by === user?.id) && (
+                        <button onClick={() => handleDelete(bill.id)} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-xl transition-all" title="ลบรายการ"><Trash2 size={18} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>

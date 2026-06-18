@@ -28,6 +28,7 @@ import Utilities from './pages/Utilities';
 import AICowork from './pages/AICowork';
 import ARLearning from './pages/ARLearning';
 import ARAdmin from './pages/ARAdmin';
+import ServiceArea from './pages/ServiceArea';
 import IdentityFooter from './components/IdentityFooter';
 
 import { 
@@ -60,12 +61,13 @@ import {
   CheckCircle2,
   XCircle,
   RefreshCw,
-  Gamepad2
+  Gamepad2,
+  MapPin
 } from 'lucide-react';
 
 const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area';
 
 function App() {
   const { user, profile, loading, signOut } = useAuth();
@@ -288,6 +290,7 @@ function App() {
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบริหารทั่วไป</div>
               {canAccessStudentAffairs && <SidebarItem icon={<Users size={20} />} label="ข้อมูลนักเรียน" active={activeTab === 'students'} onClick={() => setActiveTab('students')} />}
+              {canAccessStudentAffairs && <SidebarItem icon={<MapPin size={20} />} label="เด็กในเขตบริการ (ทร.14)" active={activeTab === 'service_area'} onClick={() => setActiveTab('service_area')} />}
               <SidebarItem icon={<Printer size={20} />} label="พิมพ์รายชื่อ" active={activeTab === 'custom_print'} onClick={() => setActiveTab('custom_print')} />
               {canAccessReports && <SidebarItem icon={<PieChart size={20} />} label="รายงาน LEC" active={activeTab === 'lec'} onClick={() => setActiveTab('lec')} />}
               <SidebarItem icon={<Clock size={20} />} label="บันทึกเวลาเรียน" active={activeTab === 'attendance'} onClick={() => setActiveTab('attendance')} />
@@ -349,6 +352,7 @@ function App() {
             {activeTab === 'ai_cowork' && 'AI Cowork'}
             {activeTab === 'ar_learning' && 'น้องชบาพาพิชิต (AR)'}
             {activeTab === 'ar_admin' && 'จัดการด่านบทเรียน น้องชบาพาพิชิต (AR)'}
+            {activeTab === 'service_area' && 'เด็กในเขตพื้นที่บริการ (ทร.14)'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -394,6 +398,7 @@ function App() {
             {activeTab === 'ai_cowork' && <AICowork />}
             {activeTab === 'ar_learning' && <ARLearning onBack={() => setActiveTab('academic')} />}
             {activeTab === 'ar_admin' && <ARAdmin onBack={() => setActiveTab('academic')} />}
+            {activeTab === 'service_area' && <ServiceArea />}
             
             <IdentityFooter schoolName={schoolName} schoolLogo={schoolLogo} localGovName={localGovName} />
           </div>
