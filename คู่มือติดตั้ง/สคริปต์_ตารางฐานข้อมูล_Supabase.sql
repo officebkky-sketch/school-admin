@@ -978,3 +978,78 @@ CREATE POLICY "Allow select for all authenticated users" ON public.ar_steps
 
 CREATE POLICY "Allow manage for all authenticated users" ON public.ar_steps
   FOR ALL USING (auth.uid() IS NOT NULL);
+
+
+-- ==========================================================
+-- 🧠 คลังสมองส่วนกลางโรงเรียน (Central RAG Knowledge Base)
+-- ==========================================================
+
+-- 1. เปิดการใช้งานส่วนขยาย pgvector สำหรับประมวลผล Semantic Vector
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 2. ตารางเก็บข้อมูล Chunk ของเอกสารและเวกเตอร์ความรู้ (Embedding)
+CREATE TABLE IF NOT EXISTS public.school_knowledge (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  document_name TEXT NOT NULL,
+  page_number INTEGER,
+  chunk_text TEXT NOT NULL,
+  embedding vector(768),                         -- เวกเตอร์ขนาด 768 มิติ สำหรับรุ่น gemini-embedding-2
+  created_by UUID REFERENCES auth.users,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. วิวสำหรับดึงรายชื่อเอกสารคลังสมองส่วนกลางที่ไม่ซ้ำ (Unique Knowledge Documents)
+CREATE OR REPLACE VIEW public.unique_knowledge_docs AS
+  SELECT DISTINCT ON (document_name)
+    id,
+    document_name,
+    created_at
+  FROM public.school_knowledge
+  ORDER BY document_name, created_at DESC;
+
+-- 4. ฟังก์ชันสำหรับการสืบค้นความรู้ด้วยเวกเตอร์ (Cosine Similarity Search)
+CREATE OR REPLACE FUNCTION public.match_knowledge(
+  query_embedding vector(768),
+  match_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id UUID,
+  document_name TEXT,
+  page_number INT,
+  chunk_text TEXT,
+  similarity float
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    school_knowledge.id,
+    school_knowledge.document_name,
+    school_knowledge.page_number,
+    school_knowledge.chunk_text,
+    1 - (school_knowledge.embedding <=> query_embedding) AS similarity
+  FROM public.school_knowledge
+  WHERE 1 - (school_knowledge.embedding <=> query_embedding) > match_threshold
+  ORDER BY school_knowledge.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
+
+-- 5. เปิดใช้งานระบบความปลอดภัย (RLS) สำหรับตารางความรู้
+ALTER TABLE public.school_knowledge ENABLE ROW LEVEL SECURITY;
+
+-- 6. กำหนดนโยบาย RLS ให้ทุกคนเข้าอ่านได้ และเฉพาะ admin/director จัดการข้อมูลได้
+CREATE POLICY "Everyone can view school_knowledge" ON public.school_knowledge
+  FOR SELECT USING (true);
+
+CREATE POLICY "Admins and directors can manage school_knowledge" ON public.school_knowledge
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('admin', 'director')
+    )
+  );
+
