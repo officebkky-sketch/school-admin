@@ -641,7 +641,7 @@ export default function Orders() {
           .order('doc_sequence', { ascending: false })
           .limit(1);
           
-        docSeq = (seqDocs && seqDocs.length > 0) ? (seqDocs[0].doc_sequence + 1) : 1;
+        docSeq = (seqDocs && seqDocs.length > 0) ? (Number(seqDocs[0].doc_sequence) + 1) : 1;
         finalOrderNumber = `${docSeq}/${docYear}`;
       }
 

@@ -538,7 +538,7 @@ export default function Memos() {
         .order('doc_sequence', { ascending: false })
         .limit(1);
       
-      const docSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const docSeq = (seqData && seqData.length > 0) ? (Number(seqData[0].doc_sequence) + 1) : 1;
       const finalMemoNumber = formData.memo_number.trim() || `${docSeq}/${docYear}`;
 
       const { data: insertedDocs, error } = await supabase.from('memos').insert([{ 

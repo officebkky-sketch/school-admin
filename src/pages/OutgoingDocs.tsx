@@ -747,7 +747,7 @@ ${userDetail}
         .order('doc_sequence', { ascending: false })
         .limit(1);
       
-      const docSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const docSeq = (seqData && seqData.length > 0) ? (Number(seqData[0].doc_sequence) + 1) : 1;
       const prefix = settings?.school_doc_prefix || 'ศธ 04225.016/';
       const finalDocNumber = formData.doc_number.trim() || `${prefix}${docSeq}`;
 
