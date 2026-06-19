@@ -52,7 +52,14 @@ export async function callGeminiAPI(
 
   let modelsToTry = await getAvailableModels(keys[0]);
   if (modelsToTry.length === 0) {
-    modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+    modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
+    ];
   }
 
   const apiVersions = ["v1beta", "v1"];
@@ -77,7 +84,7 @@ export async function callGeminiAPI(
           };
 
           if (systemInstruction) {
-            body.system_instruction = {
+            body.systemInstruction = {
               parts: [{ text: systemInstruction }]
             };
           }
@@ -157,7 +164,13 @@ export async function extractProjectsFromKnowledge(apiKey: string, academicYear:
     // 2. ระบบหมุนเวียน Model และ API Version เพื่อความเสถียร
     let modelsToTry = await getAvailableModels(apiKey);
     if (modelsToTry.length === 0) {
-      modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+      modelsToTry = [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+      ];
     }
     const apiVersions = ["v1beta", "v1"];
     const keys = getApiKeyList(apiKey);
@@ -267,25 +280,47 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) return [];
   
+  // โมเดลหลักที่แนะนำและเสถียรที่สุดในปัจจุบัน (เน้นรุ่น Lite ที่ให้โควต้ารายวันสูง 500 RPD เพื่อหลีกเลี่ยง Rate Limit)
+  const RECOMMENDED_MODELS = [
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
+  ];
+  
   for (const key of keys) {
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
       if (response.ok) {
         const data = await response.json();
-        return data.models
+        const apiModels: string[] = data.models
           ?.map((m: any) => m.name.replace('models/', ''))
-          .filter((name: string) => name.includes('gemini'))
-          .sort((a: string, b: string) => {
-            if (a.includes('flash') && !b.includes('flash')) return -1;
-            if (!a.includes('flash') && b.includes('flash')) return 1;
-            return b.localeCompare(a);
-          }) || [];
+          .filter((name: string) => name.includes('gemini')) || [];
+        
+        // คัดกรองเฉพาะโมเดลแนะนำที่มีอยู่ในสิทธิ์การใช้งาน
+        const available = RECOMMENDED_MODELS.filter(m => apiModels.includes(m));
+        if (available.length > 0) {
+          return available;
+        }
+
+        // หากไม่มีตัวแนะนำเลย ให้กรองเอาเฉพาะตัวมาตรฐานที่คีย์นั้นรองรับและเสถียร
+        return apiModels
+          .filter((name: string) => 
+            !name.includes('vision') && 
+            !name.includes('embedding') && 
+            !name.includes('lite') && 
+            !name.includes('latest') && 
+            (name.includes('1.5') || name.includes('2.0') || name.includes('2.5'))
+          )
+          .sort((a: string, b: string) => b.localeCompare(a));
       }
     } catch (e) {
       console.error(`List models error with key ${key.slice(0, 8)}...:`, e);
     }
   }
-  return [];
+  return RECOMMENDED_MODELS;
 }
 
 export interface DocumentInfo {
@@ -305,7 +340,13 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
     if (keys.length > 0) {
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
-        modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+        modelsToTry = [
+          "gemini-3.1-flash-lite",
+          "gemini-3.5-flash",
+          "gemini-2.5-flash",
+          "gemini-2.0-flash",
+          "gemini-1.5-flash"
+        ];
       }
 
       const apiVersions = ["v1beta", "v1"];
@@ -397,7 +438,13 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
 
   let modelsToTry = await getAvailableModels(apiKey);
   if (modelsToTry.length === 0) {
-    modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash"
+    ];
   }
 
   const apiVersions = ["v1beta", "v1"];

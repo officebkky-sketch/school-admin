@@ -26,6 +26,9 @@ import Procurement from './pages/Procurement';
 import FreeEducation from './pages/FreeEducation';
 import Utilities from './pages/Utilities';
 import AICowork from './pages/AICowork';
+import ARLearning from './pages/ARLearning';
+import ARAdmin from './pages/ARAdmin';
+import ServiceArea from './pages/ServiceArea';
 import IdentityFooter from './components/IdentityFooter';
 
 import { 
@@ -57,12 +60,14 @@ import {
   Download,
   CheckCircle2,
   XCircle,
-  RefreshCw
+  RefreshCw,
+  Gamepad2,
+  MapPin
 } from 'lucide-react';
 
 const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area';
 
 function App() {
   const { user, profile, loading, signOut } = useAuth();
@@ -270,6 +275,9 @@ function App() {
               {canAccessAcademic && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานวิชาการ</div>}
               {canAccessAcademic && <SidebarItem icon={<GraduationCap size={20} />} label="ระบบวิชาการ" active={activeTab === 'academic'} onClick={() => setActiveTab('academic')} />}
               {canAccessAcademic && <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />}
+              <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">สื่อการเรียนรู้ AR</div>
+              <SidebarItem icon={<Gamepad2 size={20} />} label="น้องชบาพาพิชิต(AR)" active={activeTab === 'ar_learning'} onClick={() => setActiveTab('ar_learning')} />
+              <SidebarItem icon={<SettingsIcon size={20} />} label="จัดการบทเรียน AR" active={activeTab === 'ar_admin'} onClick={() => setActiveTab('ar_admin')} />
 
               {canAccessFinance && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานงบประมาณ</div>}
               {canAccessFinance && <SidebarItem icon={<Wallet size={20} />} label="การเงิน/พัสดุ" active={activeTab === 'finance'} onClick={() => setActiveTab('finance')} />}
@@ -282,6 +290,7 @@ function App() {
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบริหารทั่วไป</div>
               {canAccessStudentAffairs && <SidebarItem icon={<Users size={20} />} label="ข้อมูลนักเรียน" active={activeTab === 'students'} onClick={() => setActiveTab('students')} />}
+              {canAccessStudentAffairs && <SidebarItem icon={<MapPin size={20} />} label="เด็กในเขตบริการ (ทร.14)" active={activeTab === 'service_area'} onClick={() => setActiveTab('service_area')} />}
               <SidebarItem icon={<Printer size={20} />} label="พิมพ์รายชื่อ" active={activeTab === 'custom_print'} onClick={() => setActiveTab('custom_print')} />
               {canAccessReports && <SidebarItem icon={<PieChart size={20} />} label="รายงาน LEC" active={activeTab === 'lec'} onClick={() => setActiveTab('lec')} />}
               <SidebarItem icon={<Clock size={20} />} label="บันทึกเวลาเรียน" active={activeTab === 'attendance'} onClick={() => setActiveTab('attendance')} />
@@ -308,7 +317,7 @@ function App() {
               Smart School Admin © 2026<br/>
               <span className="text-brand-primary">Phairot Makkaew & Gemini AI</span><br/>
               {schoolName}<br/>
-              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.1.6'}</span>
+              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.1.13'}</span>
             </p>
           </div>
         </div>
@@ -341,6 +350,9 @@ function App() {
             {activeTab === 'utilities' && 'ระบบเบิกค่าสาธารณูปโภค'}
             {activeTab === 'free_education' && 'ระบบจ่ายเงินเรียนฟรี (๑๕ ปี)'}
             {activeTab === 'ai_cowork' && 'AI Cowork'}
+            {activeTab === 'ar_learning' && 'น้องชบาพาพิชิต (AR)'}
+            {activeTab === 'ar_admin' && 'จัดการด่านบทเรียน น้องชบาพาพิชิต (AR)'}
+            {activeTab === 'service_area' && 'เด็กในเขตพื้นที่บริการ (ทร.14)'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -384,6 +396,9 @@ function App() {
             {activeTab === 'utilities' && <Utilities />}
             {activeTab === 'free_education' && <FreeEducation />}
             {activeTab === 'ai_cowork' && <AICowork />}
+            {activeTab === 'ar_learning' && <ARLearning onBack={() => setActiveTab('academic')} />}
+            {activeTab === 'ar_admin' && <ARAdmin onBack={() => setActiveTab('academic')} />}
+            {activeTab === 'service_area' && <ServiceArea />}
             
             <IdentityFooter schoolName={schoolName} schoolLogo={schoolLogo} localGovName={localGovName} />
           </div>

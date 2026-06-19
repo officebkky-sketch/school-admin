@@ -261,10 +261,10 @@ CREATE TABLE doc_assignments (
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Public profiles are viewable by everyone." ON profiles FOR SELECT USING (true);
+CREATE POLICY "Profiles are viewable by authenticated users only." ON profiles FOR SELECT USING (auth.uid() IS NOT NULL);
 CREATE POLICY "Users can update own profile." ON profiles FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "Settings are viewable by everyone." ON settings FOR SELECT USING (true);
+CREATE POLICY "Settings are viewable by authenticated users only." ON settings FOR SELECT USING (auth.uid() IS NOT NULL);
 CREATE POLICY "Only admins can update settings." ON settings FOR UPDATE USING (
   EXISTS (
     SELECT 1 FROM profiles 
@@ -368,7 +368,14 @@ CREATE TABLE IF NOT EXISTS utilities (
 
 ALTER TABLE utilities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Everyone can view utilities" ON utilities FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can manage utilities" ON utilities FOR ALL USING (auth.uid() = created_by);
+CREATE POLICY "Allow owners and admin/director to manage utilities" ON utilities
+  FOR ALL USING (
+    auth.uid() = created_by
+    OR EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
+    )
+  );
 
 -- Update Utilities to support units and multiple items
 ALTER TABLE utilities ADD COLUMN IF NOT EXISTS units_used NUMERIC(10, 2);
@@ -386,7 +393,14 @@ CREATE TABLE IF NOT EXISTS utility_items (
 
 ALTER TABLE utility_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Everyone can view utility_items" ON utility_items FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can manage utility_items" ON utility_items FOR ALL USING (auth.uid() IN (SELECT created_by FROM utilities WHERE id = utility_id));
+CREATE POLICY "Allow owners and admin/director to manage utility_items" ON utility_items
+  FOR ALL USING (
+    auth.uid() IN (SELECT created_by FROM utilities WHERE id = utility_id)
+    OR EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
+    )
+  );
 
 -- Add requester info to utilities
 ALTER TABLE utilities ADD COLUMN IF NOT EXISTS requester_name TEXT;
@@ -504,12 +518,16 @@ CREATE TABLE procurement_items (
 );
 
 -- เปิดใช้งานระบบความปลอดภัย (RLS)
+ALTER TABLE budget_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_transfers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procurement_projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procurement_items ENABLE ROW LEVEL SECURITY;
 
 -- สร้าง Policies
+CREATE POLICY "Everyone can view budget_allocations" ON budget_allocations FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can manage budget_allocations" ON budget_allocations FOR ALL USING (auth.uid() IS NOT NULL);
+
 CREATE POLICY "Everyone can view projects" ON school_projects FOR SELECT USING (true);
 CREATE POLICY "Authenticated users can manage projects" ON school_projects FOR ALL USING (auth.uid() IS NOT NULL);
 
@@ -875,3 +893,163 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE POLICY "Admins can update all profiles." ON profiles
   FOR UPDATE
   USING (public.is_admin());
+
+-- ==========================================================
+-- 📍 โมดูลเด็กในเขตพื้นที่บริการ (ทร.14/พฐ.03) - เพิ่มเติม 2026
+-- ==========================================================
+
+-- 1. ตารางเก็บข้อมูลเด็กในเขตพื้นที่บริการ
+CREATE TABLE IF NOT EXISTS public.service_area_students (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  school_id TEXT NOT NULL,                   -- รองรับระบบ Multi-school แยกรายโรงเรียน
+  national_id TEXT NOT NULL,                -- เลขประจำตัวประชาชน 13 หลัก
+  prefix TEXT,                              -- คำนำหน้า (เด็กชาย / เด็กหญิง)
+  first_name TEXT NOT NULL,                 -- ชื่อจริง
+  last_name TEXT NOT NULL,                  -- นามสกุล
+  gender TEXT,                              -- เพศ (ชาย / หญิง)
+  birth_date DATE,                          -- วันเกิด (YYYY-MM-DD)
+  age INTEGER,                              -- อายุ
+  nationality TEXT DEFAULT 'ไทย',            -- สัญชาติ
+  house_id TEXT,                            -- เลขรหัสประจำบ้าน
+  house_no TEXT,                            -- บ้านเลขที่
+  moo TEXT,                                 -- หมู่ที่
+  sub_district TEXT,                        -- ตำบล
+  district TEXT,                            -- อำเภอ
+  province TEXT,                            -- จังหวัด
+  father_name TEXT,                         -- ชื่อ-นามสกุลบิดา
+  father_nationality TEXT DEFAULT 'ไทย',     -- สัญชาติบิดา
+  mother_name TEXT,                         -- ชื่อ-นามสกุลมารดา
+  mother_nationality TEXT DEFAULT 'ไทย',     -- สัญชาติมารดา
+  move_in_date DATE,                        -- วันที่ย้ายเข้า (ถ้ามี)
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. สร้าง Index เพื่อเพิ่มความเร็วในการสืบค้นข้อมูลรายโรงเรียนและตามเลขบัตรประชาชน
+CREATE INDEX IF NOT EXISTS idx_service_area_school ON public.service_area_students(school_id);
+CREATE INDEX IF NOT EXISTS idx_service_area_national_id ON public.service_area_students(national_id);
+
+-- 3. เปิดใช้งาน Row Level Security (RLS) เพื่อความปลอดภัย
+ALTER TABLE public.service_area_students ENABLE ROW LEVEL SECURITY;
+
+-- 4. สร้างนโยบายการเข้าใช้งาน RLS ให้กับผู้ใช้งานที่ผ่านการยืนยันสิทธิ์แล้ว
+CREATE POLICY "Allow authenticated users to manage service area students" ON public.service_area_students
+  FOR ALL USING (auth.uid() IS NOT NULL);
+
+-- ==========================================================
+-- 🎮 โมดูลด่านสื่อการเรียนรู้ AR (น้องชบาพาพิชิต) - เพิ่มเติม
+-- ==========================================================
+
+-- 1. ตารางบทเรียน AR
+CREATE TABLE IF NOT EXISTS public.ar_lessons (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  school_id TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  is_public BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. ตารางขั้นตอนในบทเรียน AR
+CREATE TABLE IF NOT EXISTS public.ar_steps (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  lesson_id UUID REFERENCES public.ar_lessons(id) ON DELETE CASCADE,
+  step_order INTEGER NOT NULL,
+  step_text TEXT NOT NULL,
+  emoji TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. เปิดใช้งาน Row Level Security (RLS)
+ALTER TABLE public.ar_lessons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ar_steps ENABLE ROW LEVEL SECURITY;
+
+-- 4. สร้างนโยบายการใช้งาน RLS สำหรับ ar_lessons
+CREATE POLICY "Allow select for all authenticated users" ON public.ar_lessons
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow manage for creator and admin" ON public.ar_lessons
+  FOR ALL USING (auth.uid() IS NOT NULL);
+
+-- 5. สร้างนโยบายการใช้งาน RLS สำหรับ ar_steps
+CREATE POLICY "Allow select for all authenticated users" ON public.ar_steps
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Allow manage for all authenticated users" ON public.ar_steps
+  FOR ALL USING (auth.uid() IS NOT NULL);
+
+
+-- ==========================================================
+-- 🧠 คลังสมองส่วนกลางโรงเรียน (Central RAG Knowledge Base)
+-- ==========================================================
+
+-- 1. เปิดการใช้งานส่วนขยาย pgvector สำหรับประมวลผล Semantic Vector
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 2. ตารางเก็บข้อมูล Chunk ของเอกสารและเวกเตอร์ความรู้ (Embedding)
+CREATE TABLE IF NOT EXISTS public.school_knowledge (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  document_name TEXT NOT NULL,
+  page_number INTEGER,
+  chunk_text TEXT NOT NULL,
+  embedding vector(768),                         -- เวกเตอร์ขนาด 768 มิติ สำหรับรุ่น gemini-embedding-2
+  created_by UUID REFERENCES auth.users,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. วิวสำหรับดึงรายชื่อเอกสารคลังสมองส่วนกลางที่ไม่ซ้ำ (Unique Knowledge Documents)
+CREATE OR REPLACE VIEW public.unique_knowledge_docs AS
+  SELECT DISTINCT ON (document_name)
+    id,
+    document_name,
+    created_at
+  FROM public.school_knowledge
+  ORDER BY document_name, created_at DESC;
+
+-- 4. ฟังก์ชันสำหรับการสืบค้นความรู้ด้วยเวกเตอร์ (Cosine Similarity Search)
+CREATE OR REPLACE FUNCTION public.match_knowledge(
+  query_embedding vector(768),
+  match_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id UUID,
+  document_name TEXT,
+  page_number INT,
+  chunk_text TEXT,
+  similarity float
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    school_knowledge.id,
+    school_knowledge.document_name,
+    school_knowledge.page_number,
+    school_knowledge.chunk_text,
+    1 - (school_knowledge.embedding <=> query_embedding) AS similarity
+  FROM public.school_knowledge
+  WHERE 1 - (school_knowledge.embedding <=> query_embedding) > match_threshold
+  ORDER BY school_knowledge.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
+
+-- 5. เปิดใช้งานระบบความปลอดภัย (RLS) สำหรับตารางความรู้
+ALTER TABLE public.school_knowledge ENABLE ROW LEVEL SECURITY;
+
+-- 6. กำหนดนโยบาย RLS ให้ทุกคนเข้าอ่านได้ และเฉพาะ admin/director จัดการข้อมูลได้
+CREATE POLICY "Everyone can view school_knowledge" ON public.school_knowledge
+  FOR SELECT USING (true);
+
+CREATE POLICY "Admins and directors can manage school_knowledge" ON public.school_knowledge
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('admin', 'director')
+    )
+  );
+
