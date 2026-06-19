@@ -481,8 +481,9 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       // Slot Order Label / Translation Matcher
       const level = levels[currentLevelIndex];
       const matchingStep = level?.steps[slot.index - 1];
-      const hasTranslation = matchingStep?.step_text.includes(':') ?? false;
-      const slotLabel = hasTranslation ? matchingStep!.step_text.split(':')[1].trim() : 'ขั้นตอนที่';
+      const hasTranslation = matchingStep ? (matchingStep.step_text.includes(':') || matchingStep.step_text.includes('：')) : false;
+      const separator = matchingStep?.step_text.includes('：') ? '：' : ':';
+      const slotLabel = hasTranslation ? matchingStep!.step_text.split(separator)[1].trim() : 'ขั้นตอนที่';
 
       if (hasTranslation) {
         // Render slot with target translation text in the center
@@ -568,7 +569,9 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       ctx.font = "bold 13px Sarabun";
       ctx.textAlign = "center";
       
-      const cardText = card.text.includes(':') ? card.text.split(':')[0].trim() : card.text;
+      const hasCardTranslation = card.text.includes(':') || card.text.includes('：');
+      const cardSeparator = card.text.includes('：') ? '：' : ':';
+      const cardText = hasCardTranslation ? card.text.split(cardSeparator)[0].trim() : card.text;
       if (cardText.length > 14) {
         ctx.fillText(cardText.slice(0, 13) + "...", card.x + card.width / 2, card.y + card.height - 25);
       } else {
