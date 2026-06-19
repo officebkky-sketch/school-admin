@@ -140,7 +140,7 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       id: step.id,
       text: step.step_text,
       emoji: step.emoji,
-      correctOrder: step.step_order,
+      correctOrder: level.steps.findIndex(s => s.id === step.id) + 1,
       width: cardWidth,
       height: cardHeight,
       x: stepX + (idx * (cardWidth + spacing)),
@@ -480,7 +480,7 @@ export default function ARLearning({ onBack }: ARLearningProps) {
 
       // Slot Order Label / Translation Matcher
       const level = levels[currentLevelIndex];
-      const matchingStep = level?.steps.find(s => s.step_order === slot.index);
+      const matchingStep = level?.steps[slot.index - 1];
       const hasTranslation = matchingStep?.step_text.includes(':') ?? false;
       const slotLabel = hasTranslation ? matchingStep!.step_text.split(':')[1].trim() : 'ขั้นตอนที่';
 

@@ -91,6 +91,13 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
 
 3. หากหัวข้อเป็นเรื่อง "การจับคู่" (คำศัพท์ภาษาอังกฤษ-คำแปล, สมการคณิตศาสตร์-คำตอบ, สัญลักษณ์วิทยาศาสตร์-คำอธิบาย)
    - ให้ใช้โครงสร้าง "โจทย์/คำหลัก : คำตอบ/คำแปล" (มีเครื่องหมายโคลอน :) เช่น "Apple : แอปเปิ้ล" หรือ "3 x 5 : 15" หรือ "H2O : น้ำ"
+   - ตัวอย่างคำศัพท์ภาษาอังกฤษ-คำแปลภาษาไทย (4 ขั้นตอน):
+     [
+       {"step_order": 1, "step_text": "Fish : ปลา", "emoji": "🐟"},
+       {"step_order": 2, "step_text": "Cat : แมว", "emoji": "🐱"},
+       {"step_order": 3, "step_text": "Bird : นก", "emoji": "🐦"},
+       {"step_order": 4, "step_text": "Dog : สุนัข", "emoji": "🐶"}
+     ]
    - ตัวอย่างคณิตศาสตร์/วิทยาศาสตร์:
      [
        {"step_order": 1, "step_text": "2 + 5 : 7", "emoji": "➕"},
@@ -333,7 +340,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     const formattedSteps: ARStep[] = steps.map((s, idx) => ({
       id: generateUUID(),
       lesson_id: lessonId,
-      step_order: s.step_order,
+      step_order: idx + 1,
       step_text: s.step_text.trim(),
       emoji: s.emoji || '💡'
     }));
