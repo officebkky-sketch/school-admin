@@ -276,6 +276,19 @@ export async function getAICoworkResponse(params: {
 }): Promise<AICoworkResponse> {
   const { userMsg, messages, apiKey, currentYear, searchSource, userId } = params;
 
+  let schoolName = "โรงเรียน";
+  try {
+    const { data: settingsData } = await supabase
+      .from('settings')
+      .select('school_name')
+      .maybeSingle();
+    if (settingsData && settingsData.school_name) {
+      schoolName = settingsData.school_name;
+    }
+  } catch (err) {
+    console.error("Error loading school name for AI:", err);
+  }
+
   let searchQuery = userMsg;
 
   // 1. Query Condensation: หากมีประวัติการสนทนา ให้สร้าง Standalone Query
@@ -635,7 +648,7 @@ ${JSON.stringify(data, null, 2)}`);
   }
 
   // 8. สร้าง Prompt และเรียก AI
-  const systemInstruction = `คุณคือ "น้องชบา" ผู้ช่วยอัจฉริยะโรงเรียนบ้านควนโคกยา
+  const systemInstruction = `คุณคือ "น้องชบา" ผู้ช่วยอัจฉริยะ${schoolName}
   บุคลิก: สุภาพ ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู"
   กฎการตอบ:
   - ตอบเฉพาะความจริงจากบริบทที่ให้เท่านั้น ห้ามมโนข้อมูลเอง

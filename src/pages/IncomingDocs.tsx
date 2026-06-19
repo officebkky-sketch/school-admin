@@ -47,7 +47,7 @@ export default function IncomingDocs() {
         .order('doc_sequence', { ascending: false })
         .limit(1);
       
-      const nextSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const nextSeq = (seqData && seqData.length > 0) ? (Number(seqData[0].doc_sequence) + 1) : 1;
       setFormData(prev => ({
         ...prev,
         doc_number: nextSeq.toString(),
@@ -359,7 +359,7 @@ export default function IncomingDocs() {
         .order('doc_sequence', { ascending: false })
         .limit(1);
       
-      const docSeq = (seqData && seqData.length > 0) ? (seqData[0].doc_sequence + 1) : 1;
+      const docSeq = (seqData && seqData.length > 0) ? (Number(seqData[0].doc_sequence) + 1) : 1;
       const finalDocNum = formData.doc_number.trim() || docSeq.toString();
 
       const extraData = {
