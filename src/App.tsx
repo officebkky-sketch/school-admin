@@ -276,8 +276,19 @@ function App() {
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">นวัตกรรม AI</div>
               <SidebarItem icon={<Bot size={20} />} label="AI Cowork" active={activeTab === 'ai_cowork'} onClick={() => setActiveTab('ai_cowork')} />
 
-              {canAccessAcademic && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานวิชาการ</div>}
-              {canAccessAcademic && <SidebarItem icon={<GraduationCap size={20} />} label="ระบบวิชาการ" active={activeTab === 'academic'} onClick={() => setActiveTab('academic')} />}
+              {canAccessAcademic && (
+                <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">
+                  {isTeacher && !extraPerms.access_academic ? "งานแผนการสอน" : "งานวิชาการ"}
+                </div>
+              )}
+              {canAccessAcademic && (
+                <SidebarItem 
+                  icon={<GraduationCap size={20} />} 
+                  label={isTeacher && !extraPerms.access_academic ? "ส่งแผนการสอน" : "ระบบวิชาการ"} 
+                  active={activeTab === 'academic'} 
+                  onClick={() => setActiveTab('academic')} 
+                />
+              )}
               {canAccessLibrary && <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />}
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">สื่อการเรียนรู้ AR</div>
               <SidebarItem icon={<Gamepad2 size={20} />} label="น้องชบาพาพิชิต(AR)" active={activeTab === 'ar_learning'} onClick={() => setActiveTab('ar_learning')} />
@@ -349,7 +360,7 @@ function App() {
             {activeTab === 'wfh' && 'ลงเวลาปฏิบัติงาน (งานบุคคล)'}
             {activeTab === 'settings' && 'ตั้งค่าระบบ'}
             {activeTab === 'users' && 'จัดการสิทธิ์ผู้ใช้งาน'}
-            {activeTab === 'academic' && 'งานวิชาการ'}
+            {activeTab === 'academic' && (isTeacher && !extraPerms.access_academic ? 'ส่งแผนการสอน' : 'งานวิชาการ')}
             {activeTab === 'finance' && 'งานงบประมาณ (การเงิน/พัสดุ)'}
             {activeTab === 'utilities' && 'ระบบเบิกค่าสาธารณูปโภค'}
             {activeTab === 'free_education' && 'ระบบจ่ายเงินเรียนฟรี (๑๕ ปี)'}
