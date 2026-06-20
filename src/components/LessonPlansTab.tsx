@@ -46,6 +46,7 @@ type LessonPlan = {
   created_at: string;
   profiles?: {
     display_name: string;
+    signature_url?: string;
   };
 };
 
