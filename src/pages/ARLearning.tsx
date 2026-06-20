@@ -49,6 +49,9 @@ export default function ARLearning({ onBack }: ARLearningProps) {
   const requestRef = useRef<number | null>(null);
   const levelRef = useRef<number>(0);
   levelRef.current = currentLevelIndex;
+  
+  const levelsRef = useRef<ARLesson[]>([]);
+  levelsRef.current = levels;
 
   useEffect(() => {
     // 1. Fetch Lessons Data
@@ -140,7 +143,7 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       id: step.id,
       text: step.step_text,
       emoji: step.emoji,
-      correctOrder: step.step_order,
+      correctOrder: level.steps.findIndex(s => s.id === step.id) + 1,
       width: cardWidth,
       height: cardHeight,
       x: stepX + (idx * (cardWidth + spacing)),
@@ -479,10 +482,11 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       ctx.restore();
 
       // Slot Order Label / Translation Matcher
-      const level = levels[currentLevelIndex];
-      const matchingStep = level?.steps.find(s => s.step_order === slot.index);
-      const hasTranslation = matchingStep?.step_text.includes(':') ?? false;
-      const slotLabel = hasTranslation ? matchingStep!.step_text.split(':')[1].trim() : 'ขั้นตอนที่';
+      const level = levelsRef.current[levelRef.current];
+      const matchingStep = level?.steps[slot.index - 1];
+      const hasTranslation = matchingStep ? (matchingStep.step_text.includes(':') || matchingStep.step_text.includes('：')) : false;
+      const separator = matchingStep?.step_text.includes('：') ? '：' : ':';
+      const slotLabel = hasTranslation ? matchingStep!.step_text.split(separator)[1].trim() : 'ขั้นตอนที่';
 
       if (hasTranslation) {
         // Render slot with target translation text in the center
@@ -568,7 +572,9 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       ctx.font = "bold 13px Sarabun";
       ctx.textAlign = "center";
       
-      const cardText = card.text.includes(':') ? card.text.split(':')[0].trim() : card.text;
+      const hasCardTranslation = card.text.includes(':') || card.text.includes('：');
+      const cardSeparator = card.text.includes('：') ? '：' : ':';
+      const cardText = hasCardTranslation ? card.text.split(cardSeparator)[0].trim() : card.text;
       if (cardText.length > 14) {
         ctx.fillText(cardText.slice(0, 13) + "...", card.x + card.width / 2, card.y + card.height - 25);
       } else {

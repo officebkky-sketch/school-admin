@@ -36,6 +36,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [steps, setSteps] = useState<Omit<ARStep, 'id'>[]>([]);
+  const [lessonMode, setLessonMode] = useState<'sequencing' | 'matching'>('sequencing');
   
   // Save loading state
   const [saveLoading, setSaveLoading] = useState(false);
@@ -91,6 +92,13 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
 
 3. หากหัวข้อเป็นเรื่อง "การจับคู่" (คำศัพท์ภาษาอังกฤษ-คำแปล, สมการคณิตศาสตร์-คำตอบ, สัญลักษณ์วิทยาศาสตร์-คำอธิบาย)
    - ให้ใช้โครงสร้าง "โจทย์/คำหลัก : คำตอบ/คำแปล" (มีเครื่องหมายโคลอน :) เช่น "Apple : แอปเปิ้ล" หรือ "3 x 5 : 15" หรือ "H2O : น้ำ"
+   - ตัวอย่างคำศัพท์ภาษาอังกฤษ-คำแปลภาษาไทย (4 ขั้นตอน):
+     [
+       {"step_order": 1, "step_text": "Fish : ปลา", "emoji": "🐟"},
+       {"step_order": 2, "step_text": "Cat : แมว", "emoji": "🐱"},
+       {"step_order": 3, "step_text": "Bird : นก", "emoji": "🐦"},
+       {"step_order": 4, "step_text": "Dog : สุนัข", "emoji": "🐶"}
+     ]
    - ตัวอย่างคณิตศาสตร์/วิทยาศาสตร์:
      [
        {"step_order": 1, "step_text": "2 + 5 : 7", "emoji": "➕"},
@@ -122,6 +130,10 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
       if (res && res.text) {
         const parsedSteps = JSON.parse(res.text);
         if (Array.isArray(parsedSteps)) {
+          // Detect mode from generated steps
+          const isMatching = parsedSteps.some(s => s.step_text && (s.step_text.includes(':') || s.step_text.includes('：')));
+          setLessonMode(isMatching ? 'matching' : 'sequencing');
+          
           // อัปเดตขั้นตอนในหน้าจอ
           setSteps(parsedSteps.map(s => ({
             step_order: s.step_order,
@@ -200,6 +212,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     setTitle('');
     setDescription('');
     setIsPublic(true);
+    setLessonMode('sequencing');
     setSteps([
       { step_order: 1, step_text: '', emoji: '💡' },
       { step_order: 2, step_text: '', emoji: '💡' },
@@ -221,6 +234,11 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     setTitle(lesson.title);
     setDescription(lesson.description);
     setIsPublic(lesson.is_public);
+    
+    // Detect lesson mode based on steps
+    const isMatchingType = lesson.steps.some(s => s.step_text && (s.step_text.includes(':') || s.step_text.includes('：')));
+    setLessonMode(isMatchingType ? 'matching' : 'sequencing');
+
     // Sort steps by order to ensure it matches UI
     const sortedSteps = [...lesson.steps].sort((a, b) => a.step_order - b.step_order);
     setSteps(sortedSteps.map(s => ({
@@ -333,7 +351,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     const formattedSteps: ARStep[] = steps.map((s, idx) => ({
       id: generateUUID(),
       lesson_id: lessonId,
-      step_order: s.step_order,
+      step_order: idx + 1,
       step_text: s.step_text.trim(),
       emoji: s.emoji || '💡'
     }));
@@ -434,6 +452,34 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
                   </button>
                 </div>
                 <span className="text-[10px] text-slate-500">✨ พิมพ์ชื่อหัวข้อด่านแล้วกดปุ่มหุ่นยนต์ ให้น้องชบาช่วยคิดขั้นตอนย่อยได้ทันที!</span>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-slate-400 uppercase">รูปแบบบทเรียน / ด่าน</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-xl border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setLessonMode('sequencing')}
+                    className={`py-2 rounded-lg text-xs font-bold transition duration-200 cursor-pointer ${
+                      lessonMode === 'sequencing' 
+                        ? 'bg-cyan-500 text-slate-950 shadow-md' 
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    เรียงตามลำดับขั้นตอน
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLessonMode('matching')}
+                    className={`py-2 rounded-lg text-xs font-bold transition duration-200 cursor-pointer ${
+                      lessonMode === 'matching' 
+                        ? 'bg-cyan-500 text-slate-950 shadow-md' 
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    เกมจับคู่คำถาม-คำตอบ
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -542,14 +588,59 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
 
                     {/* Step description */}
                     <div className="flex flex-col gap-1 flex-grow w-full">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">คำอธิบายขั้นตอนการแก้ปัญหา *</label>
-                      <input 
-                        type="text"
-                        value={step.step_text}
-                        onChange={(e) => handleUpdateStep(index, 'step_text', e.target.value)}
-                        placeholder={`รายละเอียดขั้นตอนที่ ${step.step_order} เช่น ลวกเส้นในน้ำเดือด`}
-                        className="bg-slate-900 border border-white/10 focus:border-cyan-400 focus:outline-none rounded-xl px-4 py-2.5 text-white transition w-full"
-                      />
+                      {lessonMode === 'sequencing' ? (
+                        <>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">คำอธิบายขั้นตอนการแก้ปัญหา *</label>
+                          <input 
+                            type="text"
+                            value={step.step_text}
+                            onChange={(e) => handleUpdateStep(index, 'step_text', e.target.value)}
+                            placeholder={`รายละเอียดขั้นตอนที่ ${step.step_order} เช่น ลวกเส้นในน้ำเดือด`}
+                            className="bg-slate-900 border border-white/10 focus:border-cyan-400 focus:outline-none rounded-xl px-4 py-2.5 text-white transition w-full"
+                          />
+                        </>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                          <div className="flex flex-col gap-1 w-full">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">โจทย์ / คำถาม (แสดงบนการ์ด) *</label>
+                            <input 
+                              type="text"
+                              value={step.step_text.includes(':') || step.step_text.includes('：') 
+                                ? step.step_text.split(step.step_text.includes('：') ? '：' : ':')[0].trim() 
+                                : step.step_text}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const sep = step.step_text.includes('：') ? '：' : ':';
+                                const right = (step.step_text.includes(':') || step.step_text.includes('：'))
+                                  ? step.step_text.split(sep)[1].trim() 
+                                  : '';
+                                handleUpdateStep(index, 'step_text', `${val} : ${right}`);
+                              }}
+                              placeholder="เช่น Apple หรือ 3 x 5"
+                              className="bg-slate-900 border border-white/10 focus:border-cyan-400 focus:outline-none rounded-xl px-4 py-2.5 text-white transition w-full"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1 w-full">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">คำแปล / คำตอบ (แสดงบนเป้าหมาย) *</label>
+                            <input 
+                              type="text"
+                              value={step.step_text.includes(':') || step.step_text.includes('：') 
+                                ? step.step_text.split(step.step_text.includes('：') ? '：' : ':')[1].trim() 
+                                : ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const sep = step.step_text.includes('：') ? '：' : ':';
+                                const left = (step.step_text.includes(':') || step.step_text.includes('：'))
+                                  ? step.step_text.split(sep)[0].trim() 
+                                  : step.step_text;
+                                handleUpdateStep(index, 'step_text', `${left} : ${val}`);
+                              }}
+                              placeholder="เช่น แอปเปิ้ล หรือ 15"
+                              className="bg-slate-900 border border-white/10 focus:border-cyan-400 focus:outline-none rounded-xl px-4 py-2.5 text-white transition w-full"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Remove button */}
