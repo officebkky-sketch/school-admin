@@ -731,6 +731,36 @@ ${religionStr}
           return `จำนวนนักเรียนปัจจุบันทั้งหมดในปีการศึกษา ${currentYear}: ${count} คน`;
         }
       }
+    },
+    {
+      keys: ['แผนการสอน', 'ส่งแผน', 'แผนสอน', 'ตรวจแผน'],
+      fetch: async () => {
+        const { data, error } = await supabase
+          .from('lesson_plans')
+          .select('title, subject_code, subject_name, class_level, term, status, academic_comments, director_comments, created_at, profiles(display_name)');
+        
+        if (error) {
+          console.error('[LINE WEBHOOK] Error fetching lesson plans:', error);
+          return `เกิดข้อผิดพลาดในการดึงข้อมูลแผนการสอนค่ะ`;
+        }
+
+        if (data && data.length > 0) {
+          const listText = data.map((p: any, idx: number) => {
+            const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString('th-TH') : '-';
+            let statusText = '';
+            if (p.status === 'Draft') statusText = 'แบบร่าง';
+            else if (p.status === 'Pending_Academic') statusText = 'รอวิชาการตรวจ';
+            else if (p.status === 'Rejected_by_Academic') statusText = 'วิชาการส่งแก้ไข';
+            else if (p.status === 'Pending_Director') statusText = 'เสนอ ผอ. อนุมัติ';
+            else if (p.status === 'Rejected_by_Director') statusText = 'ผอ. ส่งแก้ไข';
+            else if (p.status === 'Approved') statusText = 'อนุมัติแล้ว 🟢';
+            
+            return `${idx + 1}. แผน: "${p.title}" (${p.subject_code} ${p.subject_name} ชั้น ${p.class_level})\n• ครูผู้สอน: ${p.profiles?.display_name || 'ไม่ระบุ'}\n• สถานะ: ${statusText} (ภาคเรียน: ${p.term})\n• ส่งเมื่อ: ${dateStr}`;
+          }).join('\n\n');
+          return `ข้อมูลสถานะการส่งแผนการสอนในระบบล่าสุด:\n\n${listText}`;
+        }
+        return `ยังไม่มีข้อมูลการส่งแผนการสอนในระบบสำหรับปีการศึกษานี้ค่ะ`;
+      }
     }
   ];
 

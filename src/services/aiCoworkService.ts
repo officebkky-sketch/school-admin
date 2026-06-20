@@ -206,6 +206,14 @@ export const DEFAULT_SCHEMA_MAP: Record<string, { description: string; columns: 
   procurement_items: {
     description: "รายการวัสดุและอุปกรณ์ที่จัดซื้อภายใต้โครงการจัดซื้อจัดจ้างต่าง ๆ",
     columns: ["id", "procurement_id", "item_name", "quantity", "unit", "price_per_unit", "total_price"]
+  },
+  lesson_plans: {
+    description: "ข้อมูลและสถานะการส่งแผนการสอนหรือแผนการจัดการเรียนรู้ของครูในโรงเรียน",
+    columns: ["id", "teacher_id", "title", "subject_code", "subject_name", "class_level", "term", "file_url", "status", "academic_comments", "director_comments"]
+  },
+  lesson_plan_logs: {
+    description: "ประวัติการส่งและอนุมัติแก้ไขแผนการสอนย้อนหลัง",
+    columns: ["id", "lesson_plan_id", "actor_id", "action", "comments", "created_at"]
   }
 };
 
@@ -236,8 +244,9 @@ export async function planDatabaseQueries(
   2. หากถามถึง "พัสดุ" "จัดซื้อ" หรือ "รายการของ" ต้องเลือกตาราง procurement_projects หรือ procurement_items
   3. หากถามถึง "นักเรียน" "คน" หรือ "รายชื่อ" ต้องเลือกตาราง students
   4. หากถามถึง "สถิติ" "มาเรียน" หรือ "ขาดลา" ต้องเลือกตาราง attendance
-  5. หากตารางมีคอลัมน์ academic_year ให้ใส่ฟิลเตอร์กรองปี "${academicYear}" เสมอ เว้นแต่ผู้ใช้จะระบุปีอื่น
-  6. รูปแบบ JSON: { "queries": [{ "table": "...", "select": "*", "filters": [{"column": "...", "operator": "eq", "value": "..."}] }], "need_rag": boolean }`;
+  5. หากถามถึง "แผนการสอน" หรือ "ส่งแผน" หรือ "ตรวจแผน" ต้องเลือกตาราง lesson_plans
+  6. หากตารางมีคอลัมน์ academic_year ให้ใส่ฟิลเตอร์กรองปี "${academicYear}" เสมอ เว้นแต่ผู้ใช้จะระบุปีอื่น
+  7. รูปแบบ JSON: { "queries": [{ "table": "...", "select": "*", "filters": [{"column": "...", "operator": "eq", "value": "..."}] }], "need_rag": boolean }`;
 
   const prompt = `คำถามของผู้ใช้: "${message}"`;
 

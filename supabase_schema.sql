@@ -1132,5 +1132,89 @@ END;
 $$;
 
 
+-- ==========================================================
+-- 📝 โมดูลส่งแผนการสอน (Lesson Plans & Activity Logs) - เพิ่มเติม 2026
+-- ==========================================================
 
+-- 1. ตารางเก็บข้อมูลแผนการสอน
+CREATE TABLE IF NOT EXISTS public.lesson_plans (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    teacher_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    title TEXT NOT NULL,                                           -- หัวข้อ/ชื่อแผนการสอน
+    subject_code VARCHAR(20) NOT NULL,                             -- รหัสวิชา (เช่น ท๑๑๑๐๑)
+    subject_name VARCHAR(100) NOT NULL,                            -- ชื่อวิชา (เช่น ภาษาไทย)
+    class_level VARCHAR(50) NOT NULL,                              -- ระดับชั้น (เช่น ประถมศึกษาปีที่ ๑)
+    term VARCHAR(10) NOT NULL,                                     -- ภาคเรียน/ปีการศึกษา (เช่น ๑/๒๕๖๙)
+    file_url TEXT NOT NULL,                                        -- ลิงก์ไฟล์ PDF แผนการสอน (Supabase Storage)
+    
+    -- ระบบตรวจสอบและอนุมัติ
+    status VARCHAR(30) DEFAULT 'Draft' NOT NULL,                   -- Draft, Pending_Academic, Rejected_by_Academic, Pending_Director, Rejected_by_Director, Approved
+    academic_comments TEXT,                                        -- บันทึกความเห็นจากหัวหน้าวิชาการ
+    academic_reviewed_by UUID REFERENCES auth.users(id),            -- ผู้ตรวจสอบวิชาการ
+    academic_reviewed_at TIMESTAMP WITH TIME ZONE,
+    
+    director_comments TEXT,                                        -- บันทึกข้อสั่งการ/ความเห็นจาก ผอ.
+    director_approved_by UUID REFERENCES auth.users(id),           -- ผอ. ผู้อนุมัติ
+    director_approved_at TIMESTAMP WITH TIME ZONE,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
+-- 2. ตารางเก็บประวัติกิจกรรมอนุมัติแผนการสอน
+CREATE TABLE IF NOT EXISTS public.lesson_plan_logs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    lesson_plan_id UUID REFERENCES public.lesson_plans(id) ON DELETE CASCADE NOT NULL,
+    actor_id UUID REFERENCES auth.users(id) NOT NULL,
+    action VARCHAR(50) NOT NULL,                                   -- 'create', 'submit', 'academic_reject', 'academic_propose', 'director_reject', 'approve'
+    comments TEXT,                                                 -- ข้อความอ้างอิงในกิจกรรมนั้นๆ
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 3. อินเด็กซ์เพิ่มความเร็ว
+CREATE INDEX IF NOT EXISTS idx_lesson_plans_teacher ON public.lesson_plans(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_lesson_plans_status ON public.lesson_plans(status);
+
+-- 4. ตั้งค่า RLS (Row Level Security)
+ALTER TABLE public.lesson_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lesson_plan_logs ENABLE ROW LEVEL SECURITY;
+
+-- 5. สร้างนโยบาย RLS สำหรับ lesson_plans
+DROP POLICY IF EXISTS "Allow teachers to manage their own plans" ON public.lesson_plans;
+CREATE POLICY "Allow teachers to manage their own plans" ON public.lesson_plans
+  FOR ALL USING (auth.uid() = teacher_id);
+
+DROP POLICY IF EXISTS "Allow academic staff to view all plans" ON public.lesson_plans;
+CREATE POLICY "Allow academic staff to view all plans" ON public.lesson_plans
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Allow academic staff to update review status" ON public.lesson_plans;
+CREATE POLICY "Allow academic staff to update review status" ON public.lesson_plans
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+-- 6. สร้างนโยบาย RLS สำหรับ lesson_plan_logs
+DROP POLICY IF EXISTS "Allow all users to view logs" ON public.lesson_plan_logs;
+CREATE POLICY "Allow all users to view logs" ON public.lesson_plan_logs
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Allow users to insert logs" ON public.lesson_plan_logs;
+CREATE POLICY "Allow users to insert logs" ON public.lesson_plan_logs
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);

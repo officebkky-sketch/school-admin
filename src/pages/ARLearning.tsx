@@ -49,6 +49,9 @@ export default function ARLearning({ onBack }: ARLearningProps) {
   const requestRef = useRef<number | null>(null);
   const levelRef = useRef<number>(0);
   levelRef.current = currentLevelIndex;
+  
+  const levelsRef = useRef<ARLesson[]>([]);
+  levelsRef.current = levels;
 
   useEffect(() => {
     // 1. Fetch Lessons Data
@@ -479,7 +482,7 @@ export default function ARLearning({ onBack }: ARLearningProps) {
       ctx.restore();
 
       // Slot Order Label / Translation Matcher
-      const level = levels[currentLevelIndex];
+      const level = levelsRef.current[levelRef.current];
       const matchingStep = level?.steps[slot.index - 1];
       const hasTranslation = matchingStep ? (matchingStep.step_text.includes(':') || matchingStep.step_text.includes('：')) : false;
       const separator = matchingStep?.step_text.includes('：') ? '：' : ':';

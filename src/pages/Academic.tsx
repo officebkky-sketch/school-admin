@@ -12,9 +12,11 @@ import {
   Settings as SettingsIcon,
   RefreshCcw,
   BookMarked,
-  Save
+  Save,
+  FileText
 } from 'lucide-react';
 import Modal from '../components/Modal';
+import LessonPlansTab from '../components/LessonPlansTab';
 
 type Subject = {
   id: string;
@@ -27,7 +29,7 @@ type Subject = {
 };
 
 export default function Academic() {
-  const [activeSubTab, setActiveSubTab] = useState<'subjects' | 'assignments' | 'timetable'>('subjects');
+  const [activeSubTab, setActiveSubTab] = useState<'lesson_plans' | 'subjects' | 'assignments' | 'timetable'>('lesson_plans');
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -107,10 +109,13 @@ export default function Academic() {
     <div className="space-y-8">
       {/* Tab Navigation */}
       <div className="flex flex-wrap gap-2 bg-white/50 p-2 rounded-[32px] border border-slate-200 w-fit">
+        <TabBtn active={activeSubTab === 'lesson_plans'} icon={<FileText size={18} />} label="ส่งแผนการสอน" onClick={() => setActiveSubTab('lesson_plans')} />
         <TabBtn active={activeSubTab === 'subjects'} icon={<BookMarked size={18} />} label="ทะเบียนวิชา" onClick={() => setActiveSubTab('subjects')} />
         <TabBtn active={activeSubTab === 'assignments'} icon={<UserCheck size={18} />} label="มอบหมายงานสอน" onClick={() => setActiveSubTab('assignments')} />
         <TabBtn active={activeSubTab === 'timetable'} icon={<Calendar size={18} />} label="ตารางเรียน/สอน" onClick={() => setActiveSubTab('timetable')} />
       </div>
+
+      {activeSubTab === 'lesson_plans' && <LessonPlansTab />}
 
       {activeSubTab === 'subjects' && (
         <div className="space-y-6">
@@ -164,7 +169,7 @@ export default function Academic() {
         </div>
       )}
 
-      {activeSubTab !== 'subjects' && (
+      {(activeSubTab === 'assignments' || activeSubTab === 'timetable') && (
         <div className="bg-white rounded-[40px] p-20 text-center border border-slate-100 shadow-sm">
           <RefreshCcw className="mx-auto text-blue-200 mb-4 animate-pulse" size={64} />
           <h4 className="text-xl font-bold text-slate-800">ระบบอัจฉริยะกำลังอยู่ในการพัฒนา</h4>

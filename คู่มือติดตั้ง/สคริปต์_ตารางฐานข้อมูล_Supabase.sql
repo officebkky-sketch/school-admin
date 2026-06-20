@@ -261,10 +261,10 @@ CREATE TABLE doc_assignments (
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Profiles are viewable by authenticated users only." ON profiles FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "Public profiles are viewable by everyone." ON profiles FOR SELECT USING (true);
 CREATE POLICY "Users can update own profile." ON profiles FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "Settings are viewable by authenticated users only." ON settings FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE POLICY "Settings are viewable by everyone." ON settings FOR SELECT USING (true);
 CREATE POLICY "Only admins can update settings." ON settings FOR UPDATE USING (
   EXISTS (
     SELECT 1 FROM profiles 
@@ -368,14 +368,7 @@ CREATE TABLE IF NOT EXISTS utilities (
 
 ALTER TABLE utilities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Everyone can view utilities" ON utilities FOR SELECT USING (true);
-CREATE POLICY "Allow owners and admin/director to manage utilities" ON utilities
-  FOR ALL USING (
-    auth.uid() = created_by
-    OR EXISTS (
-      SELECT 1 FROM profiles
-      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
-    )
-  );
+CREATE POLICY "Authenticated users can manage utilities" ON utilities FOR ALL USING (auth.uid() = created_by);
 
 -- Update Utilities to support units and multiple items
 ALTER TABLE utilities ADD COLUMN IF NOT EXISTS units_used NUMERIC(10, 2);
@@ -393,14 +386,7 @@ CREATE TABLE IF NOT EXISTS utility_items (
 
 ALTER TABLE utility_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Everyone can view utility_items" ON utility_items FOR SELECT USING (true);
-CREATE POLICY "Allow owners and admin/director to manage utility_items" ON utility_items
-  FOR ALL USING (
-    auth.uid() IN (SELECT created_by FROM utilities WHERE id = utility_id)
-    OR EXISTS (
-      SELECT 1 FROM profiles
-      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
-    )
-  );
+CREATE POLICY "Authenticated users can manage utility_items" ON utility_items FOR ALL USING (auth.uid() IN (SELECT created_by FROM utilities WHERE id = utility_id));
 
 -- Add requester info to utilities
 ALTER TABLE utilities ADD COLUMN IF NOT EXISTS requester_name TEXT;
@@ -518,16 +504,12 @@ CREATE TABLE procurement_items (
 );
 
 -- เปิดใช้งานระบบความปลอดภัย (RLS)
-ALTER TABLE budget_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_transfers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procurement_projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE procurement_items ENABLE ROW LEVEL SECURITY;
 
 -- สร้าง Policies
-CREATE POLICY "Everyone can view budget_allocations" ON budget_allocations FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can manage budget_allocations" ON budget_allocations FOR ALL USING (auth.uid() IS NOT NULL);
-
 CREATE POLICY "Everyone can view projects" ON school_projects FOR SELECT USING (true);
 CREATE POLICY "Authenticated users can manage projects" ON school_projects FOR ALL USING (auth.uid() IS NOT NULL);
 
@@ -539,6 +521,7 @@ CREATE POLICY "Authenticated users can manage procurement" ON procurement_projec
 
 CREATE POLICY "Everyone can view items" ON procurement_items FOR SELECT USING (true);
 CREATE POLICY "Authenticated users can manage items" ON procurement_items FOR ALL USING (auth.uid() IS NOT NULL);
+
 
 -- ==========================================
 -- 17. Dashboard Stats RPC Function
@@ -894,6 +877,7 @@ CREATE POLICY "Admins can update all profiles." ON profiles
   FOR UPDATE
   USING (public.is_admin());
 
+
 -- ==========================================================
 -- 📍 โมดูลเด็กในเขตพื้นที่บริการ (ทร.14/พฐ.03) - เพิ่มเติม 2026
 -- ==========================================================
@@ -1053,3 +1037,184 @@ CREATE POLICY "Admins and directors can manage school_knowledge" ON public.schoo
     )
   );
 
+
+-- ==========================================================
+-- 📘 ตารางทะเบียนวิชาเรียน (subjects) - เพิ่มเติมสำหรับโมดูลงานวิชาการ
+-- ==========================================================
+CREATE TABLE IF NOT EXISTS public.subjects (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  code TEXT NOT NULL,                         -- รหัสวิชา เช่น ท11101
+  name TEXT NOT NULL,                         -- ชื่อวิชา เช่น ภาษาไทย
+  credits NUMERIC(3, 1) DEFAULT 0.5,           -- หน่วยกิต เช่น 0.5, 1.0
+  type TEXT DEFAULT 'พื้นฐาน',                 -- ประเภทวิชา (พื้นฐาน / เพิ่มเติม)
+  class_level TEXT NOT NULL,                  -- ระดับชั้น เช่น ป.1, ม.1
+  academic_year TEXT DEFAULT '2569',          -- ปีการศึกษา
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_subjects_code ON public.subjects(code);
+
+ALTER TABLE public.subjects ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow authenticated users to view subjects" ON public.subjects;
+CREATE POLICY "Allow authenticated users to view subjects" ON public.subjects
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Allow authorized staff to manage subjects" ON public.subjects;
+CREATE POLICY "Allow authorized staff to manage subjects" ON public.subjects
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+
+-- ==========================================================
+-- 🧠 ตารางเก็บข้อมูล Chunk ของเอกสารส่วนบุคคลครู (Private Knowledge Base Chunks)
+-- ==========================================================
+CREATE TABLE IF NOT EXISTS public.ai_private_knowledge_chunks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  file_id UUID REFERENCES public.ai_knowledge_base(id) ON DELETE CASCADE,
+  teacher_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  page_number INTEGER,
+  chunk_text TEXT NOT NULL,
+  embedding vector(768),                         -- ขนาด 768 มิติสำหรับโมเดล gemini-embedding-2
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_private_chunks_file ON public.ai_private_knowledge_chunks(file_id);
+CREATE INDEX IF NOT EXISTS idx_ai_private_chunks_teacher ON public.ai_private_knowledge_chunks(teacher_id);
+
+ALTER TABLE public.ai_private_knowledge_chunks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own private chunks" ON public.ai_private_knowledge_chunks;
+CREATE POLICY "Users can manage their own private chunks" ON public.ai_private_knowledge_chunks
+  FOR ALL USING (auth.uid() = teacher_id);
+
+-- ==========================================================
+-- 🧠 ฟังก์ชันสืบค้นไฟล์เอกสารส่วนบุคคลความแม่นยำสูง (Private Cosine Similarity RPC)
+-- ==========================================================
+CREATE OR REPLACE FUNCTION public.match_private_knowledge(
+  query_embedding vector(768),
+  match_threshold float,
+  match_count int,
+  p_teacher_id uuid
+)
+RETURNS TABLE (
+  id UUID,
+  file_id UUID,
+  page_number INT,
+  chunk_text TEXT,
+  similarity float
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    apkc.id,
+    apkc.file_id,
+    apkc.page_number,
+    apkc.chunk_text,
+    (1 - (apkc.embedding <=> query_embedding))::float AS similarity
+  FROM public.ai_private_knowledge_chunks apkc
+  WHERE apkc.teacher_id = p_teacher_id
+    AND (1 - (apkc.embedding <=> query_embedding)) > match_threshold
+  ORDER BY (apkc.embedding <=> query_embedding) ASC
+  LIMIT match_count;
+END;
+$$;
+
+
+-- ==========================================================
+-- 📝 โมดูลส่งแผนการสอน (Lesson Plans & Activity Logs) - เพิ่มเติม 2026
+-- ==========================================================
+
+-- 1. ตารางเก็บข้อมูลแผนการสอน
+CREATE TABLE IF NOT EXISTS public.lesson_plans (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    teacher_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    title TEXT NOT NULL,                                           -- หัวข้อ/ชื่อแผนการสอน
+    subject_code VARCHAR(20) NOT NULL,                             -- รหัสวิชา (เช่น ท๑๑๑๐๑)
+    subject_name VARCHAR(100) NOT NULL,                            -- ชื่อวิชา (เช่น ภาษาไทย)
+    class_level VARCHAR(50) NOT NULL,                              -- ระดับชั้น (เช่น ประถมศึกษาปีที่ ๑)
+    term VARCHAR(10) NOT NULL,                                     -- ภาคเรียน/ปีการศึกษา (เช่น ๑/๒๕๖๙)
+    file_url TEXT NOT NULL,                                        -- ลิงก์ไฟล์ PDF แผนการสอน (Supabase Storage)
+    
+    -- ระบบตรวจสอบและอนุมัติ
+    status VARCHAR(30) DEFAULT 'Draft' NOT NULL,                   -- Draft, Pending_Academic, Rejected_by_Academic, Pending_Director, Rejected_by_Director, Approved
+    academic_comments TEXT,                                        -- บันทึกความเห็นจากหัวหน้าวิชาการ
+    academic_reviewed_by UUID REFERENCES auth.users(id),            -- ผู้ตรวจสอบวิชาการ
+    academic_reviewed_at TIMESTAMP WITH TIME ZONE,
+    
+    director_comments TEXT,                                        -- บันทึกข้อสั่งการ/ความเห็นจาก ผอ.
+    director_approved_by UUID REFERENCES auth.users(id),           -- ผอ. ผู้อนุมัติ
+    director_approved_at TIMESTAMP WITH TIME ZONE,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. ตารางเก็บประวัติกิจกรรมอนุมัติแผนการสอน
+CREATE TABLE IF NOT EXISTS public.lesson_plan_logs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    lesson_plan_id UUID REFERENCES public.lesson_plans(id) ON DELETE CASCADE NOT NULL,
+    actor_id UUID REFERENCES auth.users(id) NOT NULL,
+    action VARCHAR(50) NOT NULL,                                   -- 'create', 'submit', 'academic_reject', 'academic_propose', 'director_reject', 'approve'
+    comments TEXT,                                                 -- ข้อความอ้างอิงในกิจกรรมนั้นๆ
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 3. อินเด็กซ์เพิ่มความเร็ว
+CREATE INDEX IF NOT EXISTS idx_lesson_plans_teacher ON public.lesson_plans(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_lesson_plans_status ON public.lesson_plans(status);
+
+-- 4. ตั้งค่า RLS (Row Level Security)
+ALTER TABLE public.lesson_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lesson_plan_logs ENABLE ROW LEVEL SECURITY;
+
+-- 5. สร้างนโยบาย RLS สำหรับ lesson_plans
+DROP POLICY IF EXISTS "Allow teachers to manage their own plans" ON public.lesson_plans;
+CREATE POLICY "Allow teachers to manage their own plans" ON public.lesson_plans
+  FOR ALL USING (auth.uid() = teacher_id);
+
+DROP POLICY IF EXISTS "Allow academic staff to view all plans" ON public.lesson_plans;
+CREATE POLICY "Allow academic staff to view all plans" ON public.lesson_plans
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+DROP POLICY IF EXISTS "Allow academic staff to update review status" ON public.lesson_plans;
+CREATE POLICY "Allow academic staff to update review status" ON public.lesson_plans
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_academic')::boolean = true)
+      )
+    )
+  );
+
+-- 6. สร้างนโยบาย RLS สำหรับ lesson_plan_logs
+DROP POLICY IF EXISTS "Allow all users to view logs" ON public.lesson_plan_logs;
+CREATE POLICY "Allow all users to view logs" ON public.lesson_plan_logs
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Allow users to insert logs" ON public.lesson_plan_logs;
+CREATE POLICY "Allow users to insert logs" ON public.lesson_plan_logs
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
