@@ -188,7 +188,8 @@ function App() {
       const isRestrictedStaff = activeTab === 'teachers' || activeTab === 'wfh';
       const isRestrictedReport = activeTab === 'reports' || activeTab === 'lec';
       const isRestrictedStudent = activeTab === 'students' || activeTab === 'attendance_report';
-      const isRestrictedAcademic = activeTab === 'academic' || activeTab === 'library';
+      const isRestrictedAcademic = activeTab === 'academic';
+      const isRestrictedLibrary = activeTab === 'library';
       const isRestrictedFinance = activeTab === 'finance' || activeTab === 'utilities' || activeTab === 'free_education';
       const isRestrictedAdmin = activeTab === 'users' || activeTab === 'settings';
       
@@ -200,7 +201,9 @@ function App() {
         setActiveTab('dashboard');
       } else if (isRestrictedStudent && !extraPerms.access_student_affairs) {
         setActiveTab('dashboard');
-      } else if (isRestrictedAcademic && !extraPerms.access_academic) {
+      } else if (isRestrictedAcademic && profile?.role !== 'teacher' && !extraPerms.access_academic) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedLibrary && !extraPerms.access_academic) {
         setActiveTab('dashboard');
       } else if (isRestrictedFinance && !extraPerms.access_finance) {
         setActiveTab('dashboard');
@@ -234,7 +237,8 @@ function App() {
   const canAccessStaff = !isGuest && (isAdmin || isDirector || extraPerms.access_hr);
   const canAccessReports = !isGuest && (isDirector || extraPerms.access_reports);
   const canAccessStudentAffairs = !isGuest && (isAdmin || isDirector || extraPerms.access_student_affairs);
-  const canAccessAcademic = !isGuest && (isAdmin || isDirector || extraPerms.access_academic);
+  const canAccessAcademic = !isGuest && (isAdmin || isDirector || isTeacher || extraPerms.access_academic);
+  const canAccessLibrary = !isGuest && (isAdmin || isDirector || extraPerms.access_academic);
   const canAccessFinance = !isGuest && (isAdmin || isDirector || extraPerms.access_finance);
 
   return (
@@ -274,7 +278,7 @@ function App() {
 
               {canAccessAcademic && <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานวิชาการ</div>}
               {canAccessAcademic && <SidebarItem icon={<GraduationCap size={20} />} label="ระบบวิชาการ" active={activeTab === 'academic'} onClick={() => setActiveTab('academic')} />}
-              {canAccessAcademic && <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />}
+              {canAccessLibrary && <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />}
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">สื่อการเรียนรู้ AR</div>
               <SidebarItem icon={<Gamepad2 size={20} />} label="น้องชบาพาพิชิต(AR)" active={activeTab === 'ar_learning'} onClick={() => setActiveTab('ar_learning')} />
               <SidebarItem icon={<SettingsIcon size={20} />} label="จัดการบทเรียน AR" active={activeTab === 'ar_admin'} onClick={() => setActiveTab('ar_admin')} />
