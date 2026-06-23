@@ -388,6 +388,55 @@ export default function Athletics() {
     setPhotoFile(null);
     setPhotoPreview(student.photo_url || null);
 
+    // คำนวณรุ่นอายุอัตโนมัติจากวันเกิดนักเรียนและปีการศึกษาที่เลือก
+    if (student.birth_date) {
+      try {
+        const parts = student.birth_date.split('-');
+        const birthYear = parseInt(parts[0]);
+        if (birthYear > 0) {
+          // ปีการศึกษาปัจจุบัน (พ.ศ.) เช่น 2569
+          const acadYear = parseInt(selectedYear) || (new Date().getFullYear() + 543);
+          
+          // แปลงปีเกิดของนักเรียนให้เป็น พ.ศ. เสมอ
+          let birthYearTh = birthYear;
+          if (birthYearTh < 2400) {
+            birthYearTh += 543; // แปลง ค.ศ. เป็น พ.ศ.
+          }
+          
+          const studentAge = acadYear - birthYearTh;
+          
+          // วิเคราะห์เพศเพื่อนำไปใส่ชื่อรุ่น
+          const isMale = student.gender === 'male' || student.gender === 'ชาย' || 
+                         (student.prefix && (student.prefix.includes('เด็กชาย') || student.prefix.includes('นาย')));
+          const genderText = isMale ? 'ชาย' : 'หญิง';
+          
+          // หารุ่นอายุที่เหมาะสม (ไม่เกิน 6 ปี, 8 ปี, 10 ปี, 12 ปี)
+          let recommendedAge = 12;
+          if (studentAge <= 6) {
+            recommendedAge = 6;
+          } else if (studentAge <= 8) {
+            recommendedAge = 8;
+          } else if (studentAge <= 10) {
+            recommendedAge = 10;
+          } else {
+            recommendedAge = 12;
+          }
+          
+          const autoAgeGroup = `รุ่นอายุไม่เกิน ${recommendedAge} ปี ${genderText}`;
+          
+          // ตรวจสอบและตั้งค่ารุ่นอายุในฟอร์มลงทะเบียนอัตโนมัติ
+          if (AGE_GROUPS.includes(autoAgeGroup)) {
+            setAgeGroup(autoAgeGroup);
+          } else {
+            // หากไม่ตรงกับมาตรฐาน ให้เคลียร์เพื่อให้ผู้ใช้เลือกเองหรือตั้งเป็นค่าว่างไว้
+            setAgeGroup('');
+          }
+        }
+      } catch (e) {
+        console.error("Error calculating auto age group:", e);
+      }
+    }
+
     setShowSuggestions(false);
   };
 
