@@ -18,7 +18,8 @@ import {
   PieChart,
   Save,
   GraduationCap,
-  Wallet
+  Wallet,
+  Gamepad2
 } from 'lucide-react';
 
 export default function UsersManagement() {
@@ -39,6 +40,7 @@ export default function UsersManagement() {
     { key: 'access_reports', label: 'งานรายงานและสถิติ (รายงานวิเคราะห์/LEC)', icon: <PieChart size={18} /> },
     { key: 'access_academic', label: 'งานวิชาการ (ระบบวิชาการ/ห้องสมุด)', icon: <GraduationCap size={18} /> },
     { key: 'access_finance', label: 'งานงบประมาณ (การเงิน/พัสดุ/สาธารณูปโภค/เรียนฟรี)', icon: <Wallet size={18} /> },
+    { key: 'access_athletics', label: 'งานลงทะเบียนนักกีฬา (บันทึกข้อมูล/พิมพ์การ์ด)', icon: <Gamepad2 size={18} /> },
   ];
 
   useEffect(() => {
@@ -101,13 +103,26 @@ export default function UsersManagement() {
 
   async function updateRole(userId: string, newRole: string) {
     setUpdatingId(userId);
+    
+    // ถ้าเปลี่ยนจาก guest ไปเป็น role อื่น ต้องเปลี่ยน status เป็น active ด้วย
+    const currentUser = users.find(u => u.id === userId);
+    const shouldActivate = currentUser?.role === 'guest' && newRole !== 'guest';
+    
+    const updateData: any = { role: newRole };
+    if (shouldActivate) {
+      updateData.status = 'active';
+    }
+    
     const { error } = await supabase
       .from('profiles')
-      .update({ role: newRole })
+      .update(updateData)
       .eq('id', userId);
 
     if (!error) {
-      setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      setUsers(users.map(u => u.id === userId ? { ...u, ...updateData } : u));
+      if (shouldActivate) {
+        alert(`✅ อนุมัติสิทธิ์สำเร็จ! เปลี่ยนเป็น "${newRole}" และเปิดใช้งานบัญชีแล้วค่ะ`);
+      }
     } else {
       alert('ไม่สามารถอัปเดตสิทธิ์ได้: ' + error.message);
     }
