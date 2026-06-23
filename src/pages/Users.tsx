@@ -322,8 +322,9 @@ export default function UsersManagement() {
 
           <div className="space-y-3">
             {MODULE_PERMISSIONS.map((module) => (
-              <label 
+              <div 
                 key={module.key} 
+                onClick={() => togglePermission(module.key)}
                 className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer ${
                   selectedUserForPerm?.extra_permissions?.[module.key] 
                     ? 'border-brand-primary bg-green-50 shadow-sm' 
@@ -340,11 +341,11 @@ export default function UsersManagement() {
                 </div>
                 <input 
                   type="checkbox" 
-                  className="w-5 h-5 accent-brand-primary rounded-lg"
+                  className="w-5 h-5 accent-brand-primary rounded-lg pointer-events-none"
                   checked={!!selectedUserForPerm?.extra_permissions?.[module.key]}
-                  onChange={() => togglePermission(module.key)}
+                  readOnly
                 />
-              </label>
+              </div>
             ))}
           </div>
 
