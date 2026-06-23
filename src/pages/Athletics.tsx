@@ -26,6 +26,18 @@ import {
   Save
 } from 'lucide-react';
 
+const dataURLtoFile = (dataurl: string, filename: string) => {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)?.[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+};
+
 interface Student {
   id: string;
   student_id: string;
@@ -90,6 +102,7 @@ export default function Athletics() {
   const [sportId, setSportId] = useState(''); // รหัสหน่วยกีฬา
   const [citizenId, setCitizenId] = useState(''); // เลขบัตรประชาชน
   const [sportType, setSportType] = useState('');
+  const [selectedSports, setSelectedSports] = useState<string[]>([]);
   const [customSportType, setCustomSportType] = useState(''); // กรณีกีฬาอื่นๆ
   const [ageGroup, setAgeGroup] = useState('');
   const [customAgeGroup, setCustomAgeGroup] = useState(''); // กรณีรุ่นอายุอื่นๆ
@@ -109,8 +122,74 @@ export default function Athletics() {
   // Photo Upload States
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [quickPhotoReg, setQuickPhotoReg] = useState<Registration | null>(null);
+  const [quickPhotoFile, setQuickPhotoFile] = useState<File | null>(null);
+  const [quickPhotoPreview, setQuickPhotoPreview] = useState<string | null>(null);
   
   const [submitting, setSubmitting] = useState(false);
+
+  const startCamera = async () => {
+    setShowCamera(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 480, height: 640, facingMode: 'user' }
+      });
+      setCameraStream(stream);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (err) {
+      console.error('Error accessing camera:', err);
+      alert('ไม่สามารถเข้าถึงกล้องถ่ายรูปได้ค่ะ กรุณาตรวจสอบสิทธิ์การเข้าใช้งานกล้องในเบราว์เซอร์ของคุณ');
+      setShowCamera(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        
+        try {
+          const file = dataURLtoFile(dataUrl, `captured_athlete_${Date.now()}.jpg`);
+          if (quickPhotoReg) {
+            setQuickPhotoPreview(dataUrl);
+            setQuickPhotoFile(file);
+          } else {
+            setPhotoPreview(dataUrl);
+            setPhotoFile(file);
+          }
+        } catch (e) {
+          console.error('Error creating file from base64:', e);
+          if (quickPhotoReg) {
+            setQuickPhotoPreview(dataUrl);
+          } else {
+            setPhotoPreview(dataUrl);
+          }
+        }
+      }
+      stopCamera();
+    }
+  };
 
   // Registration List & Filters
   const [registrations, setRegistrations] = useState<Registration[]>([]);
@@ -489,12 +568,71 @@ export default function Athletics() {
     }
   };
 
+  const handleSaveQuickPhoto = async () => {
+    if (!quickPhotoReg) return;
+    if (!quickPhotoPreview && !quickPhotoFile) {
+      alert('กรุณาเลือกรูปภาพหรือถ่ายภาพก่อนค่ะ');
+      return;
+    }
+    
+    setSubmitting(true);
+    try {
+      let finalPhotoUrl = quickPhotoPreview || '';
+      
+      if (quickPhotoFile) {
+        try {
+          finalPhotoUrl = await compressAndGetBase64(quickPhotoFile);
+        } catch (uploadErr) {
+          console.warn('Quick Photo compression failed, trying upload:', uploadErr);
+          finalPhotoUrl = await uploadFile(quickPhotoFile, 'athletics_photos');
+        }
+      }
+
+      if (!finalPhotoUrl) {
+        alert('รูปภาพไม่สมบูรณ์ กรุณาลองใหม่อีกครั้งค่ะ');
+        return;
+      }
+
+      // 1. อัปเดตใน athletics_registrations ทุกรายการของเด็กคนนี้ในปีนี้
+      const { error: regError } = await supabase
+        .from('athletics_registrations')
+        .update({ photo_url: finalPhotoUrl })
+        .eq('student_id', quickPhotoReg.student_id)
+        .eq('academic_year', selectedYear);
+
+      if (regError) throw regError;
+
+      // 2. ซิงก์ไปอัปเดตในตารางหลัก students ด้วยเพื่อความสมบูรณ์แบบ
+      const { error: studentError } = await supabase
+        .from('students')
+        .update({ photo_url: finalPhotoUrl })
+        .eq('id', quickPhotoReg.student_id);
+
+      if (studentError) {
+        console.warn('⚠️ ไม่สามารถซิงก์รูปภาพไปประวัตินักเรียนหลักได้:', studentError.message);
+      }
+
+      alert('บันทึกรูปภาพนักกีฬาเรียบร้อยแล้วค่ะ! 💾');
+      
+      setQuickPhotoReg(null);
+      setQuickPhotoFile(null);
+      setQuickPhotoPreview(null);
+      fetchRegistrations();
+    } catch (err: any) {
+      console.error('Error saving quick photo:', err);
+      alert('เกิดข้อผิดพลาดในการบันทึกรูปภาพ: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const resetForm = () => {
     setSelectedStudent(null);
     setSearchQuery('');
     setSportId('');
     setCitizenId('');
     setSportType('');
+    setSelectedSports([]);
     setCustomSportType('');
     setAgeGroup('');
     setCustomAgeGroup('');
@@ -516,24 +654,41 @@ export default function Athletics() {
       return;
     }
     
-    const finalSportType = sportType === 'อื่นๆ' ? customSportType.trim() : sportType;
     const finalAgeGroup = ageGroup === 'อื่นๆ' ? customAgeGroup.trim() : ageGroup;
-
-    if (!finalSportType) {
-      alert('กรุณากรอกประเภทกีฬาด้วยค่ะ');
-      return;
-    }
     if (!finalAgeGroup) {
       alert('กรุณากรอกรุ่นอายุให้ครบถ้วนด้วยค่ะ');
       return;
     }
 
+    let sportsToRegister: string[] = [];
+    if (editingRegId) {
+      const finalSportType = sportType === 'อื่นๆ' ? customSportType.trim() : sportType;
+      if (!finalSportType) {
+        alert('กรุณากรอกประเภทกีฬาด้วยค่ะ');
+        return;
+      }
+      sportsToRegister = [finalSportType];
+    } else {
+      // โหมดลงทะเบียนใหม่: กรอง 'อื่นๆ' ออกจาก selectedSports แล้วใช้ customSportType แทน
+      sportsToRegister = selectedSports.filter(s => s !== 'อื่นๆ');
+      
+      // หากเลือกอื่นๆ และกรอกค่า ให้เพิ่มเข้าอาเรย์
+      if (selectedSports.includes('อื่นๆ') && customSportType.trim()) {
+        sportsToRegister.push(customSportType.trim());
+      }
+
+      if (sportsToRegister.length === 0) {
+        alert('กรุณาเลือกชนิดกีฬาอย่างน้อย 1 รายการค่ะ');
+        return;
+      }
+    }
+
     if (!editingRegId) {
-      const isDuplicate = registrations.some(
-        r => r.student_id === selectedStudent.id && r.sport_type === finalSportType
+      const duplicates = sportsToRegister.filter(sport =>
+        registrations.some(r => r.student_id === selectedStudent.id && r.sport_type === sport)
       );
-      if (isDuplicate) {
-        alert(`นักเรียนคนนี้ลงทะเบียนกีฬา "${finalSportType}" ในปีการศึกษานี้เรียบร้อยแล้วค่ะ`);
+      if (duplicates.length > 0) {
+        alert(`นักเรียนคนนี้เคยลงทะเบียนในกีฬา "${duplicates.join(', ')}" เรียบร้อยแล้วค่ะ`);
         return;
       }
     }
@@ -551,7 +706,7 @@ export default function Athletics() {
         }
       }
 
-      const regData = {
+      const baseRegData = {
         student_id: selectedStudent.id,
         academic_year: selectedYear,
         prefix: selectedStudent.prefix,
@@ -566,7 +721,6 @@ export default function Athletics() {
         photo_url: finalPhotoUrl,
         citizen_id: citizenId,
         sport_id: sportId,
-        sport_type: finalSportType,
         age_group: finalAgeGroup,
         shirt_size: shirtSize,
         coach_name: coachName,
@@ -576,20 +730,58 @@ export default function Athletics() {
       };
 
       if (editingRegId) {
+        // 1. อัปเดตรายการที่กำลังแก้ไข
         const { error } = await supabase
           .from('athletics_registrations')
-          .update(regData)
+          .update({
+            ...baseRegData,
+            sport_type: sportsToRegister[0]
+          })
           .eq('id', editingRegId);
 
         if (error) throw error;
-        alert('อัปเดตข้อมูลการลงทะเบียนเรียบร้อยแล้วค่ะ! 💾');
+
+        // 2. ซิงก์ข้อมูลสแนปช็อตรูปภาพ น้ำหนัก ส่วนสูง และผู้ฝึกสอน ไปยังรายการแข่งอื่นของเด็กคนนี้ในปีนี้
+        const { error: batchError } = await supabase
+          .from('athletics_registrations')
+          .update({
+            prefix: selectedStudent.prefix,
+            first_name: selectedStudent.first_name,
+            last_name: selectedStudent.last_name,
+            gender: selectedStudent.gender,
+            birth_date: selectedStudent.birth_date,
+            class_level: selectedStudent.class_level,
+            room: selectedStudent.room,
+            weight: selectedStudent.weight,
+            height: selectedStudent.height,
+            photo_url: finalPhotoUrl,
+            citizen_id: citizenId,
+            sport_id: sportId,
+            shirt_size: shirtSize,
+            coach_name: coachName,
+            coach_phone: coachPhone
+          })
+          .eq('student_id', selectedStudent.id)
+          .eq('academic_year', selectedYear);
+
+        if (batchError) {
+          console.warn('⚠️ Batch sync failed, but primary update succeeded:', batchError.message);
+        }
+        
+        alert('อัปเดตข้อมูลนักกีฬาเรียบร้อยแล้วค่ะ! (ข้อมูลส่วนตัวและรูปภาพในรายการอื่น ๆ ถูกซิงก์ให้อัตโนมัติแล้ว) 💾');
       } else {
+        // แอดแบบ Bulk (หลายรายการแข่งพร้อมกัน)
+        const regRows = sportsToRegister.map(sport => ({
+          ...baseRegData,
+          sport_type: sport
+        }));
+
         const { error } = await supabase
           .from('athletics_registrations')
-          .insert([regData]);
+          .insert(regRows);
 
         if (error) throw error;
-        alert('ลงทะเบียนนักกีฬาเรียบร้อยแล้วค่ะ! 🎉');
+        alert(`ลงทะเบียนนักกีฬาเรียบร้อยแล้วค่ะ! (บันทึกสำเร็จ ${sportsToRegister.length} รายการแข่งขัน) 🎉`);
       }
 
       resetForm();
@@ -630,9 +822,11 @@ export default function Athletics() {
     if (SPORT_TYPES.includes(reg.sport_type)) {
       setSportType(reg.sport_type);
       setCustomSportType('');
+      setSelectedSports([reg.sport_type]);
     } else {
       setSportType('อื่นๆ');
       setCustomSportType(reg.sport_type);
+      setSelectedSports([reg.sport_type]);
     }
 
     if (AGE_GROUPS.includes(reg.age_group)) {
@@ -1628,7 +1822,7 @@ export default function Athletics() {
 
                 {/* Image Upload Option */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">อัปโหลดรูปภาพใหม่ (บัตรประชาชน / สูติบัตร)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">รูปถ่ายหน้าตรงนักกีฬา (ใช้ติดบัตร/เอกสาร A1)</label>
                   <div className="flex gap-2">
                     <input
                       type="file"
@@ -1640,11 +1834,18 @@ export default function Athletics() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 py-3 px-4 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl font-bold text-slate-600 text-xs flex items-center justify-center gap-2 transition-all animate-in fade-in"
+                      className="flex-1 py-3 px-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl font-bold text-slate-600 text-xs flex items-center justify-center gap-1.5 transition-all animate-in fade-in"
                     >
-                      <Upload size={14} /> เลือกไฟล์รูปภาพ...
+                      <Upload size={14} /> เลือกรูปภาพ...
                     </button>
-                    {photoFile && (
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="flex-1 py-3 px-3 bg-emerald-50 hover:bg-emerald-100 border border-dashed border-emerald-200 text-emerald-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                    >
+                      <Camera size={14} /> ถ่ายรูปจากกล้อง...
+                    </button>
+                    {(photoFile || photoPreview) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1725,29 +1926,89 @@ export default function Athletics() {
 
                 {/* Sport Type - แสดงตามรุ่นอายุที่เลือก */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ชนิด/ประเภทกีฬา {ageGroup ? '' : '(เลือกรุ่นอายุก่อน)'}</label>
-                  <div className="relative">
-                    <select
-                      value={sportType}
-                      onChange={(e) => setSportType(e.target.value)}
-                      disabled={!ageGroup}
-                      className="w-full pl-3 pr-10 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-slate-700 appearance-none cursor-pointer outline-hidden disabled:opacity-50"
-                    >
-                      <option value="">-- เลือกชนิดกีฬา --</option>
-                      {(ageGroup ? getSportTypesForAge(ageGroup) : SPORT_TYPES).map(st => (
-                        <option key={st} value={st}>{st}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
-                  </div>
-                  {sportType === 'อื่นๆ' && (
-                    <input
-                      type="text"
-                      placeholder="ระบุชนิดกีฬา..."
-                      value={customSportType}
-                      onChange={(e) => setCustomSportType(e.target.value)}
-                      className="w-full px-3 py-3 mt-1.5 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 text-xs outline-hidden"
-                    />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                    ชนิด/ประเภทกีฬา {ageGroup ? (editingRegId ? '' : '(เลือกได้มากกว่า 1 รายการ)') : '(เลือกรุ่นอายุก่อน)'}
+                  </label>
+                  
+                  {!editingRegId ? (
+                    // โหมดลงทะเบียนใหม่: แสดง Multi-select Checkboxes
+                    <div className="space-y-2">
+                      <div className={`border border-slate-100 rounded-xl bg-slate-50 p-2.5 max-h-56 overflow-y-auto transition-all ${!ageGroup ? 'opacity-50 pointer-events-none' : ''}`}>
+                        <div className="grid grid-cols-1 gap-1.5">
+                          {(ageGroup ? getSportTypesForAge(ageGroup) : SPORT_TYPES).map(st => {
+                            const isChecked = selectedSports.includes(st);
+                            return (
+                              <div
+                                key={st}
+                                onClick={() => {
+                                  if (!ageGroup) return;
+                                  if (isChecked) {
+                                    setSelectedSports(selectedSports.filter(s => s !== st));
+                                  } else {
+                                    setSelectedSports([...selectedSports, st]);
+                                  }
+                                }}
+                                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border cursor-pointer select-none transition-all ${
+                                  isChecked
+                                    ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800'
+                                    : 'bg-white border-slate-100 text-slate-700 hover:bg-slate-50/50'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  readOnly
+                                  className="w-3.5 h-3.5 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500/20 pointer-events-none"
+                                />
+                                <span className="text-xs font-bold">{st}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      
+                      {selectedSports.includes('อื่นๆ') && (
+                        <input
+                          type="text"
+                          placeholder="ระบุชนิดกีฬาเพิ่มเติม..."
+                          value={customSportType}
+                          onChange={(e) => setCustomSportType(e.target.value)}
+                          className="w-full px-3 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 text-xs outline-hidden focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 animate-in slide-in-from-top-1 duration-200"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    // โหมดแก้ไข: แสดง Single select dropdown เหมือนเดิม เพื่อให้สามารถแก้ไขกีฬาแบบเจาะจงได้
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <select
+                          value={sportType}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSportType(val);
+                            setSelectedSports(val ? [val] : []);
+                          }}
+                          disabled={!ageGroup}
+                          className="w-full pl-3 pr-10 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black text-slate-700 appearance-none cursor-pointer outline-hidden disabled:opacity-50"
+                        >
+                          <option value="">-- เลือกชนิดกีฬา --</option>
+                          {(ageGroup ? getSportTypesForAge(ageGroup) : SPORT_TYPES).map(st => (
+                            <option key={st} value={st}>{st}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+                      </div>
+                      
+                      {sportType === 'อื่นๆ' && (
+                        <input
+                          type="text"
+                          placeholder="ระบุชนิดกีฬา..."
+                          value={customSportType}
+                          onChange={(e) => setCustomSportType(e.target.value)}
+                          className="w-full px-3 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 text-xs outline-hidden focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500"
+                        />
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1986,17 +2247,34 @@ export default function Athletics() {
                           <tr key={reg.id} className="group hover:bg-slate-50/50 transition-colors">
                             <td className="py-4 px-3">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                                <div 
+                                  onClick={() => {
+                                    setQuickPhotoReg(reg);
+                                    setQuickPhotoPreview(reg.photo_url || null);
+                                    setQuickPhotoFile(null);
+                                  }}
+                                  className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer relative group/avatar transition-all hover:scale-105 active:scale-95"
+                                  title="คลิกเพื่อเพิ่ม/เปลี่ยนรูปภาพนักกีฬา"
+                                >
                                   {!isPhotoBroken ? (
                                     <img 
                                       src={reg.photo_url} 
                                       alt="Photo" 
-                                      className={`w-full h-full ${imageAspects[reg.id] === 'landscape' ? 'object-contain bg-slate-100' : 'object-cover'}`} 
+                                      className={`w-full h-full ${imageAspects[reg.id] === 'landscape' ? 'object-contain bg-slate-100' : 'object-cover'} group-hover/avatar:opacity-40 transition-opacity`} 
                                       onLoad={(e) => handleImageLoad(reg.id, e)}
                                       onError={() => handleImageError(reg.id)} 
                                     />
                                   ) : (
-                                    <User className="text-slate-300" size={18} />
+                                    <div className="flex flex-col items-center justify-center text-slate-400 group-hover/avatar:text-emerald-600 transition-colors">
+                                      <Camera size={14} className="stroke-[2.5]" />
+                                      <span className="text-[7px] font-black mt-0.5">เพิ่มรูป</span>
+                                    </div>
+                                  )}
+                                  
+                                  {!isPhotoBroken && (
+                                    <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover/avatar:opacity-100 flex items-center justify-center text-white transition-opacity">
+                                      <Camera size={14} />
+                                    </div>
                                   )}
                                 </div>
                                 <div>
@@ -2572,6 +2850,172 @@ export default function Athletics() {
 
 
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Capture Modal */}
+      {showCamera && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 max-w-sm w-full animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <h4 className="font-black text-slate-800 flex items-center gap-2">
+                <Camera className="text-emerald-500" size={18} />
+                ถ่ายภาพนักกีฬาหน้าตรง
+              </h4>
+              <button 
+                onClick={stopCamera}
+                className="w-8 h-8 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 bg-slate-950 flex items-center justify-center relative aspect-[3/4] max-h-[360px] overflow-hidden">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover scale-x-[-1]"
+              />
+              <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 border-2 border-dashed border-emerald-500/40 rounded-3xl aspect-[3/4] pointer-events-none" />
+              <div className="absolute bottom-2 text-center text-[10px] text-slate-400 font-bold bg-slate-900/80 px-3 py-1 rounded-full pointer-events-none">
+                จัดหน้าให้อยู่ในกรอบแนวตั้ง
+              </div>
+            </div>
+            
+            <div className="p-5 bg-slate-50 border-t border-slate-100 flex gap-3">
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="flex-1 py-3 px-4 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl font-bold text-slate-600 text-xs transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={capturePhoto}
+                className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md shadow-emerald-500/20 hover:scale-102 active:scale-98 transition-all"
+              >
+                กดถ่ายภาพ 📸
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Photo Upload Modal */}
+      {quickPhotoReg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 max-w-sm w-full animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h4 className="font-black text-slate-800 flex items-center gap-2">
+                <Camera className="text-emerald-500" size={18} />
+                เพิ่ม/เปลี่ยนรูปภาพนักกีฬา (ด่วน)
+              </h4>
+              <button 
+                onClick={() => {
+                  setQuickPhotoReg(null);
+                  setQuickPhotoFile(null);
+                  setQuickPhotoPreview(null);
+                }}
+                className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 shadow-xs transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="text-center">
+                <p className="text-xs font-black text-slate-800">{quickPhotoReg.prefix}{quickPhotoReg.first_name} {quickPhotoReg.last_name}</p>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">ระดับชั้น ม. {quickPhotoReg.class_level}/{quickPhotoReg.room}</p>
+              </div>
+
+              {/* Picture Area */}
+              <div className="flex justify-center">
+                <div className="w-28 h-36 border-2 border-dashed border-slate-200 rounded-2xl overflow-hidden bg-slate-50 flex items-center justify-center relative">
+                  {quickPhotoPreview ? (
+                    <img 
+                      src={quickPhotoPreview} 
+                      alt="Preview" 
+                      className="w-full h-full object-cover" 
+                    />
+                  ) : (
+                    <div className="text-center p-3 text-slate-300">
+                      <User size={36} className="mx-auto mb-2 text-slate-200" />
+                      <span className="text-[9px] font-black block">ยังไม่มีรูปภาพ</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                <input
+                  type="file"
+                  id="quick-file-input"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setQuickPhotoFile(file);
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setQuickPhotoPreview(reader.result as string);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('quick-file-input')?.click()}
+                  className="flex-1 py-2.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-600 text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Upload size={13} /> อัปโหลดรูปภาพ
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await startCamera();
+                  }}
+                  className="flex-1 py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Camera size={13} /> ถ่ายจากกล้อง
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 bg-slate-50 border-t border-slate-100 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickPhotoReg(null);
+                  setQuickPhotoFile(null);
+                  setQuickPhotoPreview(null);
+                }}
+                className="flex-1 py-3 px-4 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl font-bold text-slate-600 text-xs transition-colors"
+                disabled={submitting}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveQuickPhoto}
+                className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md shadow-emerald-500/20 hover:scale-102 active:scale-98 transition-all flex items-center justify-center gap-2"
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="animate-spin" size={13} />
+                    กำลังบันทึก...
+                  </>
+                ) : (
+                  <>บันทึกรูปภาพ 💾</>
+                )}
+              </button>
             </div>
           </div>
         </div>
