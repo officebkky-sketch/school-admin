@@ -1251,6 +1251,7 @@ CREATE TABLE IF NOT EXISTS public.athletics_registrations (
   coach_name TEXT,
   coach_phone TEXT,
   is_substitute BOOLEAN DEFAULT false, -- ตัวจริง/ตัวสำรอง (ค่าเริ่มต้น false = ตัวจริง)
+  competition_type TEXT DEFAULT 'local', -- ประเภทรายการแข่งขัน ('local' = กรีฑาตำบลเขาชัยสน, 'provincial' = กีฬาจังหวัดพัทลุง)
   registered_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -1300,3 +1301,4 @@ CREATE INDEX IF NOT EXISTS idx_athletics_sport_type ON public.athletics_registra
 CREATE INDEX IF NOT EXISTS idx_athletics_age_group ON public.athletics_registrations(age_group);
 CREATE INDEX IF NOT EXISTS idx_athletics_citizen_id ON public.athletics_registrations(citizen_id);
 CREATE INDEX IF NOT EXISTS idx_athletics_is_substitute ON public.athletics_registrations(is_substitute);
+CREATE INDEX IF NOT EXISTS idx_athletics_competition_type ON public.athletics_registrations(competition_type);
