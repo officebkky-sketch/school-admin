@@ -23,7 +23,8 @@ import {
   Upload,
   Camera,
   X,
-  Save
+  Save,
+  ShieldCheck
 } from 'lucide-react';
 
 const dataURLtoFile = (dataurl: string, filename: string) => {
@@ -80,15 +81,25 @@ interface Registration {
   created_at: string;
 }
 
+const toThaiNumerals = (num: number | string) => {
+  const digits = ['๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙'];
+  return num.toString().replace(/\d/g, (d) => digits[parseInt(d)]);
+};
+
 export default function Athletics() {
   const { profile } = useAuth();
   
   // Navigation tabs within module
-  const [activeSubTab, setActiveSubTab] = useState<'register' | 'reports'>('register');
+  const [activeSubTab, setActiveSubTab] = useState<'register' | 'reports' | 'provincial'>('register');
 
   // Year & Search States
   const [academicYears, setAcademicYears] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>('');
+  const compYearVal = parseInt(selectedYear, 10) || 2569;
+  const compEditionVal = compYearVal - 2492;
+  const compYearThai = toThaiNumerals(compYearVal);
+  const compEditionThai = toThaiNumerals(compEditionVal);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Student[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -223,11 +234,31 @@ export default function Athletics() {
   const [reportManagerPhone, setReportManagerPhone] = useState('');
   const [reportAgeGroup, setReportAgeGroup] = useState('12'); // ชนิดช่วงอายุ 8, 10, 12
   const [reportGender, setReportGender] = useState<'male' | 'female'>('male');
-  const [selectedReportType, setSelectedReportType] = useState<'A1' | 'A2' | 'A3'>('A1');
+  const [selectedReportType, setSelectedReportType] = useState<'A1' | 'A2' | 'A3' | 'CERT'>('A1');
 
   // Print States
   const [printQueue, setPrintQueue] = useState<Registration[]>([]);
-  const [printType, setPrintType] = useState<'cards' | 'A1' | 'A2' | 'A3'>('cards');
+  const [printType, setPrintType] = useState<'cards' | 'A1' | 'A2' | 'A3' | 'CERT'>('cards');
+
+  // Certificate (หนังสือรับรอง) States
+  const [certSportName, setCertSportName] = useState('ฟุตบอล');
+  const [certSelectedRegs, setCertSelectedRegs] = useState<string[]>([]);
+
+  // Provincial Competition States (กีฬาจังหวัดพัทลุง)
+  const PROVINCIAL_SPORTS = ['ฟุตบอล', 'ฟุตซอล', 'วอลเลย์บอลในร่ม', 'วอลเลย์บอลชายหาด', 'เปตอง'] as const;
+  const [provRegistrations, setProvRegistrations] = useState<Registration[]>([]);
+  const [provLoadingRegs, setProvLoadingRegs] = useState(false);
+  const [provSearchQuery, setProvSearchQuery] = useState('');
+  const [provSearchResults, setProvSearchResults] = useState<Student[]>([]);
+  const [provShowSuggestions, setProvShowSuggestions] = useState(false);
+  const [provSearchingStudents, setProvSearchingStudents] = useState(false);
+  const [provSelectedStudent, setProvSelectedStudent] = useState<Student | null>(null);
+  const [provSportType, setProvSportType] = useState<string>('ฟุตบอล');
+  const [provSubmitting, setProvSubmitting] = useState(false);
+  const [provFilterSport, setProvFilterSport] = useState('all');
+  const [provSearchTerm, setProvSearchTerm] = useState('');
+  const [provCertSelectedRegs, setProvCertSelectedRegs] = useState<string[]>([]);
+  const provSuggestionRef = useRef<HTMLDivElement>(null);
   const [isPrintMode, setIsPrintMode] = useState(false);
 
   const suggestionRef = useRef<HTMLDivElement>(null);
@@ -238,7 +269,7 @@ export default function Athletics() {
     'วิ่ง 100 เมตร', 'วิ่ง 200 เมตร', 'วิ่ง 400 เมตร', 'วิ่ง 800 เมตร',
     'วิ่งผลัด 4x100 เมตร', 'วิ่งผลัด 4x400 เมตร', 'กระโดดไกล', 'เขย่งก้าวกระโดด',
     'ทุ่มน้ำหนัก', 'ขว้างจักร', 'ฟุตบอล', 'ฟุตซอล', 'แชร์บอล', 'วอลเลย์บอล',
-    'เปตอง', 'เซปักตะกร้อ', 'เทเบิลเทนนิส', 'อื่นๆ'
+    'วอลเลย์บอลชายหาด', 'เปตอง', 'เซปักตะกร้อ', 'เทเบิลเทนนิส', 'อื่นๆ'
   ];
 
   const AGE_GROUPS = [
@@ -346,10 +377,22 @@ export default function Athletics() {
   useEffect(() => {
     if (selectedYear) {
       fetchRegistrations();
+      fetchProvincialRegistrations();
       fetchCoachHistory();
       fetchTeachers();
     }
   }, [selectedYear]);
+
+  // Close provincial suggestions when click outside
+  useEffect(() => {
+    function handleClickOutsideProv(event: MouseEvent) {
+      if (provSuggestionRef.current && !provSuggestionRef.current.contains(event.target as Node)) {
+        setProvShowSuggestions(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutsideProv);
+    return () => document.removeEventListener('mousedown', handleClickOutsideProv);
+  }, []);
 
   // Load suggest coaches
   async function fetchCoachHistory() {
@@ -446,13 +489,26 @@ export default function Athletics() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setRegistrations(data || []);
+      // Filter client-side: แสดงเฉพาะกรีฑาตำบล (competition_type = 'local' หรือไม่มีค่า)
+      const localOnly = (data || []).filter((r: any) => !r.competition_type || r.competition_type === 'local');
+      setRegistrations(localOnly);
+      // เก็บ provincial ไว้ด้วย
+      const provOnly = (data || []).filter((r: any) => r.competition_type === 'provincial');
+      setProvRegistrations(provOnly);
       setBrokenImages({});
     } catch (err: any) {
       console.error('Error fetching registrations:', err);
       alert('ไม่สามารถโหลดข้อมูลการลงทะเบียนได้: ' + err.message);
     } finally {
       setLoadingRegs(false);
+    }
+  }
+
+  async function fetchProvincialRegistrations() {
+    // ดึงจาก fetchRegistrations แล้ว (เพื่อหลีกเลี่ยง query ซ้ำ)
+    // ถ้ายังไม่มีข้อมูล ให้ fetchRegistrations ทำแล้ว
+    if (registrations.length === 0 && provRegistrations.length === 0) {
+      await fetchRegistrations();
     }
   }
 
@@ -485,7 +541,7 @@ export default function Athletics() {
           const studentAge = acadYear - birthYearTh;
           
           // วิเคราะห์เพศเพื่อนำไปใส่ชื่อรุ่น
-          const isMale = student.gender === 'male' || student.gender === 'ชาย' || 
+          const isMale = student.gender === 'male' || student.gender === 'ชาย' || student.gender === 'ช' || 
                          (student.prefix && (student.prefix.includes('เด็กชาย') || student.prefix.includes('นาย')));
           const genderText = isMale ? 'ชาย' : 'หญิง';
           
@@ -726,6 +782,7 @@ export default function Athletics() {
         coach_name: coachName,
         coach_phone: coachPhone,
         is_substitute: isSubstitute,
+        competition_type: 'local',
         registered_by: (await supabase.auth.getUser()).data.user?.id
       };
 
@@ -980,8 +1037,8 @@ export default function Athletics() {
       // ตรวจสอบรุ่นอายุ เช่น "รุ่นอายุไม่เกิน 12 ปี ชาย" ว่ามีตัวเลข 12 และเป็นเพศชาย
       const ageMatch = r.age_group.includes(`ไม่เกิน ${reportAgeGroup} ปี`);
       const genderMatch = reportGender === 'male' 
-        ? r.gender === 'male' || r.age_group.includes('ชาย')
-        : r.gender === 'female' || r.age_group.includes('หญิง');
+        ? r.gender === 'male' || r.gender === 'ชาย' || r.gender === 'ช' || r.age_group.includes('ชาย')
+        : r.gender === 'female' || r.gender === 'หญิง' || r.gender === 'ญ' || r.age_group.includes('หญิง');
       return ageMatch && genderMatch;
     });
   };
@@ -992,7 +1049,23 @@ export default function Athletics() {
     return [...new Set([...defaultEvents, ...customEvts])];
   };
 
-  const handlePrintOfficialReport = async (type: 'A1' | 'A2' | 'A3') => {
+  const handlePrintOfficialReport = async (type: 'A1' | 'A2' | 'A3' | 'CERT') => {
+    if (type === 'CERT') {
+      // พิมพ์หนังสือรับรอง — ใช้รายชื่อที่เลือก
+      const certRegs = registrations.filter(r => certSelectedRegs.includes(r.id));
+      if (certRegs.length === 0) {
+        alert('กรุณาเลือกนักกีฬาอย่างน้อย 1 คนเพื่อพิมพ์หนังสือรับรองค่ะ');
+        return;
+      }
+      setPrintType('CERT');
+      setIsPrintMode(true);
+      setTimeout(() => {
+        window.print();
+        setIsPrintMode(false);
+      }, 800);
+      return;
+    }
+
     const reportData = getReportParticipants();
     if (reportData.length === 0) {
       alert(`ไม่พบข้อมูลนักกีฬาใน รุ่นอายุไม่เกิน ${reportAgeGroup} ปี (${reportGender === 'male' ? 'ชาย' : 'หญิง'}) สำหรับออกรายงานนี้ค่ะ`);
@@ -1015,11 +1088,52 @@ export default function Athletics() {
     }, 800);
   };
 
-  // Convert Arabic numerals to Thai numerals
-  const toThaiNumerals = (num: number | string) => {
-    const digits = ['๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙'];
-    return num.toString().replace(/\d/g, (d) => digits[parseInt(d)]);
+  // Helper: คำนวณอายุจากวันเกิด (ปัดเศษปี พ.ศ. ชนปี พ.ศ.)
+  const calculateAgeFromBirthDate = (birthDateStr: string): number => {
+    if (!birthDateStr) return 0;
+    try {
+      const birthDate = new Date(birthDateStr);
+      const birthYearCE = birthDate.getFullYear();
+      const birthYearBE = birthYearCE + 543;
+      const compYear = parseInt(selectedYear, 10) || 2569;
+      return compYear - birthYearBE;
+    } catch {
+      return 0;
+    }
   };
+
+  // Helper: แปลงคำนำหน้านามให้เป็นคำเต็ม
+  const getFullPrefix = (prefix: string): string => {
+    if (!prefix) return '';
+    const p = prefix.trim();
+    if (p === 'ด.ช.' || p === 'ดช.' || p === 'เด็กชาย') return 'เด็กชาย';
+    if (p === 'ด.ญ.' || p === 'ดญ.' || p === 'เด็กหญิง') return 'เด็กหญิง';
+    if (p === 'น.ส.' || p === 'นางสาว') return 'นางสาว';
+    if (p === 'นาย') return 'นาย';
+    return p;
+  };
+
+  // Helper: แปลงวันเกิดเป็นรูปแบบไทย (วันที่/เดือน/พ.ศ.)
+  const formatThaiDateParts = (dateStr: string): { day: string; month: string; year: string } => {
+    const empty = { day: '..........', month: '....................', year: '................' };
+    if (!dateStr) return empty;
+    try {
+      const date = new Date(dateStr);
+      const months = [
+        'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+        'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+      ];
+      return {
+        day: String(date.getDate()),
+        month: months[date.getMonth()],
+        year: String(date.getFullYear() + 543)
+      };
+    } catch {
+      return empty;
+    }
+  };
+
+  // Convert Arabic numerals to Thai numerals (defined globally outside component)
 
   // Convert Date to Thai long format
   const formatThaiDateFull = (dateStr: string) => {
@@ -1630,8 +1744,64 @@ export default function Athletics() {
           );
         })()}
 
+        {/* 4. PRINT CERTIFICATE (หนังสือรับรองของสถานศึกษา) */}
+        {printType === 'CERT' && (() => {
+          const allRegs = [...registrations, ...provRegistrations];
+          const certRegs = allRegs.filter(r => certSelectedRegs.includes(r.id));
+          // จัดกลุ่มตามนักเรียน (รวมประเภทกีฬา)
+          const grouped: Record<string, Registration & { events: string[] }> = {};
+          certRegs.forEach(r => {
+            const key = r.citizen_id || r.student_id;
+            if (!grouped[key]) {
+              grouped[key] = { ...r, events: [r.sport_type] };
+            } else {
+              if (!grouped[key].events.includes(r.sport_type)) {
+                grouped[key].events.push(r.sport_type);
+              }
+            }
+          });
+          const certStudents = Object.values(grouped);
 
+          return certStudents.map((student, index) => {
+            const dateParts = formatThaiDateParts(student.birth_date);
+            const studentAge = calculateAgeFromBirthDate(student.birth_date);
+            
+            // สร้างชื่อกีฬาจากรายการที่ลงทะเบียน หรือใช้ชื่อที่ตั้ง พร้อมตัดคำว่า "ในร่ม"
+            let sportDisplayName = certSportName || student.events.join(', ');
+            sportDisplayName = sportDisplayName.replace(/วอลเลย์บอลในร่ม/g, 'วอลเลย์บอล').replace(/วอลเลบอลในร่ม/g, 'วอลเลย์บอล');
 
+            const schoolName = reportTeamName || '';
+            const directorPosition = schoolName.startsWith('โรงเรียน') ? `ผู้อำนวยการ${schoolName}` : `ผู้อำนวยการโรงเรียน${schoolName}`;
+            const normalizedPrefix = getFullPrefix(student.prefix);
+            const classLevelAndRoom = student.class_level 
+              ? (student.class_level.startsWith('ป.') || student.class_level.startsWith('ม.') 
+                  ? student.class_level 
+                  : `ป.${student.class_level}`) 
+              : '.........................';
+            const roomText = student.room ? `/${student.room}` : '';
+            const classRoomThai = toThaiNumerals(classLevelAndRoom + roomText);
+
+            return (
+              <div key={student.id || index} className="official-page-break" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', paddingTop: '25mm', paddingBottom: '20mm', paddingLeft: '25mm', paddingRight: '25mm', fontSize: '16pt', lineHeight: '1.6', fontFamily: '"TH Sarabun PSK", "TH Sarabun New", "Sarabun", sans-serif' }}>
+                <h2 style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '20pt', marginBottom: '24px' }}>หนังสือรับรองของสถานศึกษา</h2>
+                
+                <p style={{ textIndent: '80px', textAlign: 'left', margin: '0 0 12px 0', fontSize: '16pt' }}>
+                  ข้าพเจ้า {reportManagerName || '.......................................................'} ตำแหน่ง {directorPosition} ขอรับรองว่า {normalizedPrefix} {student.first_name} {student.last_name} เกิดวันที่ {toThaiNumerals(dateParts.day)} เดือน {dateParts.month} พ.ศ. {toThaiNumerals(dateParts.year)} มีอายุ {studentAge ? toThaiNumerals(studentAge) : '.........'} ปี ปัจจุบันกำลังเรียนชั้น {classRoomThai} และเป็นผู้มีคุณสมบัติถูกต้องตามระเบียบการรับสมัคร เข้าแข่งขันกีฬา {sportDisplayName} นักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ {compEditionThai} ประจำปี {compYearThai} ทุกประการ
+                </p>
+
+                {/* ส่วนลงนาม */}
+                <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'flex-end', paddingRight: '40px' }}>
+                  <div style={{ textAlign: 'center', lineHeight: '1.4', width: '350px', fontSize: '16pt' }}>
+                    <p style={{ margin: '0', fontSize: '16pt' }}>(ลงชื่อ)...............................................................</p>
+                    <p style={{ margin: '6px 0 0 0', fontSize: '16pt' }}>( {reportManagerName || '.........................................................'} )</p>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '16pt' }}>ตำแหน่ง {directorPosition}</p>
+                    <p style={{ margin: '6px 0 0 0', fontSize: '13pt', color: '#666' }}>ประทับตราสถานศึกษารับรอง</p>
+                  </div>
+                </div>
+              </div>
+            );
+          });
+        })()}
 
       </div>
     );
@@ -1673,26 +1843,36 @@ export default function Athletics() {
       </div>
 
       {/* Tabs Menu inside module */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-slate-200 overflow-x-auto">
         <button
           onClick={() => setActiveSubTab('register')}
-          className={`px-6 py-3 text-sm font-black transition-all ${
+          className={`px-5 py-3 text-sm font-black transition-all whitespace-nowrap ${
             activeSubTab === 'register' 
               ? 'border-b-2 border-emerald-600 text-emerald-700 scale-102' 
               : 'text-slate-400 hover:text-slate-700'
           }`}
         >
-          📝 ลงทะเบียน & ทะเบียนนักกีฬา
+          📝 กรีฑาตำบล
+        </button>
+        <button
+          onClick={() => setActiveSubTab('provincial')}
+          className={`px-5 py-3 text-sm font-black transition-all whitespace-nowrap ${
+            activeSubTab === 'provincial' 
+              ? 'border-b-2 border-indigo-600 text-indigo-700 scale-102' 
+              : 'text-slate-400 hover:text-slate-700'
+          }`}
+        >
+          ⚽ กีฬาจังหวัดพัทลุง
         </button>
         <button
           onClick={() => setActiveSubTab('reports')}
-          className={`px-6 py-3 text-sm font-black transition-all ${
+          className={`px-5 py-3 text-sm font-black transition-all whitespace-nowrap ${
             activeSubTab === 'reports' 
               ? 'border-b-2 border-emerald-600 text-emerald-700 scale-102' 
               : 'text-slate-400 hover:text-slate-700'
           }`}
         >
-          📋 พิมพ์รายงาน & เอกสารราชการ (แบบ A1, A2, A3)
+          📋 รายงานกรีฑา (A1, A2, A3)
         </button>
       </div>
 
@@ -2349,19 +2529,19 @@ export default function Athletics() {
               {/* Report Type Selector */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ประเภทเอกสารรายงาน</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['A1', 'A2', 'A3'] as const).map(type => (
+                <div className="grid grid-cols-4 gap-2">
+                  {(['A1', 'A2', 'A3', 'CERT'] as const).map(type => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setSelectedReportType(type)}
                       className={`py-3 rounded-xl font-black text-xs transition-all ${
                         selectedReportType === type
-                          ? 'bg-emerald-600 text-white shadow-md'
+                          ? type === 'CERT' ? 'bg-indigo-600 text-white shadow-md' : 'bg-emerald-600 text-white shadow-md'
                           : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                       }`}
                     >
-                      แบบ {type}
+                      {type === 'CERT' ? '📜 รับรอง' : `แบบ ${type}`}
                     </button>
                   ))}
                 </div>
@@ -2464,9 +2644,9 @@ export default function Athletics() {
               {/* Generate Report print trigger */}
               <button
                 onClick={() => handlePrintOfficialReport(selectedReportType)}
-                className="w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+                className={`w-full mt-6 ${selectedReportType === 'CERT' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'} text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg`}
               >
-                <Printer size={16} /> พิมพ์รายงาน / บันทึก PDF (แบบ {selectedReportType})
+                <Printer size={16} /> {selectedReportType === 'CERT' ? 'พิมพ์หนังสือรับรอง' : `พิมพ์รายงาน / บันทึก PDF (แบบ ${selectedReportType})`}
               </button>
 
               {/* ส่วนตั้งค่ารายการแข่งขัน */}
@@ -2847,6 +3027,172 @@ export default function Athletics() {
                 })()}
 
 
+                {/* 4. PREVIEW CERT (หนังสือรับรองของสถานศึกษา) */}
+                {selectedReportType === 'CERT' && (() => {
+                  // หา registrations ที่ตรงกับกีฬาที่เลือก
+                  const certFilteredRegs = registrations.filter(r => {
+                    if (certSportName && certSportName !== 'ทั้งหมด') {
+                      return r.sport_type === certSportName;
+                    }
+                    return true;
+                  });
+                  // จัดกลุ่มตามนักเรียน
+                  const grouped: Record<string, Registration & { events: string[] }> = {};
+                  certFilteredRegs.forEach(r => {
+                    const key = r.citizen_id || r.student_id;
+                    if (!grouped[key]) {
+                      grouped[key] = { ...r, events: [r.sport_type] };
+                    } else {
+                      if (!grouped[key].events.includes(r.sport_type)) {
+                        grouped[key].events.push(r.sport_type);
+                      }
+                    }
+                  });
+                  const certStudents = Object.values(grouped);
+
+                  return (
+                    <div className="space-y-6">
+                      {/* ตัวเลือกประเภทกีฬา */}
+                      <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm space-y-4">
+                        <h4 className="font-black text-indigo-800 flex items-center gap-2 text-sm">
+                          <ShieldCheck size={18} className="text-indigo-500" />
+                          หนังสือรับรองของสถานศึกษา
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
+                          📌 การแข่งขันกีฬานักเรียน นักศึกษา และประชาชน จังหวัดพัทลุง ครั้งที่ {compEditionThai} ประจำปี {compYearThai}
+                        </p>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">เลือกประเภทกีฬา</label>
+                          <select
+                            value={certSportName}
+                            onChange={(e) => {
+                              setCertSportName(e.target.value);
+                              setCertSelectedRegs([]);
+                            }}
+                            className="w-full px-3 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 text-xs outline-hidden"
+                          >
+                            <option value="ทั้งหมด">ทั้งหมด (แสดงทุกประเภทกีฬา)</option>
+                            {uniqueSports.map(s => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* รายชื่อนักกีฬาเลือกพิมพ์ */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">เลือกนักกีฬา ({certSelectedRegs.length} คน)</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (certSelectedRegs.length === certFilteredRegs.length) {
+                                  setCertSelectedRegs([]);
+                                } else {
+                                  setCertSelectedRegs(certFilteredRegs.map(r => r.id));
+                                }
+                              }}
+                              className="text-[10px] font-black text-indigo-600 hover:text-indigo-800 transition-colors"
+                            >
+                              {certSelectedRegs.length === certFilteredRegs.length ? '❌ ยกเลิกทั้งหมด' : '✅ เลือกทั้งหมด'}
+                            </button>
+                          </div>
+
+                          <div className="max-h-[300px] overflow-y-auto space-y-1.5 border border-slate-100 rounded-xl p-3 bg-slate-50/50">
+                            {certStudents.length === 0 ? (
+                              <p className="text-center text-slate-400 text-xs py-6 italic">ไม่พบนักกีฬาที่ลงทะเบียนในประเภทกีฬานี้</p>
+                            ) : (
+                              certStudents.map(student => {
+                                // ใช้ original reg IDs ที่มี
+                                const studentRegIds = certFilteredRegs.filter(r => (r.citizen_id || r.student_id) === (student.citizen_id || student.student_id)).map(r => r.id);
+                                const isSelected = studentRegIds.some(id => certSelectedRegs.includes(id));
+                                return (
+                                  <label
+                                    key={student.id}
+                                    className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
+                                      isSelected ? 'bg-indigo-50 border border-indigo-200' : 'bg-white border border-slate-100 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => {
+                                        if (isSelected) {
+                                          setCertSelectedRegs(prev => prev.filter(id => !studentRegIds.includes(id)));
+                                        } else {
+                                          setCertSelectedRegs(prev => [...prev, ...studentRegIds]);
+                                        }
+                                      }}
+                                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-black text-slate-800 truncate">{student.prefix}{student.first_name} {student.last_name}</p>
+                                      <p className="text-[10px] text-slate-400 font-bold">ชั้น {student.class_level}/{student.room} • {student.events.join(', ')}</p>
+                                    </div>
+                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${isSelected ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}>
+                                      {isSelected ? '✓' : ''}
+                                    </span>
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ตัวอย่างหนังสือรับรอง */}
+                      {certSelectedRegs.length > 0 && (() => {
+                        // แสดง preview คนแรก
+                        const firstReg = registrations.find(r => certSelectedRegs.includes(r.id));
+                        if (!firstReg) return null;
+                        const dateParts = formatThaiDateParts(firstReg.birth_date);
+                        const studentAge = calculateAgeFromBirthDate(firstReg.birth_date);
+                        
+                        let sportDisplayName = certSportName === 'ทั้งหมด' ? firstReg.sport_type : certSportName;
+                        sportDisplayName = sportDisplayName.replace(/วอลเลย์บอลในร่ม/g, 'วอลเลย์บอล').replace(/วอลเลบอลในร่ม/g, 'วอลเลย์บอล');
+
+                        const schoolName = reportTeamName || '';
+                        const directorPosition = schoolName.startsWith('โรงเรียน') ? `ผู้อำนวยการ${schoolName}` : `ผู้อำนวยการโรงเรียน${schoolName}`;
+                        const normalizedPrefix = getFullPrefix(firstReg.prefix);
+                        const classLevelAndRoom = firstReg.class_level 
+                          ? (firstReg.class_level.startsWith('ป.') || firstReg.class_level.startsWith('ม.') 
+                              ? firstReg.class_level 
+                              : `ป.${firstReg.class_level}`) 
+                          : '.........................';
+                        const roomText = firstReg.room ? `/${firstReg.room}` : '';
+                        const classRoomThai = toThaiNumerals(classLevelAndRoom + roomText);
+
+                        return (
+                          <div
+                            className="bg-white p-8 shadow-sm border border-slate-300 w-[180mm] min-h-[250mm] mx-auto flex flex-col justify-start"
+                            style={{ fontFamily: '"TH Sarabun PSK", "TH Sarabun New", "Sarabun", sans-serif', fontSize: '16pt', lineHeight: '1.6', paddingTop: '25mm' }}
+                          >
+                            <h4 style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '20pt', marginBottom: '24px' }}>หนังสือรับรองของสถานศึกษา</h4>
+                            
+                            <p style={{ textIndent: '80px', textAlign: 'left', margin: '0 0 12px 0', fontSize: '16pt' }}>
+                              ข้าพเจ้า {reportManagerName || '.......................................................'} ตำแหน่ง {directorPosition} ขอรับรองว่า {normalizedPrefix} {firstReg.first_name} {firstReg.last_name} เกิดวันที่ {toThaiNumerals(dateParts.day)} เดือน {dateParts.month} พ.ศ. {toThaiNumerals(dateParts.year)} มีอายุ {studentAge ? toThaiNumerals(studentAge) : '.........'} ปี ปัจจุบันกำลังเรียนชั้น {classRoomThai} และเป็นผู้มีคุณสมบัติถูกต้องตามระเบียบการรับสมัคร เข้าแข่งขันกีฬา {sportDisplayName} นักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ {compEditionThai} ประจำปี {compYearThai} ทุกประการ
+                            </p>
+
+                            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'flex-end', paddingRight: '30px' }}>
+                              <div style={{ textAlign: 'center', lineHeight: '1.4', width: '320px', fontSize: '16pt' }}>
+                                <p style={{ margin: '0', fontSize: '16pt' }}>(ลงชื่อ) ..............................................................</p>
+                                <p style={{ margin: '6px 0 0 0', fontSize: '16pt' }}>( {reportManagerName || '.........................................................'} )</p>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '16pt' }}>ตำแหน่ง {directorPosition}</p>
+                                <p style={{ margin: '6px 0 0 0', fontSize: '13pt', color: '#666' }}>ประทับตราสถานศึกษารับรอง</p>
+                              </div>
+                            </div>
+
+                            {certSelectedRegs.length > 1 && (
+                              <p className="text-xs text-center text-slate-400 font-bold mt-6 pt-4 border-t border-dashed border-slate-200">
+                                📄 แสดงตัวอย่างคนแรก (จากทั้งหมด {certSelectedRegs.length} คน) — กดพิมพ์เพื่อพิมพ์ทุกคน
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
 
 
               </div>
@@ -2855,7 +3201,515 @@ export default function Athletics() {
         </div>
       )}
 
-      {/* Camera Capture Modal */}
+      {/* SUB TAB: PROVINCIAL COMPETITION (กีฬาจังหวัดพัทลุง ครั้งที่ 77) */}
+      {activeSubTab === 'provincial' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 text-white p-6 rounded-[28px] shadow-xl shadow-indigo-200/40">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-3xl">⚽</span>
+              <div>
+                <h3 className="text-lg font-black tracking-tight">การแข่งขันกีฬานักเรียน นักศึกษา และประชาชน</h3>
+                <p className="text-indigo-200 font-bold text-xs mt-0.5">จังหวัดพัทลุง ครั้งที่ {compEditionThai} ประจำปี {compYearThai}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {PROVINCIAL_SPORTS.map(sport => {
+                const count = provRegistrations.filter(r => r.sport_type === sport).length;
+                return (
+                  <span key={sport} className="px-3 py-1 bg-white/15 rounded-full text-xs font-black backdrop-blur-xs">
+                    {sport} ({count})
+                  </span>
+                );
+              })}
+              <span className="px-3 py-1 bg-white/25 rounded-full text-xs font-black backdrop-blur-xs">
+                รวม {provRegistrations.length} คน
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left Column: Registration Form */}
+            <div className="lg:col-span-1 space-y-5">
+              {/* ฟอร์มลงทะเบียนนักเรียนตัวแทน */}
+              <div className="bg-white p-6 rounded-[28px] border border-indigo-100 shadow-sm space-y-4">
+                <h4 className="font-black text-indigo-800 flex items-center gap-2 text-sm border-b border-indigo-50 pb-3">
+                  <UserPlus size={18} className="text-indigo-500" />
+                  ลงทะเบียนนักเรียนตัวแทน
+                </h4>
+
+                {/* ค้นหานักเรียน */}
+                <div className="space-y-1.5 relative" ref={provSuggestionRef}>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ค้นหานักเรียน</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
+                    <input
+                      type="text"
+                      value={provSearchQuery}
+                      onChange={async (e) => {
+                        const q = e.target.value;
+                        setProvSearchQuery(q);
+                        if (q.length >= 2) {
+                          setProvSearchingStudents(true);
+                          setProvShowSuggestions(true);
+                          const { data } = await supabase
+                            .from('students')
+                            .select('id, student_id, prefix, first_name, last_name, academic_year, gender, birth_date, class_level, room, weight, height, photo_url, national_id')
+                            .eq('academic_year', selectedYear)
+                            .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,student_id.ilike.%${q}%,national_id.ilike.%${q}%`)
+                            .limit(10);
+                          setProvSearchResults(data || []);
+                          setProvSearchingStudents(false);
+                        } else {
+                          setProvShowSuggestions(false);
+                          setProvSearchResults([]);
+                        }
+                      }}
+                      placeholder="พิมพ์ชื่อ/รหัส/เลขบัตรประชาชน..."
+                      className="w-full pl-9 pr-3 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-indigo-500/10"
+                    />
+                  </div>
+
+                  {/* ผลค้นหา */}
+                  {provShowSuggestions && (
+                    <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-2xl shadow-2xl mt-1 max-h-[250px] overflow-y-auto">
+                      {provSearchingStudents ? (
+                        <div className="p-4 text-center text-slate-400 text-xs font-bold flex items-center justify-center gap-2">
+                          <Loader2 className="animate-spin" size={14} /> กำลังค้นหา...
+                        </div>
+                      ) : provSearchResults.length === 0 ? (
+                        <div className="p-4 text-center text-slate-400 text-xs font-bold">ไม่พบนักเรียน</div>
+                      ) : (
+                        provSearchResults.map(s => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className="w-full text-left p-3 hover:bg-indigo-50 transition-colors flex items-center gap-3 border-b border-slate-50 last:border-0"
+                            onClick={() => {
+                              setProvSelectedStudent(s);
+                              setProvSearchQuery(`${s.prefix}${s.first_name} ${s.last_name}`);
+                              setProvShowSuggestions(false);
+                            }}
+                          >
+                            <div className="w-8 h-8 bg-indigo-50 rounded-full flex items-center justify-center shrink-0">
+                              <User size={14} className="text-indigo-400" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-800">{s.prefix}{s.first_name} {s.last_name}</p>
+                              <p className="text-[10px] text-slate-400 font-bold">ชั้น {s.class_level}/{s.room} • {s.gender === 'male' || s.gender === 'ชาย' || s.gender === 'ช' ? 'ชาย' : 'หญิง'}</p>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* แสดงนักเรียนที่เลือก */}
+                {provSelectedStudent && (
+                  <div className="bg-indigo-50/60 p-4 rounded-2xl border border-indigo-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black text-indigo-900">{provSelectedStudent.prefix}{provSelectedStudent.first_name} {provSelectedStudent.last_name}</p>
+                      <button onClick={() => { setProvSelectedStudent(null); setProvSearchQuery(''); }} className="text-slate-400 hover:text-red-500">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-indigo-600/70 font-bold">
+                      ชั้น {provSelectedStudent.class_level}/{provSelectedStudent.room} • {provSelectedStudent.gender === 'male' || provSelectedStudent.gender === 'ชาย' || provSelectedStudent.gender === 'ช' ? 'ชาย' : 'หญิง'} • เลขประชาชน: {provSelectedStudent.national_id || '-'}
+                    </p>
+                  </div>
+                )}
+
+                {/* เลือกประเภทกีฬา */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ประเภทกีฬา</label>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {PROVINCIAL_SPORTS.map(sport => (
+                      <button
+                        key={sport}
+                        type="button"
+                        onClick={() => setProvSportType(sport)}
+                        className={`py-2.5 px-3 rounded-xl font-black text-xs text-left transition-all ${
+                          provSportType === sport
+                            ? 'bg-indigo-600 text-white shadow-md'
+                            : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'
+                        }`}
+                      >
+                        {sport === 'ฟุตบอล' ? '⚽' : sport === 'ฟุตซอล' ? '🥅' : sport.includes('วอลเลย์') ? '🏐' : '🎱'} {sport}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ปุ่มลงทะเบียน */}
+                <button
+                  onClick={async () => {
+                    if (!provSelectedStudent) {
+                      alert('กรุณาเลือกนักเรียนก่อนค่ะ');
+                      return;
+                    }
+                    // ตรวจสอบซ้ำ
+                    const duplicate = provRegistrations.some(r => r.student_id === provSelectedStudent.id && r.sport_type === provSportType);
+                    if (duplicate) {
+                      alert(`${provSelectedStudent.prefix}${provSelectedStudent.first_name} เคยลงทะเบียน "${provSportType}" แล้วค่ะ`);
+                      return;
+                    }
+
+                    setProvSubmitting(true);
+                    try {
+                      const userId = (await supabase.auth.getUser()).data.user?.id;
+                      const { error } = await supabase
+                        .from('athletics_registrations')
+                        .insert({
+                          student_id: provSelectedStudent.id,
+                          academic_year: selectedYear,
+                          prefix: provSelectedStudent.prefix,
+                          first_name: provSelectedStudent.first_name,
+                          last_name: provSelectedStudent.last_name,
+                          gender: provSelectedStudent.gender,
+                          birth_date: provSelectedStudent.birth_date,
+                          class_level: provSelectedStudent.class_level,
+                          room: provSelectedStudent.room,
+                          weight: provSelectedStudent.weight,
+                          height: provSelectedStudent.height,
+                          photo_url: provSelectedStudent.photo_url || '',
+                          citizen_id: provSelectedStudent.national_id || '',
+                          sport_type: provSportType,
+                          age_group: '-',
+                          shirt_size: '-',
+                          competition_type: 'provincial',
+                          registered_by: userId
+                        });
+
+                      if (error) throw error;
+                      alert(`ลงทะเบียน ${provSelectedStudent.prefix}${provSelectedStudent.first_name} ในกีฬา "${provSportType}" สำเร็จ! 🎉`);
+                      setProvSelectedStudent(null);
+                      setProvSearchQuery('');
+                      fetchProvincialRegistrations();
+                    } catch (err: any) {
+                      alert('เกิดข้อผิดพลาด: ' + err.message);
+                    } finally {
+                      setProvSubmitting(false);
+                    }
+                  }}
+                  disabled={provSubmitting || !provSelectedStudent}
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200/40 disabled:opacity-40"
+                >
+                  {provSubmitting ? (
+                    <><Loader2 className="animate-spin" size={14} /> กำลังบันทึก...</>
+                  ) : (
+                    <><UserPlus size={14} /> ลงทะเบียนตัวแทน</>
+                  )}
+                </button>
+              </div>
+
+              {/* หนังสือรับรอง — เลือกและพิมพ์ */}
+              <div className="bg-white p-6 rounded-[28px] border border-indigo-100 shadow-sm space-y-4">
+                <h4 className="font-black text-indigo-800 flex items-center gap-2 text-sm border-b border-indigo-50 pb-3">
+                  <ShieldCheck size={18} className="text-indigo-500" />
+                  หนังสือรับรองของสถานศึกษา
+                </h4>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">เลือกประเภทกีฬา</label>
+                  <select
+                    value={certSportName}
+                    onChange={(e) => { setCertSportName(e.target.value); setProvCertSelectedRegs([]); }}
+                    className="w-full px-3 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 text-xs outline-hidden"
+                  >
+                    <option value="ทั้งหมด">ทั้งหมด</option>
+                    {PROVINCIAL_SPORTS.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* รายชื่อ checkbox */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">เลือกพิมพ์ ({provCertSelectedRegs.length} คน)</label>
+                    {(() => {
+                      const certFiltered = provRegistrations.filter(r => certSportName === 'ทั้งหมด' || r.sport_type === certSportName);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (provCertSelectedRegs.length === certFiltered.length) {
+                              setProvCertSelectedRegs([]);
+                            } else {
+                              setProvCertSelectedRegs(certFiltered.map(r => r.id));
+                            }
+                          }}
+                          className="text-[10px] font-black text-indigo-600 hover:text-indigo-800"
+                        >
+                          {provCertSelectedRegs.length === certFiltered.length ? '❌ ยกเลิก' : '✅ เลือกทั้งหมด'}
+                        </button>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="max-h-[250px] overflow-y-auto space-y-1 border border-slate-100 rounded-xl p-2 bg-slate-50/50">
+                    {(() => {
+                      const certFiltered = provRegistrations.filter(r => certSportName === 'ทั้งหมด' || r.sport_type === certSportName);
+                      // Group by student
+                      const grouped: Record<string, Registration & { events: string[] }> = {};
+                      certFiltered.forEach(r => {
+                        const key = r.citizen_id || r.student_id;
+                        if (!grouped[key]) {
+                          grouped[key] = { ...r, events: [r.sport_type] };
+                        } else {
+                          if (!grouped[key].events.includes(r.sport_type)) grouped[key].events.push(r.sport_type);
+                        }
+                      });
+                      const students = Object.values(grouped);
+
+                      return students.length === 0 ? (
+                        <p className="text-center text-slate-400 text-xs py-4 italic">ไม่พบนักกีฬา</p>
+                      ) : (
+                        students.map(student => {
+                          const regIds = certFiltered.filter(r => (r.citizen_id || r.student_id) === (student.citizen_id || student.student_id)).map(r => r.id);
+                          const isSelected = regIds.some(id => provCertSelectedRegs.includes(id));
+                          return (
+                            <label
+                              key={student.id}
+                              className={`flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all text-xs ${
+                                isSelected ? 'bg-indigo-50 border border-indigo-200' : 'bg-white border border-slate-50 hover:bg-slate-50'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  if (isSelected) {
+                                    setProvCertSelectedRegs(prev => prev.filter(id => !regIds.includes(id)));
+                                  } else {
+                                    setProvCertSelectedRegs(prev => [...prev, ...regIds]);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-black text-slate-800 truncate">{student.prefix}{student.first_name} {student.last_name}</p>
+                                <p className="text-[9px] text-slate-400 font-bold">{student.events.join(', ')}</p>
+                              </div>
+                            </label>
+                          );
+                        })
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (provCertSelectedRegs.length === 0) {
+                      alert('กรุณาเลือกนักกีฬาอย่างน้อย 1 คนค่ะ');
+                      return;
+                    }
+                    // ใช้ provCertSelectedRegs สำหรับ CERT print
+                    setCertSelectedRegs(provCertSelectedRegs);
+                    setPrintType('CERT');
+                    setIsPrintMode(true);
+                    setTimeout(() => {
+                      window.print();
+                      setIsPrintMode(false);
+                    }, 800);
+                  }}
+                  disabled={provCertSelectedRegs.length === 0}
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200/40 disabled:opacity-40"
+                >
+                  <Printer size={14} /> พิมพ์หนังสือรับรอง ({provCertSelectedRegs.length} ฉบับ)
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Registration List */}
+            <div className="lg:col-span-2 space-y-5">
+              <div className="bg-white p-6 rounded-[28px] border border-slate-100 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
+                  <h4 className="font-black text-slate-800 flex items-center gap-2 text-sm">
+                    <Award size={18} className="text-indigo-500" />
+                    รายชื่อนักเรียนตัวแทน ({provRegistrations.length} คน)
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    {/* กรองกีฬา */}
+                    <select
+                      value={provFilterSport}
+                      onChange={(e) => setProvFilterSport(e.target.value)}
+                      className="px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-600 outline-hidden"
+                    >
+                      <option value="all">ทุกประเภท</option>
+                      {PROVINCIAL_SPORTS.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    {/* ค้นหา */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" size={12} />
+                      <input
+                        type="text"
+                        value={provSearchTerm}
+                        onChange={(e) => setProvSearchTerm(e.target.value)}
+                        placeholder="ค้นหา..."
+                        className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-600 outline-hidden w-40"
+                      />
+                    </div>
+                    <button
+                      onClick={fetchProvincialRegistrations}
+                      className="p-2 bg-slate-50 text-slate-500 rounded-xl hover:bg-slate-100 border border-slate-100"
+                      title="โหลดใหม่"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {provLoadingRegs ? (
+                  <div className="py-20 text-center text-slate-400">
+                    <Loader2 className="animate-spin mx-auto mb-3" size={28} />
+                    <p className="text-xs font-black">กำลังโหลดข้อมูล...</p>
+                  </div>
+                ) : (() => {
+                  const filtered = provRegistrations.filter(r => {
+                    const matchSport = provFilterSport === 'all' || r.sport_type === provFilterSport;
+                    const fullName = `${r.prefix}${r.first_name} ${r.last_name}`;
+                    const matchSearch = fullName.includes(provSearchTerm) || r.sport_type.includes(provSearchTerm) || r.citizen_id?.includes(provSearchTerm);
+                    return matchSport && matchSearch;
+                  });
+
+                  return filtered.length === 0 ? (
+                    <div className="py-16 text-center text-slate-300">
+                      <Trophy size={40} className="mx-auto mb-3 text-slate-200" />
+                      <p className="font-black text-sm">ยังไม่มีนักเรียนตัวแทน</p>
+                      <p className="text-xs text-slate-400 mt-1">เลือกนักเรียนจากฟอร์มด้านซ้ายเพื่อลงทะเบียน</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-slate-50/80 text-slate-500 font-black uppercase tracking-wider text-[10px]">
+                            <th className="py-3 px-3 text-left">#</th>
+                            <th className="py-3 px-3 text-left">ชื่อ - สกุล</th>
+                            <th className="py-3 px-3 text-left">ชั้น</th>
+                            <th className="py-3 px-3 text-left">ประเภทกีฬา</th>
+                            <th className="py-3 px-3 text-left">เลขประชาชน</th>
+                            <th className="py-3 px-3 text-center">จัดการ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((reg, idx) => (
+                            <tr key={reg.id} className="border-t border-slate-50 hover:bg-indigo-50/30 transition-colors">
+                              <td className="py-3 px-3 font-bold text-slate-400">{idx + 1}</td>
+                              <td className="py-3 px-3">
+                                <p className="font-extrabold text-slate-800">{reg.prefix}{reg.first_name} {reg.last_name}</p>
+                                <p className="text-[10px] text-slate-400 font-bold">{reg.gender === 'male' || reg.gender === 'ชาย' || reg.gender === 'ช' ? 'ชาย' : 'หญิง'}</p>
+                              </td>
+                              <td className="py-3 px-3 font-bold text-slate-600">{reg.class_level}/{reg.room}</td>
+                              <td className="py-3 px-3">
+                                <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg font-black text-[10px] border border-indigo-100">
+                                  {reg.sport_type}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 font-mono text-slate-600 text-[11px]">{reg.citizen_id || '-'}</td>
+                              <td className="py-3 px-3 text-center">
+                                <button
+                                  onClick={async () => {
+                                    if (!window.confirm(`ลบ ${reg.prefix}${reg.first_name} ออกจากประเภท "${reg.sport_type}" ใช่หรือไม่?`)) return;
+                                    try {
+                                      const { error } = await supabase
+                                        .from('athletics_registrations')
+                                        .delete()
+                                        .eq('id', reg.id);
+                                      if (error) throw error;
+                                      
+                                      // Update local states immediately
+                                      setProvRegistrations(prev => prev.filter(r => r.id !== reg.id));
+                                      setProvCertSelectedRegs(prev => prev.filter(id => id !== reg.id));
+                                      alert('ลบรายชื่อออกสำเร็จแล้วค่ะ');
+                                      
+                                      // Background sync
+                                      fetchRegistrations();
+                                    } catch (err: any) {
+                                      console.error('Error deleting registration:', err);
+                                      alert('ไม่สามารถลบข้อมูลได้: ' + err.message);
+                                    }
+                                  }}
+                                  className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 border border-red-100"
+                                  title="ลบ"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Certificate Preview */}
+              {provCertSelectedRegs.length > 0 && (() => {
+                const firstReg = provRegistrations.find(r => provCertSelectedRegs.includes(r.id));
+                if (!firstReg) return null;
+                const dateParts = formatThaiDateParts(firstReg.birth_date);
+                const studentAge = calculateAgeFromBirthDate(firstReg.birth_date);
+                
+                let sportDisplayName = certSportName === 'ทั้งหมด' ? firstReg.sport_type : certSportName;
+                sportDisplayName = sportDisplayName.replace(/วอลเลย์บอลในร่ม/g, 'วอลเลย์บอล').replace(/วอลเลบอลในร่ม/g, 'วอลเลย์บอล');
+
+                const schoolName = reportTeamName || '';
+                const directorPosition = schoolName.startsWith('โรงเรียน') ? `ผู้อำนวยการ${schoolName}` : `ผู้อำนวยการโรงเรียน${schoolName}`;
+                const normalizedPrefix = getFullPrefix(firstReg.prefix);
+                const classLevelAndRoom = firstReg.class_level 
+                  ? (firstReg.class_level.startsWith('ป.') || firstReg.class_level.startsWith('ม.') 
+                      ? firstReg.class_level 
+                      : `ป.${firstReg.class_level}`) 
+                  : '.........................';
+                const roomText = firstReg.room ? `/${firstReg.room}` : '';
+                const classRoomThai = toThaiNumerals(classLevelAndRoom + roomText);
+
+                return (
+                  <div className="bg-white p-8 rounded-[28px] border border-indigo-100 shadow-sm">
+                    <h4 className="font-black text-indigo-800 flex items-center gap-2 text-sm mb-5">
+                      <FileText size={16} className="text-indigo-500" />
+                      ตัวอย่างหนังสือรับรอง (Preview)
+                    </h4>
+                    <div
+                      className="bg-white p-8 border border-slate-300 mx-auto"
+                      style={{ fontFamily: '"TH Sarabun PSK", "TH Sarabun New", "Sarabun", sans-serif', fontSize: '16pt', lineHeight: '1.6', maxWidth: '700px' }}
+                    >
+                      <h4 style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '18pt', marginBottom: '16px' }}>หนังสือรับรองของสถานศึกษา</h4>
+                      
+                      <p style={{ textIndent: '60px', textAlign: 'left', margin: '0 0 12px 0', fontSize: '16pt' }}>
+                        ข้าพเจ้า {reportManagerName || '.......'} ตำแหน่ง {directorPosition} ขอรับรองว่า {normalizedPrefix} {firstReg.first_name} {firstReg.last_name} เกิดวันที่ {toThaiNumerals(dateParts.day)} เดือน {dateParts.month} พ.ศ. {toThaiNumerals(dateParts.year)} มีอายุ {studentAge ? toThaiNumerals(studentAge) : '.........'} ปี ปัจจุบันกำลังเรียนชั้น {classRoomThai} และเป็นผู้มีคุณสมบัติถูกต้องตามระเบียบการรับสมัคร เข้าแข่งขันกีฬา {sportDisplayName} นักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ {compEditionThai} ประจำปี {compYearThai} ทุกประการ
+                      </p>
+
+                      <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'flex-end', paddingRight: '20px' }}>
+                        <div style={{ textAlign: 'center', lineHeight: '1.4', width: '300px', fontSize: '16pt' }}>
+                          <p style={{ margin: '0', fontSize: '16pt' }}>(ลงชื่อ) ..............................................................</p>
+                          <p style={{ margin: '6px 0 0 0', fontSize: '16pt' }}>( {reportManagerName || '.........'} )</p>
+                          <p style={{ margin: '4px 0 0 0', fontSize: '16pt' }}>ตำแหน่ง {directorPosition}</p>
+                          <p style={{ margin: '6px 0 0 0', fontSize: '13pt', color: '#888' }}>ประทับตราสถานศึกษารับรอง</p>
+                        </div>
+                      </div>
+
+                      {provCertSelectedRegs.length > 1 && (
+                        <p className="text-xs text-center text-slate-400 font-bold mt-4 pt-3 border-t border-dashed border-slate-200">
+                          📄 แสดงตัวอย่างคนแรก (จากทั้งหมด {provCertSelectedRegs.length} คน)
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {showCamera && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 max-w-sm w-full animate-in zoom-in-95 duration-200">

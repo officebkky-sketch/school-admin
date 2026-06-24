@@ -10,7 +10,7 @@ export default function IdentityFooter({ schoolName, schoolLogo, localGovName }:
   const displayGov = localGovName || 'Office of Primary Education';
 
   return (
-    <div className="mt-12 flex flex-col items-center justify-center gap-4 py-8 border-t border-slate-100">    
+    <div className="IdentityFooter no-print mt-12 flex flex-col items-center justify-center gap-4 py-8 border-t border-slate-100">    
        <div className="flex items-center gap-4 opacity-50 grayscale hover:opacity-100 hover:grayscale-0 transition-all">
           <img src={displayLogo} alt="School Logo" className="w-10 h-10 object-contain" />
           <div className="h-8 w-px bg-slate-200"></div>
