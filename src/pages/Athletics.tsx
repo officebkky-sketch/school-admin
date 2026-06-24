@@ -3385,7 +3385,7 @@ export default function Athletics() {
                       alert(`ลงทะเบียน ${provSelectedStudent.prefix}${provSelectedStudent.first_name} ในกีฬา "${provSportType}" สำเร็จ! 🎉`);
                       setProvSelectedStudent(null);
                       setProvSearchQuery('');
-                      fetchProvincialRegistrations();
+                      fetchRegistrations();
                     } catch (err: any) {
                       alert('เกิดข้อผิดพลาด: ' + err.message);
                     } finally {
