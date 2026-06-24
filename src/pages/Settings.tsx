@@ -572,6 +572,21 @@ export default function Settings() {
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
                 <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.14</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มโมดูลย่อย <strong>"ส่งแผนการสอน"</strong> ของฝ่ายวิชาการ อนุมัติโดย ผอ./วิชาการ พร้อมพิมพ์แบบคำขอเสนออนุมัติขนาด A4 มีตราครุฑตามระเบียบงานสารบรรณ</li>
+                  <li>อัปเกรดระบบลงทะเบียนนักกีฬา (ระดับจังหวัด): แปลงตัวเลขในเอกสารเป็น <strong>"ตัวเลขไทย"</strong> อัตโนมัติ ปรับปรุงหน้าสิ่งพิมพ์บังคับขนาด 16pt (TH Sarabun) และลดระยะห่างกล่องลงชื่อ ผอ. เพื่อความสมบูรณ์</li>
+                  <li>แก้ไขปัญหาหน้าสิ่งพิมพ์ของนักกีฬาเกิดหน้าว่างหน้าสุดท้าย ด้วยการซ่อนแถบเครดิตและโลโก้ท้ายระบบ (IdentityFooter) ขณะสั่งพิมพ์</li>
+                  <li>แก้ไขการตรวจสอบข้อมูลเพศของนักเรียน รองรับคำนำหน้าย่อ <code>"ช"</code> และ <code>"ญ"</code> เพื่อป้องกันการแสดงผลผิดพลาด</li>
+                  <li>ปรับปรุงสิทธิ์การเข้าใช้งาน: แยกเมนูของครูทั่วไปเป็น <strong>"งานแผนการสอน"</strong> (เข้าถึงเฉพาะส่งแผน) และซ่อนเมนูวิชาการอื่นๆ รวมถึงระบบห้องสมุด</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.13</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(18 มิ.ย. 2569)</span>
                 </div>
