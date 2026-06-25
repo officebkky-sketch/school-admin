@@ -78,6 +78,7 @@ interface Registration {
   coach_name: string;
   coach_phone: string;
   is_substitute: boolean;
+  competition_type?: string;
   created_at: string;
 }
 
@@ -234,11 +235,119 @@ export default function Athletics() {
   const [reportManagerPhone, setReportManagerPhone] = useState('');
   const [reportAgeGroup, setReportAgeGroup] = useState('12'); // ชนิดช่วงอายุ 8, 10, 12
   const [reportGender, setReportGender] = useState<'male' | 'female'>('male');
-  const [selectedReportType, setSelectedReportType] = useState<'A1' | 'A2' | 'A3' | 'CERT'>('A1');
+  const [selectedReportType, setSelectedReportType] = useState<'A1' | 'A2' | 'A3' | 'CERT' | 'PETANQUE' | 'PETANQUE_MIXED'>('A1');
+
+  // ระดับการแข่งขันเปตอง ('local' = อบต. / 'provincial' = จังหวัด)
+  const [petanqueCompType, setPetanqueCompType] = useState<'local' | 'provincial'>('provincial');
+
+  // Provincial (จังหวัด) Petanque Team States (4 players per team: player1, player2, player3, substitute)
+  const [petanqueTeam1, setPetanqueTeam1] = useState<string[]>(['', '', '', '']);
+  const [petanqueTeam2, setPetanqueTeam2] = useState<string[]>(['', '', '', '']);
+  // Overwritten photos for petanque athletes (Base64) - index 0-3 for Team 1, index 4-7 for Team 2
+  const [petanqueTeamPhotos, setPetanqueTeamPhotos] = useState<string[]>(Array(8).fill(''));
+
+  const handlePetanquePhotoChange = (globalIdx: number, file: File | null) => {
+    if (!file) {
+      setPetanqueTeamPhotos(prev => {
+        const next = [...prev];
+        next[globalIdx] = '';
+        return next;
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setPetanqueTeamPhotos(prev => {
+        const next = [...prev];
+        next[globalIdx] = base64String;
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Provincial (จังหวัด) Mixed Petanque Team States (Upper block = Male, Lower block = Female)
+  const [petanqueMixedTeamMale, setPetanqueMixedTeamMale] = useState<string[]>(['', '', '', '']);
+  const [petanqueMixedTeamFemale, setPetanqueMixedTeamFemale] = useState<string[]>(['', '', '', '']);
+  const [petanqueMixedPhotos, setPetanqueMixedPhotos] = useState<string[]>(Array(8).fill(''));
+
+  const handlePetanqueMixedPhotoChange = (globalIdx: number, file: File | null) => {
+    if (!file) {
+      setPetanqueMixedPhotos(prev => {
+        const next = [...prev];
+        next[globalIdx] = '';
+        return next;
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setPetanqueMixedPhotos(prev => {
+        const next = [...prev];
+        next[globalIdx] = base64String;
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Local (อบต.) Petanque Team States
+  const [petanqueTeam1Local, setPetanqueTeam1Local] = useState<string[]>(['', '', '', '']);
+  const [petanqueTeam2Local, setPetanqueTeam2Local] = useState<string[]>(['', '', '', '']);
+  const [petanqueTeamPhotosLocal, setPetanqueTeamPhotosLocal] = useState<string[]>(Array(8).fill(''));
+
+  const handlePetanquePhotoChangeLocal = (globalIdx: number, file: File | null) => {
+    if (!file) {
+      setPetanqueTeamPhotosLocal(prev => {
+        const next = [...prev];
+        next[globalIdx] = '';
+        return next;
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setPetanqueTeamPhotosLocal(prev => {
+        const next = [...prev];
+        next[globalIdx] = base64String;
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Local (อบต.) Mixed Petanque Team States
+  const [petanqueMixedTeamMaleLocal, setPetanqueMixedTeamMaleLocal] = useState<string[]>(['', '', '', '']);
+  const [petanqueMixedTeamFemaleLocal, setPetanqueMixedTeamFemaleLocal] = useState<string[]>(['', '', '', '']);
+  const [petanqueMixedPhotosLocal, setPetanqueMixedPhotosLocal] = useState<string[]>(Array(8).fill(''));
+
+  const handlePetanqueMixedPhotoChangeLocal = (globalIdx: number, file: File | null) => {
+    if (!file) {
+      setPetanqueMixedPhotosLocal(prev => {
+        const next = [...prev];
+        next[globalIdx] = '';
+        return next;
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setPetanqueMixedPhotosLocal(prev => {
+        const next = [...prev];
+        next[globalIdx] = base64String;
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Print States
   const [printQueue, setPrintQueue] = useState<Registration[]>([]);
-  const [printType, setPrintType] = useState<'cards' | 'A1' | 'A2' | 'A3' | 'CERT'>('cards');
+  const [printType, setPrintType] = useState<'cards' | 'A1' | 'A2' | 'A3' | 'CERT' | 'PETANQUE' | 'PETANQUE_MIXED'>('cards');
 
   // Certificate (หนังสือรับรอง) States
   const [certSportName, setCertSportName] = useState('ฟุตบอล');
@@ -1049,7 +1158,209 @@ export default function Athletics() {
     return [...new Set([...defaultEvents, ...customEvts])];
   };
 
-  const handlePrintOfficialReport = async (type: 'A1' | 'A2' | 'A3' | 'CERT') => {
+  // ค้นหานักกีฬาที่มีคุณสมบัติเหมาะสมสำหรับรุ่นอายุและเพศที่เลือก เพื่อให้เลือกจัดทีมเปตองได้ (ดึงเฉพาะคนที่ลงทะเบียนเปตองเป็นหลัก)
+  const getPetanqueCandidates = () => {
+    const allRegs = petanqueCompType === 'local' ? registrations : provRegistrations;
+    const petanqueRegs = allRegs.filter(r => r.sport_type === 'เปตอง');
+    
+    const checkAgeMatch = (r: Registration) => {
+      const isProvOrNoAgeGroup = !r.age_group || r.age_group === '-' || r.competition_type === 'provincial';
+      if (!isProvOrNoAgeGroup) {
+        return r.age_group.includes(`ไม่เกิน ${reportAgeGroup} ปี`);
+      }
+      const calculatedAge = calculateAgeFromBirthDate(r.birth_date);
+      const reportAgeLimit = parseInt(reportAgeGroup, 10);
+      return !isNaN(reportAgeLimit) ? calculatedAge <= reportAgeLimit : true;
+    };
+
+    const checkGenderMatch = (r: Registration) => {
+      return reportGender === 'male' 
+        ? r.gender === 'male' || r.gender === 'ชาย' || r.gender === 'ช' || r.age_group.includes('ชาย')
+        : r.gender === 'female' || r.gender === 'หญิง' || r.gender === 'ญ' || r.age_group.includes('หญิง');
+    };
+
+    const filtered = petanqueRegs.filter(r => checkAgeMatch(r) && checkGenderMatch(r));
+    
+    // กรณีไม่มีข้อมูลคนลงเปตองในรุ่นนี้ ให้แสดงข้อมูลนักกีฬาในรุ่นทั้งหมดเป็นตัวเลือกสำรอง
+    if (filtered.length === 0) {
+      return allRegs.filter(r => checkAgeMatch(r) && checkGenderMatch(r));
+    }
+    return filtered;
+  };
+
+  const handleAutoFillPetanque = () => {
+    const candidates = getPetanqueCandidates();
+    if (petanqueCompType === 'local') {
+      setPetanqueTeam1Local([
+        candidates[0]?.id || '',
+        candidates[1]?.id || '',
+        candidates[2]?.id || '',
+        candidates[3]?.id || '',
+      ]);
+      setPetanqueTeam2Local([
+        candidates[4]?.id || '',
+        candidates[5]?.id || '',
+        candidates[6]?.id || '',
+        candidates[7]?.id || '',
+      ]);
+    } else {
+      setPetanqueTeam1([
+        candidates[0]?.id || '',
+        candidates[1]?.id || '',
+        candidates[2]?.id || '',
+        candidates[3]?.id || '',
+      ]);
+      setPetanqueTeam2([
+        candidates[4]?.id || '',
+        candidates[5]?.id || '',
+        candidates[6]?.id || '',
+        candidates[7]?.id || '',
+      ]);
+    }
+  };
+
+  // Reactive Auto-fill petanque team when age group, gender, report type, or competition type changes
+  useEffect(() => {
+    if (selectedReportType === 'PETANQUE') {
+      handleAutoFillPetanque();
+    }
+  }, [reportAgeGroup, reportGender, selectedReportType, petanqueCompType, registrations, provRegistrations]);
+
+  // ดึงนักกีฬาชายตามรุ่นอายุที่เลือก (ดึงเฉพาะคนที่ลงทะเบียนเปตองเป็นหลัก)
+  const getPetanqueMixedMaleCandidates = () => {
+    const allRegs = petanqueCompType === 'local' ? registrations : provRegistrations;
+    const petanqueRegs = allRegs.filter(r => r.sport_type === 'เปตอง');
+
+    const checkAgeMatch = (r: Registration) => {
+      const isProvOrNoAgeGroup = !r.age_group || r.age_group === '-' || r.competition_type === 'provincial';
+      if (!isProvOrNoAgeGroup) {
+        return r.age_group.includes(`ไม่เกิน ${reportAgeGroup} ปี`);
+      }
+      const calculatedAge = calculateAgeFromBirthDate(r.birth_date);
+      const reportAgeLimit = parseInt(reportAgeGroup, 10);
+      return !isNaN(reportAgeLimit) ? calculatedAge <= reportAgeLimit : true;
+    };
+
+    const checkGenderMatch = (r: Registration) => {
+      return r.gender === 'male' || r.gender === 'ชาย' || r.gender === 'ช' || r.age_group.includes('ชาย');
+    };
+
+    const filtered = petanqueRegs.filter(r => checkAgeMatch(r) && checkGenderMatch(r));
+    
+    if (filtered.length === 0) {
+      return allRegs.filter(r => checkAgeMatch(r) && checkGenderMatch(r));
+    }
+    return filtered;
+  };
+
+  // ดึงนักกีฬาหญิงตามรุ่นอายุที่เลือก (ดึงเฉพาะคนที่ลงทะเบียนเปตองเป็นหลัก)
+  const getPetanqueMixedFemaleCandidates = () => {
+    const allRegs = petanqueCompType === 'local' ? registrations : provRegistrations;
+    const petanqueRegs = allRegs.filter(r => r.sport_type === 'เปตอง');
+
+    const checkAgeMatch = (r: Registration) => {
+      const isProvOrNoAgeGroup = !r.age_group || r.age_group === '-' || r.competition_type === 'provincial';
+      if (!isProvOrNoAgeGroup) {
+        return r.age_group.includes(`ไม่เกิน ${reportAgeGroup} ปี`);
+      }
+      const calculatedAge = calculateAgeFromBirthDate(r.birth_date);
+      const reportAgeLimit = parseInt(reportAgeGroup, 10);
+      return !isNaN(reportAgeLimit) ? calculatedAge <= reportAgeLimit : true;
+    };
+
+    const checkGenderMatch = (r: Registration) => {
+      return r.gender === 'female' || r.gender === 'หญิง' || r.gender === 'ญ' || r.age_group.includes('หญิง');
+    };
+
+    const filtered = petanqueRegs.filter(r => checkAgeMatch(r) && checkGenderMatch(r));
+    
+    if (filtered.length === 0) {
+      return allRegs.filter(r => checkAgeMatch(r) && checkGenderMatch(r));
+    }
+    return filtered;
+  };
+
+  const handleAutoFillPetanqueMixed = () => {
+    const males = getPetanqueMixedMaleCandidates();
+    const females = getPetanqueMixedFemaleCandidates();
+
+    if (petanqueCompType === 'local') {
+      setPetanqueMixedTeamMaleLocal([
+        males[0]?.id || '',
+        males[1]?.id || '',
+        males[2]?.id || '',
+        males[3]?.id || '',
+      ]);
+      setPetanqueMixedTeamFemaleLocal([
+        females[0]?.id || '',
+        females[1]?.id || '',
+        females[2]?.id || '',
+        females[3]?.id || '',
+      ]);
+    } else {
+      setPetanqueMixedTeamMale([
+        males[0]?.id || '',
+        males[1]?.id || '',
+        males[2]?.id || '',
+        males[3]?.id || '',
+      ]);
+      setPetanqueMixedTeamFemale([
+        females[0]?.id || '',
+        females[1]?.id || '',
+        females[2]?.id || '',
+        females[3]?.id || '',
+      ]);
+    }
+  };
+
+  // Reactive Auto-fill petanque mixed team when age group, report type, or competition type changes
+  useEffect(() => {
+    if (selectedReportType === 'PETANQUE_MIXED') {
+      handleAutoFillPetanqueMixed();
+    }
+  }, [reportAgeGroup, selectedReportType, petanqueCompType, registrations, provRegistrations]);
+
+  const handlePrintOfficialReport = async (type: 'A1' | 'A2' | 'A3' | 'CERT' | 'PETANQUE' | 'PETANQUE_MIXED') => {
+    const isLocal = petanqueCompType === 'local';
+    const team1 = isLocal ? petanqueTeam1Local : petanqueTeam1;
+    const team2 = isLocal ? petanqueTeam2Local : petanqueTeam2;
+    const mixedMale = isLocal ? petanqueMixedTeamMaleLocal : petanqueMixedTeamMale;
+    const mixedFemale = isLocal ? petanqueMixedTeamFemaleLocal : petanqueMixedTeamFemale;
+
+    if (type === 'PETANQUE_MIXED') {
+      const selectedIds = [...mixedMale, ...mixedFemale].filter(Boolean);
+      const allRegs = [...registrations, ...provRegistrations];
+      const petData = allRegs.filter(r => selectedIds.includes(r.id));
+      const photoUrls = petData.map(r => r.photo_url).filter(Boolean);
+      if (photoUrls.length > 0) {
+        await Promise.all(photoUrls.map(url => preloadImage(url)));
+      }
+      setPrintType('PETANQUE_MIXED');
+      setIsPrintMode(true);
+      setTimeout(() => {
+        window.print();
+        setIsPrintMode(false);
+      }, 800);
+      return;
+    }
+
+    if (type === 'PETANQUE') {
+      const selectedIds = [...team1, ...team2].filter(Boolean);
+      const allRegs = [...registrations, ...provRegistrations];
+      const petData = allRegs.filter(r => selectedIds.includes(r.id));
+      const photoUrls = petData.map(r => r.photo_url).filter(Boolean);
+      if (photoUrls.length > 0) {
+        await Promise.all(photoUrls.map(url => preloadImage(url)));
+      }
+      setPrintType('PETANQUE');
+      setIsPrintMode(true);
+      setTimeout(() => {
+        window.print();
+        setIsPrintMode(false);
+      }, 800);
+      return;
+    }
+
     if (type === 'CERT') {
       // พิมพ์หนังสือรับรอง — ใช้รายชื่อที่เลือก
       const certRegs = registrations.filter(r => certSelectedRegs.includes(r.id));
@@ -1803,11 +2114,212 @@ export default function Athletics() {
           });
         })()}
 
+        {/* 5. PRINT PETANQUE MIXED (ทะเบียนรูปนักกีฬาเปตอง รวมชายหญิง) */}
+        {/* 5. PRINT PETANQUE MIXED (ทะเบียนรูปนักกีฬาเปตอง รวมชายหญิง) */}
+        {printType === 'PETANQUE_MIXED' && (() => {
+          const edNo = selectedYear ? parseInt(selectedYear) - 2492 : 77;
+          const edThai = toThaiNumerals(edNo);
+          const yearThai = toThaiNumerals(selectedYear || 2569);
+          const allRegs = [...registrations, ...provRegistrations];
+          const isLocal = petanqueCompType === 'local';
+          const activeMixedTeamMale = isLocal ? petanqueMixedTeamMaleLocal : petanqueMixedTeamMale;
+          const activeMixedTeamFemale = isLocal ? petanqueMixedTeamFemaleLocal : petanqueMixedTeamFemale;
+          const activeMixedPhotos = isLocal ? petanqueMixedPhotosLocal : petanqueMixedPhotos;
+
+          const renderTeamBlockPrint = (title: string, teamIds: string[], teamIndex: number) => {
+            return (
+              <div className="border border-black p-4 mb-4 bg-white" style={{ fontSize: '15pt', lineHeight: '1.25' }}>
+                <p className="text-center font-bold mb-3" style={{ fontSize: '16pt' }}>
+                  {title}
+                </p>
+                <div className="grid grid-cols-4 gap-3 justify-items-center">
+                  {teamIds.map((id, idx) => {
+                    const p = allRegs.find(r => r.id === id) || null;
+                    const globalIdx = (teamIndex - 1) * 4 + idx;
+                    const customPhoto = activeMixedPhotos[globalIdx];
+                    const hasPhoto = customPhoto || (p && p.photo_url);
+                    const isPhotoBroken = p ? (brokenImages[p.id] && !customPhoto) : !customPhoto;
+                    return (
+                      <div key={idx} className="flex flex-col items-center w-full">
+                        <div className="w-[100px] h-[130px] border border-black flex items-center justify-center bg-slate-50 overflow-hidden relative">
+                          {hasPhoto && !isPhotoBroken ? (
+                            <img 
+                              src={customPhoto || (p ? p.photo_url : '')} 
+                              alt="pic" 
+                              className="w-full h-full object-cover"
+                              onLoad={(e) => p && handleImageLoad(p.id, e)}
+                              onError={() => p && handleImageError(p.id)} 
+                            />
+                          ) : (
+                            <span className="text-[10px] text-slate-400 text-center font-normal px-1">
+                              รูปถ่าย<br/>{idx === 3 ? 'สำรอง' : `คนที่ ${idx + 1}`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-center mt-2 w-full text-[14pt] leading-tight font-normal font-sans">
+                          <div className="truncate">ชื่อ {p ? `${p.prefix || (teamIndex === 1 ? 'ด.ช.' : 'ด.ญ.')}${p.first_name}` : '.......................................'}</div>
+                          <div className="truncate mt-1">นามสกุล {p ? p.last_name : '.......................................'}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          };
+
+          const matchTitle = isLocal
+            ? `การแข่งขันกีฬาเปตอง เด็ก เยาวชนและประชาชน ตำบลเขาชัยสน ครั้งที่ ${edThai} ประจำปี พ.ศ. ${yearThai}`
+            : `การแข่งขันกีฬาเปตองกีฬานักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ ${edThai} ประจำปี ${yearThai}`;
+
+          return (
+            <div className="official-page-break flex flex-col justify-between py-6" style={{ fontSize: '16pt', height: '297mm', boxSizing: 'border-box' }}>
+              <div>
+                <h2 className="text-center font-bold" style={{ fontSize: '18pt', marginBottom: '4px' }}>ทะเบียนรูปนักกีฬา</h2>
+                <p className="text-center font-bold" style={{ fontSize: '16pt', marginBottom: '8px' }}>
+                  {matchTitle}
+                </p>
+                <div className="mb-4 text-center font-bold" style={{ fontSize: '16pt' }}>
+                  ชื่อหน่วยกีฬา <span style={{ borderBottom: '1px dotted #000', paddingLeft: '20px', paddingRight: '20px', display: 'inline-block', minWidth: '300px' }}>{reportTeamName || '.........................................................................'}</span>
+                </div>
+
+                {renderTeamBlockPrint(
+                  `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ ชาย ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                  activeMixedTeamMale,
+                  1
+                )}
+
+                {renderTeamBlockPrint(
+                  `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ หญิง ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                  activeMixedTeamFemale,
+                  2
+                )}
+              </div>
+
+              <div className="mt-2" style={{ pageBreakInside: 'avoid' }}>
+                <p className="text-center font-bold mb-4" style={{ fontSize: '15pt' }}>ขอรับรองคุณสมบัตินักกีฬาถูกต้องทุกประการ</p>
+                <table style={{ width: '100%', border: 'none', marginTop: '4px' }}>
+                  <tbody>
+                    <tr style={{ border: 'none' }}>
+                      <td style={{ border: 'none', width: '50%' }}></td>
+                      <td style={{ border: 'none', textAlign: 'center', width: '50%', fontSize: '16pt', lineHeight: '1.2' }}>
+                        <p>ลงชื่อ <span style={{ display: 'inline-block', width: '180px', borderBottom: '1px dotted #000' }}></span> หัวหน้าหน่วยกีฬา</p>
+                        <p style={{ marginTop: '3px' }}>( <u>{"\u00a0\u00a0"}{reportManagerName || '........................................................'}{"\u00a0\u00a0"}</u> )</p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
+
+        {/* 6. PRINT PETANQUE (ทะเบียนรูปนักกีฬาเปตอง) */}
+        {printType === 'PETANQUE' && (() => {
+          const edNo = selectedYear ? parseInt(selectedYear) - 2492 : 77;
+          const edThai = toThaiNumerals(edNo);
+          const yearThai = toThaiNumerals(selectedYear || 2569);
+          const allRegs = [...registrations, ...provRegistrations];
+          const isLocal = petanqueCompType === 'local';
+          const activeTeam1 = isLocal ? petanqueTeam1Local : petanqueTeam1;
+          const activeTeam2 = isLocal ? petanqueTeam2Local : petanqueTeam2;
+          const activePhotos = isLocal ? petanqueTeamPhotosLocal : petanqueTeamPhotos;
+
+          const renderTeamBlockPrint = (title: string, teamIds: string[], teamIndex: number) => {
+            return (
+              <div className="border border-black p-4 mb-4 bg-white" style={{ fontSize: '15pt', lineHeight: '1.25' }}>
+                <p className="text-center font-bold mb-3" style={{ fontSize: '16pt' }}>
+                  {title}
+                </p>
+                <div className="grid grid-cols-4 gap-3 justify-items-center">
+                  {teamIds.map((id, idx) => {
+                    const p = allRegs.find(r => r.id === id) || null;
+                    const globalIdx = (teamIndex - 1) * 4 + idx;
+                    const customPhoto = activePhotos[globalIdx];
+                    const hasPhoto = customPhoto || (p && p.photo_url);
+                    const isPhotoBroken = p ? (brokenImages[p.id] && !customPhoto) : !customPhoto;
+                    return (
+                      <div key={idx} className="flex flex-col items-center w-full">
+                        <div className="w-[100px] h-[130px] border border-black flex items-center justify-center bg-slate-50 overflow-hidden relative">
+                          {hasPhoto && !isPhotoBroken ? (
+                            <img 
+                              src={customPhoto || (p ? p.photo_url : '')} 
+                              alt="pic" 
+                              className="w-full h-full object-cover"
+                              onLoad={(e) => p && handleImageLoad(p.id, e)}
+                              onError={() => p && handleImageError(p.id)} 
+                            />
+                          ) : (
+                            <span className="text-[10px] text-slate-400 text-center font-normal px-1">
+                              รูปถ่าย<br/>{idx === 3 ? 'สำรอง' : `คนที่ ${idx + 1}`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-center mt-2 w-full text-[14pt] leading-tight font-normal font-sans">
+                          <div className="truncate">ชื่อ {p ? `${p.prefix || (reportGender === 'male' ? 'ด.ช.' : 'ด.ญ.')}${p.first_name}` : '.......................................'}</div>
+                          <div className="truncate mt-1">นามสกุล {p ? p.last_name : '.......................................'}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          };
+
+          const matchTitle = isLocal
+            ? `การแข่งขันกีฬาเปตอง เด็ก เยาวชนและประชาชน ตำบลเขาชัยสน ครั้งที่ ${edThai} ประจำปี พ.ศ. ${yearThai}`
+            : `การแข่งขันกีฬาเปตองกีฬานักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ ${edThai} ประจำปี ${yearThai}`;
+
+          return (
+            <div className="official-page-break flex flex-col justify-between py-6" style={{ fontSize: '16pt', height: '297mm', boxSizing: 'border-box' }}>
+              <div>
+                <h2 className="text-center font-bold" style={{ fontSize: '18pt', marginBottom: '4px' }}>ทะเบียนรูปนักกีฬา</h2>
+                <p className="text-center font-bold" style={{ fontSize: '16pt', marginBottom: '8px' }}>
+                  {matchTitle}
+                </p>
+                <div className="mb-4 text-center font-bold" style={{ fontSize: '16pt' }}>
+                  ชื่อหน่วยกีฬา <span style={{ borderBottom: '1px dotted #000', paddingLeft: '20px', paddingRight: '20px', display: 'inline-block', minWidth: '300px' }}>{reportTeamName || '.........................................................................'}</span>
+                </div>
+
+                {renderTeamBlockPrint(
+                  `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ ${reportGender === 'male' ? 'ชาย' : 'หญิง'} ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                  activeTeam1,
+                  1
+                )}
+
+                {renderTeamBlockPrint(
+                  `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ ${reportGender === 'male' ? 'ชาย' : 'หญิง'} ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                  activeTeam2,
+                  2
+                )}
+              </div>
+
+              <div className="mt-2" style={{ pageBreakInside: 'avoid' }}>
+                <p className="text-center font-bold mb-4" style={{ fontSize: '15pt' }}>ขอรับรองคุณสมบัตินักกีฬาถูกต้องทุกประการ</p>
+                <table style={{ width: '100%', border: 'none', marginTop: '4px' }}>
+                  <tbody>
+                    <tr style={{ border: 'none' }}>
+                      <td style={{ border: 'none', width: '50%' }}></td>
+                      <td style={{ border: 'none', textAlign: 'center', width: '50%', fontSize: '16pt', lineHeight: '1.2' }}>
+                        <p>ลงชื่อ <span style={{ display: 'inline-block', width: '180px', borderBottom: '1px dotted #000' }}></span> หัวหน้าหน่วยกีฬา</p>
+                        <p style={{ marginTop: '3px' }}>( <u>{"\u00a0\u00a0"}{reportManagerName || '........................................................'}{"\u00a0\u00a0"}</u> )</p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
     );
   }
 
-  // Regular Admin view
+
+    // Regular Admin view
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       
@@ -2529,23 +3041,65 @@ export default function Athletics() {
               {/* Report Type Selector */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">ประเภทเอกสารรายงาน</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['A1', 'A2', 'A3', 'CERT'] as const).map(type => (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['A1', 'A2', 'A3', 'CERT', 'PETANQUE', 'PETANQUE_MIXED'] as const).map(type => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setSelectedReportType(type)}
-                      className={`py-3 rounded-xl font-black text-xs transition-all ${
+                      className={`py-2.5 rounded-xl font-black text-[9px] transition-all ${
                         selectedReportType === type
-                          ? type === 'CERT' ? 'bg-indigo-600 text-white shadow-md' : 'bg-emerald-600 text-white shadow-md'
+                          ? type === 'CERT' 
+                            ? 'bg-indigo-600 text-white shadow-md' 
+                            : type === 'PETANQUE' || type === 'PETANQUE_MIXED'
+                              ? 'bg-amber-600 text-white shadow-md'
+                              : 'bg-emerald-600 text-white shadow-md'
                           : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                       }`}
                     >
-                      {type === 'CERT' ? '📜 รับรอง' : `แบบ ${type}`}
+                      {type === 'CERT' 
+                        ? '📜 รับรอง' 
+                        : type === 'PETANQUE' 
+                          ? '🏓 เปตอง (แยก)' 
+                          : type === 'PETANQUE_MIXED'
+                            ? '🏓 เปตอง (รวม)'
+                            : `แบบ ${type}`}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* สำหรับเปตอง ให้เลือกประเภทการแข่งขัน (อบต. vs จังหวัด) */}
+              {(selectedReportType === 'PETANQUE' || selectedReportType === 'PETANQUE_MIXED') && (
+                <div className="space-y-1.5 p-3 bg-amber-50 rounded-xl border border-amber-100/60 animate-in slide-in-from-top-2">
+                  <label className="text-[10px] font-black text-amber-700 uppercase tracking-widest block">ระดับการแข่งขันเปตอง</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPetanqueCompType('local')}
+                      className={`py-2 rounded-lg font-black text-xs transition-all ${
+                        petanqueCompType === 'local'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-white text-amber-600 hover:bg-amber-50 border border-amber-200'
+                      }`}
+                    >
+                      🏆 กีฬา อบต.
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPetanqueCompType('provincial')}
+                      className={`py-2 rounded-lg font-black text-xs transition-all ${
+                        petanqueCompType === 'provincial'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-white text-amber-600 hover:bg-amber-50 border border-amber-200'
+                      }`}
+                    >
+                      ⚽ กีฬาจังหวัด
+                    </button>
+                  </div>
+                </div>
+              )}
+
 
               {/* Age Filter for Report */}
               <div className="space-y-1.5">
@@ -2641,12 +3195,500 @@ export default function Athletics() {
                 />
               </div>
 
-              {/* Generate Report print trigger */}
+              {/* Petanque Team Configuration Dropdowns */}
+              {selectedReportType === 'PETANQUE' && (() => {
+                const isLocal = petanqueCompType === 'local';
+                const activeTeam1 = isLocal ? petanqueTeam1Local : petanqueTeam1;
+                const activeTeam2 = isLocal ? petanqueTeam2Local : petanqueTeam2;
+                const activePhotos = isLocal ? petanqueTeamPhotosLocal : petanqueTeamPhotos;
+                
+                return (
+                  <div className="mt-4 p-4 bg-amber-50/40 border border-amber-200/60 rounded-2xl space-y-4 animate-in slide-in-from-top-2">
+                    <div className="flex justify-between items-center border-b border-amber-200/50 pb-2">
+                      <h4 className="font-black text-amber-800 text-xs uppercase tracking-widest">
+                        จัดทีมเปตอง (3 คน สำรอง 1)
+                      </h4>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAutoFillPetanque}
+                          className="text-[10px] font-black text-emerald-600 hover:text-emerald-800 transition-colors"
+                        >
+                          ⚡ ออโต้ฟิล
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isLocal) {
+                              setPetanqueTeam1Local(['', '', '', '']);
+                              setPetanqueTeam2Local(['', '', '', '']);
+                              setPetanqueTeamPhotosLocal(Array(8).fill(''));
+                            } else {
+                              setPetanqueTeam1(['', '', '', '']);
+                              setPetanqueTeam2(['', '', '', '']);
+                              setPetanqueTeamPhotos(Array(8).fill(''));
+                            }
+                          }}
+                          className="text-[10px] font-black text-red-500 hover:text-red-700 transition-colors"
+                        >
+                          🗑️ ล้างทีม
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* ทีมที่ 1 */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black text-amber-900/60">ทีมที่ 1</p>
+                      {[0, 1, 2, 3].map((pos) => {
+                        const label = pos === 3 ? 'ตัวสำรอง' : `คนที่ ${pos + 1}`;
+                        const globalIdx = pos;
+                        const studentId = activeTeam1[pos];
+                        const allRegs = [...registrations, ...provRegistrations];
+                        const candidate = allRegs.find(r => r.id === studentId);
+                        const displayPhoto = activePhotos[globalIdx] || (candidate ? candidate.photo_url : '');
+                        
+                        return (
+                          <div key={pos} className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-bold w-12 shrink-0">{label}:</span>
+                            <select
+                              value={activeTeam1[pos]}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (isLocal) {
+                                  setPetanqueTeam1Local(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                } else {
+                                  setPetanqueTeam1(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 min-w-0"
+                            >
+                              <option value="">-- เลือกนักกีฬา (หรือปล่อยว่าง) --</option>
+                              {getPetanqueCandidates().map(c => {
+                                const isMale = c.gender === 'male' || c.gender === 'ชาย' || c.gender === 'ช' || c.age_group.includes('ชาย');
+                                const displayPrefix = c.prefix || (isMale ? 'ด.ช.' : 'ด.ญ.');
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {displayPrefix}{c.first_name} {c.last_name} ({c.sport_type})
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {/* อัปโหลดรูปภาพเฉพาะเปตอง */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                id={`pet-photo-${globalIdx}`}
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  if (isLocal) {
+                                    handlePetanquePhotoChangeLocal(globalIdx, file);
+                                  } else {
+                                    handlePetanquePhotoChange(globalIdx, file);
+                                  }
+                                }}
+                              />
+                              {displayPhoto ? (
+                                <div className="relative group w-8 h-8 rounded border border-amber-300 overflow-hidden bg-slate-100 flex items-center justify-center">
+                                  <img src={displayPhoto} className="w-full h-full object-cover" alt="prev" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isLocal) {
+                                        handlePetanquePhotoChangeLocal(globalIdx, null);
+                                      } else {
+                                        handlePetanquePhotoChange(globalIdx, null);
+                                      }
+                                    }}
+                                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title={activePhotos[globalIdx] ? "ล้างรูปเฉพาะ (กลับไปใช้รูปหลัก)" : "มีรูปจากระบบหลักแล้ว"}
+                                    disabled={!activePhotos[globalIdx]}
+                                  >
+                                    {activePhotos[globalIdx] ? <X size={10} /> : <Camera size={10} />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <label
+                                  htmlFor={`pet-photo-${globalIdx}`}
+                                  className="w-8 h-8 rounded border border-slate-200 hover:border-amber-400 bg-white hover:bg-amber-50 text-slate-400 hover:text-amber-600 flex items-center justify-center cursor-pointer transition-colors"
+                                  title="อัปโหลดรูปเฉพาะในใบนี้"
+                                >
+                                  <Camera size={14} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* ทีมที่ 2 */}
+                    <div className="space-y-2 pt-2 border-t border-amber-200/40">
+                      <p className="text-[10px] font-black text-amber-900/60">ทีมที่ 2 (ส่งเพิ่ม/ตัวเลือก)</p>
+                      {[0, 1, 2, 3].map((pos) => {
+                        const label = pos === 3 ? 'ตัวสำรอง' : `คนที่ ${pos + 1}`;
+                        const globalIdx = 4 + pos;
+                        const studentId = activeTeam2[pos];
+                        const allRegs = [...registrations, ...provRegistrations];
+                        const candidate = allRegs.find(r => r.id === studentId);
+                        const displayPhoto = activePhotos[globalIdx] || (candidate ? candidate.photo_url : '');
+                        
+                        return (
+                          <div key={pos} className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-bold w-12 shrink-0">{label}:</span>
+                            <select
+                              value={activeTeam2[pos]}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (isLocal) {
+                                  setPetanqueTeam2Local(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                } else {
+                                  setPetanqueTeam2(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 min-w-0"
+                            >
+                              <option value="">-- เลือกนักกีฬา (หรือปล่อยว่าง) --</option>
+                              {getPetanqueCandidates().map(c => {
+                                const isMale = c.gender === 'male' || c.gender === 'ชาย' || c.gender === 'ช' || c.age_group.includes('ชาย');
+                                const displayPrefix = c.prefix || (isMale ? 'ด.ช.' : 'ด.ญ.');
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {displayPrefix}{c.first_name} {c.last_name} ({c.sport_type})
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {/* อัปโหลดรูปภาพเฉพาะเปตอง */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                id={`pet-photo-${globalIdx}`}
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  if (isLocal) {
+                                    handlePetanquePhotoChangeLocal(globalIdx, file);
+                                  } else {
+                                    handlePetanquePhotoChange(globalIdx, file);
+                                  }
+                                }}
+                              />
+                              {displayPhoto ? (
+                                <div className="relative group w-8 h-8 rounded border border-amber-300 overflow-hidden bg-slate-100 flex items-center justify-center">
+                                  <img src={displayPhoto} className="w-full h-full object-cover" alt="prev" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isLocal) {
+                                        handlePetanquePhotoChangeLocal(globalIdx, null);
+                                      } else {
+                                        handlePetanquePhotoChange(globalIdx, null);
+                                      }
+                                    }}
+                                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title={activePhotos[globalIdx] ? "ล้างรูปเฉพาะ (กลับไปใช้รูปหลัก)" : "มีรูปจากระบบหลักแล้ว"}
+                                    disabled={!activePhotos[globalIdx]}
+                                  >
+                                    {activePhotos[globalIdx] ? <X size={10} /> : <Camera size={10} />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <label
+                                  htmlFor={`pet-photo-${globalIdx}`}
+                                  className="w-8 h-8 rounded border border-slate-200 hover:border-amber-400 bg-white hover:bg-amber-50 text-slate-400 hover:text-amber-600 flex items-center justify-center cursor-pointer transition-colors"
+                                  title="อัปโหลดรูปเฉพาะในใบนี้"
+                                >
+                                  <Camera size={14} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+
+              {/* Petanque Mixed Team Configuration Dropdowns */}
+              {selectedReportType === 'PETANQUE_MIXED' && (() => {
+                const isLocal = petanqueCompType === 'local';
+                const activeMixedTeamMale = isLocal ? petanqueMixedTeamMaleLocal : petanqueMixedTeamMale;
+                const activeMixedTeamFemale = isLocal ? petanqueMixedTeamFemaleLocal : petanqueMixedTeamFemale;
+                const activeMixedPhotos = isLocal ? petanqueMixedPhotosLocal : petanqueMixedPhotos;
+
+                return (
+                  <div className="mt-4 p-4 bg-purple-50/40 border border-purple-200/60 rounded-2xl space-y-4 animate-in slide-in-from-top-2">
+                    <div className="flex justify-between items-center border-b border-purple-200/50 pb-2">
+                      <h4 className="font-black text-purple-800 text-xs uppercase tracking-widest">
+                        จัดทีมเปตอง รวม (ชาย-หญิง)
+                      </h4>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAutoFillPetanqueMixed}
+                          className="text-[10px] font-black text-emerald-600 hover:text-emerald-800 transition-colors"
+                        >
+                          ⚡ ออโต้ฟิล
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isLocal) {
+                              setPetanqueMixedTeamMaleLocal(['', '', '', '']);
+                              setPetanqueMixedTeamFemaleLocal(['', '', '', '']);
+                              setPetanqueMixedPhotosLocal(Array(8).fill(''));
+                            } else {
+                              setPetanqueMixedTeamMale(['', '', '', '']);
+                              setPetanqueMixedTeamFemale(['', '', '', '']);
+                              setPetanqueMixedPhotos(Array(8).fill(''));
+                            }
+                          }}
+                          className="text-[10px] font-black text-red-500 hover:text-red-700 transition-colors"
+                        >
+                          🗑️ ล้างทีม
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* ทีมชาย */}
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black text-purple-900/60">ทีมชาย (ครึ่งบน)</p>
+                      {[0, 1, 2, 3].map((pos) => {
+                        const label = pos === 3 ? 'ตัวสำรอง' : `คนที่ ${pos + 1}`;
+                        const globalIdx = pos;
+                        const studentId = activeMixedTeamMale[pos];
+                        const allRegs = [...registrations, ...provRegistrations];
+                        const candidate = allRegs.find(r => r.id === studentId);
+                        const displayPhoto = activeMixedPhotos[globalIdx] || (candidate ? candidate.photo_url : '');
+                        
+                        return (
+                          <div key={pos} className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-bold w-12 shrink-0">{label}:</span>
+                            <select
+                              value={activeMixedTeamMale[pos]}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (isLocal) {
+                                  setPetanqueMixedTeamMaleLocal(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                } else {
+                                  setPetanqueMixedTeamMale(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 min-w-0"
+                            >
+                              <option value="">-- เลือกนักกีฬา (ชาย) --</option>
+                              {getPetanqueMixedMaleCandidates().map(c => {
+                                const isMale = c.gender === 'male' || c.gender === 'ชาย' || c.gender === 'ช' || c.age_group.includes('ชาย');
+                                const displayPrefix = c.prefix || (isMale ? 'ด.ช.' : 'ด.ญ.');
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {displayPrefix}{c.first_name} {c.last_name} ({c.sport_type})
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {/* อัปโหลดรูปภาพเฉพาะเปตองแบบผสม */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                id={`pet-mix-photo-${globalIdx}`}
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  if (isLocal) {
+                                    handlePetanqueMixedPhotoChangeLocal(globalIdx, file);
+                                  } else {
+                                    handlePetanqueMixedPhotoChange(globalIdx, file);
+                                  }
+                                }}
+                              />
+                              {displayPhoto ? (
+                                <div className="relative group w-8 h-8 rounded border border-purple-300 overflow-hidden bg-slate-100 flex items-center justify-center">
+                                  <img src={displayPhoto} className="w-full h-full object-cover" alt="prev" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isLocal) {
+                                        handlePetanqueMixedPhotoChangeLocal(globalIdx, null);
+                                      } else {
+                                        handlePetanqueMixedPhotoChange(globalIdx, null);
+                                      }
+                                    }}
+                                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title={activeMixedPhotos[globalIdx] ? "ล้างรูปเฉพาะ (กลับไปใช้รูปหลัก)" : "มีรูปจากระบบหลักแล้ว"}
+                                    disabled={!activeMixedPhotos[globalIdx]}
+                                  >
+                                    {activeMixedPhotos[globalIdx] ? <X size={10} /> : <Camera size={10} />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <label
+                                  htmlFor={`pet-mix-photo-${globalIdx}`}
+                                  className="w-8 h-8 rounded border border-slate-200 hover:border-purple-400 bg-white hover:bg-purple-50 text-slate-400 hover:text-purple-600 flex items-center justify-center cursor-pointer transition-colors"
+                                  title="อัปโหลดรูปเฉพาะในใบนี้"
+                                >
+                                  <Camera size={14} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* ทีมหญิง */}
+                    <div className="space-y-2 pt-2 border-t border-purple-200/40">
+                      <p className="text-[10px] font-black text-purple-900/60">ทีมหญิง (ครึ่งล่าง)</p>
+                      {[0, 1, 2, 3].map((pos) => {
+                        const label = pos === 3 ? 'ตัวสำรอง' : `คนที่ ${pos + 1}`;
+                        const globalIdx = 4 + pos;
+                        const studentId = activeMixedTeamFemale[pos];
+                        const allRegs = [...registrations, ...provRegistrations];
+                        const candidate = allRegs.find(r => r.id === studentId);
+                        const displayPhoto = activeMixedPhotos[globalIdx] || (candidate ? candidate.photo_url : '');
+                        
+                        return (
+                          <div key={pos} className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-bold w-12 shrink-0">{label}:</span>
+                            <select
+                              value={activeMixedTeamFemale[pos]}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (isLocal) {
+                                  setPetanqueMixedTeamFemaleLocal(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                } else {
+                                  setPetanqueMixedTeamFemale(prev => {
+                                    const next = [...prev];
+                                    next[pos] = val;
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 min-w-0"
+                            >
+                              <option value="">-- เลือกนักกีฬา (หญิง) --</option>
+                              {getPetanqueMixedFemaleCandidates().map(c => {
+                                const isMale = c.gender === 'male' || c.gender === 'ชาย' || c.gender === 'ช' || c.age_group.includes('ชาย');
+                                const displayPrefix = c.prefix || (isMale ? 'ด.ช.' : 'ด.ญ.');
+                                return (
+                                  <option key={c.id} value={c.id}>
+                                    {displayPrefix}{c.first_name} {c.last_name} ({c.sport_type})
+                                  </option>
+                                );
+                              })}
+                            </select>
+
+                            {/* อัปโหลดรูปภาพเฉพาะเปตองแบบผสม */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                id={`pet-mix-photo-${globalIdx}`}
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  if (isLocal) {
+                                    handlePetanqueMixedPhotoChangeLocal(globalIdx, file);
+                                  } else {
+                                    handlePetanqueMixedPhotoChange(globalIdx, file);
+                                  }
+                                }}
+                              />
+                              {displayPhoto ? (
+                                <div className="relative group w-8 h-8 rounded border border-purple-300 overflow-hidden bg-slate-100 flex items-center justify-center">
+                                  <img src={displayPhoto} className="w-full h-full object-cover" alt="prev" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isLocal) {
+                                        handlePetanqueMixedPhotoChangeLocal(globalIdx, null);
+                                      } else {
+                                        handlePetanqueMixedPhotoChange(globalIdx, null);
+                                      }
+                                    }}
+                                    className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title={activeMixedPhotos[globalIdx] ? "ล้างรูปเฉพาะ (กลับไปใช้รูปหลัก)" : "มีรูปจากระบบหลักแล้ว"}
+                                    disabled={!activeMixedPhotos[globalIdx]}
+                                  >
+                                    {activeMixedPhotos[globalIdx] ? <X size={10} /> : <Camera size={10} />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <label
+                                  htmlFor={`pet-mix-photo-${globalIdx}`}
+                                  className="w-8 h-8 rounded border border-slate-200 hover:border-purple-400 bg-white hover:bg-amber-50 text-slate-400 hover:text-amber-600 flex items-center justify-center cursor-pointer transition-colors"
+                                  title="อัปโหลดรูปเฉพาะในใบนี้"
+                                >
+                                  <Camera size={14} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+
+                            {/* Generate Report print trigger */}
               <button
                 onClick={() => handlePrintOfficialReport(selectedReportType)}
-                className={`w-full mt-6 ${selectedReportType === 'CERT' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'} text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg`}
+                className={`w-full mt-6 ${
+                  selectedReportType === 'CERT' 
+                    ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' 
+                    : selectedReportType === 'PETANQUE' || selectedReportType === 'PETANQUE_MIXED'
+                      ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-100'
+                      : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'
+                } text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg`}
               >
-                <Printer size={16} /> {selectedReportType === 'CERT' ? 'พิมพ์หนังสือรับรอง' : `พิมพ์รายงาน / บันทึก PDF (แบบ ${selectedReportType})`}
+                <Printer size={16} /> {
+                  selectedReportType === 'CERT' 
+                    ? 'พิมพ์หนังสือรับรอง' 
+                    : selectedReportType === 'PETANQUE'
+                      ? 'พิมพ์ทะเบียนรูปนักกีฬาเปตอง (แยกเพศ)'
+                      : selectedReportType === 'PETANQUE_MIXED'
+                        ? 'พิมพ์ทะเบียนรูปนักกีฬาเปตอง (รวมชาย-หญิง)'
+                        : `พิมพ์รายงาน / บันทึก PDF (แบบ ${selectedReportType})`
+                }
               </button>
 
               {/* ส่วนตั้งค่ารายการแข่งขัน */}
@@ -3193,6 +4235,182 @@ export default function Athletics() {
                     </div>
                   );
                 })()}
+
+                {/* 5. PREVIEW PETANQUE MIXED (ทะเบียนรูปนักกีฬาเปตอง รวมชายหญิง) */}
+                {selectedReportType === 'PETANQUE_MIXED' && (() => {
+                  const edNo = selectedYear ? parseInt(selectedYear) - 2492 : 77;
+                  const edThai = toThaiNumerals(edNo);
+                  const yearThai = toThaiNumerals(selectedYear || 2569);
+                  const allRegs = [...registrations, ...provRegistrations];
+                  const isLocal = petanqueCompType === 'local';
+                  const activeMixedTeamMale = isLocal ? petanqueMixedTeamMaleLocal : petanqueMixedTeamMale;
+                  const activeMixedTeamFemale = isLocal ? petanqueMixedTeamFemaleLocal : petanqueMixedTeamFemale;
+                  const activeMixedPhotos = isLocal ? petanqueMixedPhotosLocal : petanqueMixedPhotos;
+
+                  const renderTeamBlock = (title: string, teamIds: string[], teamIndex: number) => {
+                    return (
+                      <div className="border border-black p-4 mb-4 bg-white rounded-lg">
+                        <p className="text-center font-bold mb-3" style={{ fontSize: '15pt' }}>
+                          {title}
+                        </p>
+                        <div className="grid grid-cols-4 gap-3 justify-items-center">
+                          {teamIds.map((id, idx) => {
+                            const p = allRegs.find(r => r.id === id) || null;
+                            const globalIdx = (teamIndex - 1) * 4 + idx;
+                            const customPhoto = activeMixedPhotos[globalIdx];
+                            const hasPhoto = customPhoto || (p && p.photo_url);
+                            const isPhotoBroken = p ? (brokenImages[p.id] && !customPhoto) : !customPhoto;
+                            return (
+                              <div key={idx} className="flex flex-col items-center">
+                                <div className="w-[90px] h-[120px] border border-black flex items-center justify-center bg-slate-50 overflow-hidden relative">
+                                  {hasPhoto && !isPhotoBroken ? (
+                                    <img 
+                                      src={customPhoto || (p ? p.photo_url : '')} 
+                                      alt="pic" 
+                                      className="w-full h-full object-cover"
+                                      onLoad={(e) => p && handleImageLoad(p.id, e)}
+                                      onError={() => p && handleImageError(p.id)} 
+                                    />
+                                  ) : (
+                                    <span className="text-[9px] text-slate-400 text-center font-normal px-1">
+                                      รูปถ่าย<br/>{idx === 3 ? 'สำรอง' : `คนที่ ${idx + 1}`}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-center mt-2 w-full text-[13pt] leading-snug">
+                                  <div className="truncate font-sans font-normal text-slate-700">ชื่อ {p ? `${p.prefix || (teamIndex === 1 ? 'ด.ช.' : 'ด.ญ.')}${p.first_name}` : '...........................'}</div>
+                                  <div className="truncate mt-1 font-sans font-normal text-slate-700">นามสกุล {p ? p.last_name : '...........................'}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const matchTitle = isLocal
+                    ? `การแข่งขันกีฬาเปตอง เด็ก เยาวชนและประชาชน ตำบลเขาชัยสน ครั้งที่ ${edThai} ประจำปี พ.ศ. ${yearThai}`
+                    : `การแข่งขันกีฬาเปตองกีฬานักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ ${edThai} ประจำปี ${yearThai}`;
+
+                  return (
+                    <div 
+                      className="bg-white p-8 shadow-sm border border-slate-300 w-[180mm] min-h-[250mm] mx-auto text-[15px] text-slate-800 leading-normal flex flex-col justify-between"
+                      style={{ fontFamily: '"TH Sarabun PSK", "TH Sarabun New", "Sarabun", sans-serif', fontSize: '16pt' }}
+                    >
+                      <div>
+                        <h4 className="text-center font-bold" style={{ fontSize: '18pt', marginBottom: '4px' }}>ทะเบียนรูปนักกีฬา</h4>
+                        <p className="text-center font-bold" style={{ fontSize: '16pt', marginBottom: '6px' }}>
+                          {matchTitle}
+                        </p>
+                        <div className="mb-4 text-center font-bold" style={{ fontSize: '16pt' }}>
+                          ชื่อหน่วยกีฬา <span className="inline-block border-b border-dotted border-black px-4 min-w-[250px] text-center font-bold">{reportTeamName || '.........................................................................'}</span>
+                        </div>
+
+                        {renderTeamBlock(
+                          `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ ชาย ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                          activeMixedTeamMale,
+                          1
+                        )}
+
+                        {renderTeamBlock(
+                          `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ หญิง ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                          activeMixedTeamFemale,
+                          2
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+
+                {/* 6. PREVIEW PETANQUE (ทะเบียนรูปนักกีฬาเปตอง) */}
+                {selectedReportType === 'PETANQUE' && (() => {
+                  const edNo = selectedYear ? parseInt(selectedYear) - 2492 : 77;
+                  const edThai = toThaiNumerals(edNo);
+                  const yearThai = toThaiNumerals(selectedYear || 2569);
+                  const allRegs = [...registrations, ...provRegistrations];
+                  const isLocal = petanqueCompType === 'local';
+                  const activeTeam1 = isLocal ? petanqueTeam1Local : petanqueTeam1;
+                  const activeTeam2 = isLocal ? petanqueTeam2Local : petanqueTeam2;
+                  const activePhotos = isLocal ? petanqueTeamPhotosLocal : petanqueTeamPhotos;
+
+                  const renderTeamBlock = (title: string, teamIds: string[], teamIndex: number) => {
+                    return (
+                      <div className="border border-black p-4 mb-4 bg-white rounded-lg">
+                        <p className="text-center font-bold mb-3" style={{ fontSize: '15pt' }}>
+                          {title}
+                        </p>
+                        <div className="grid grid-cols-4 gap-3 justify-items-center">
+                          {teamIds.map((id, idx) => {
+                            const p = allRegs.find(r => r.id === id) || null;
+                            const globalIdx = (teamIndex - 1) * 4 + idx;
+                            const customPhoto = activePhotos[globalIdx];
+                            const hasPhoto = customPhoto || (p && p.photo_url);
+                            const isPhotoBroken = p ? (brokenImages[p.id] && !customPhoto) : !customPhoto;
+                            return (
+                              <div key={idx} className="flex flex-col items-center">
+                                <div className="w-[90px] h-[120px] border border-black flex items-center justify-center bg-slate-50 overflow-hidden relative">
+                                  {hasPhoto && !isPhotoBroken ? (
+                                    <img 
+                                      src={customPhoto || (p ? p.photo_url : '')} 
+                                      alt="pic" 
+                                      className="w-full h-full object-cover"
+                                      onLoad={(e) => p && handleImageLoad(p.id, e)}
+                                      onError={() => p && handleImageError(p.id)} 
+                                    />
+                                  ) : (
+                                    <span className="text-[9px] text-slate-400 text-center font-normal px-1">
+                                      รูปถ่าย<br/>{idx === 3 ? 'สำรอง' : `คนที่ ${idx + 1}`}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-center mt-2 w-full text-[13pt] leading-snug">
+                                  <div className="truncate font-sans font-normal text-slate-700">ชื่อ {p ? `${p.prefix || (reportGender === 'male' ? 'ด.ช.' : 'ด.ญ.')}${p.first_name}` : '...........................'}</div>
+                                  <div className="truncate mt-1 font-sans font-normal text-slate-700">นามสกุล {p ? p.last_name : '...........................'}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const matchTitle = isLocal
+                    ? `การแข่งขันกีฬาเปตอง เด็ก เยาวชนและประชาชน ตำบลเขาชัยสน ครั้งที่ ${edThai} ประจำปี พ.ศ. ${yearThai}`
+                    : `การแข่งขันกีฬาเปตองกีฬานักเรียน นักศึกษา และประชาชนจังหวัดพัทลุง ครั้งที่ ${edThai} ประจำปี ${yearThai}`;
+
+                  return (
+                    <div 
+                      className="bg-white p-8 shadow-sm border border-slate-300 w-[180mm] min-h-[250mm] mx-auto text-[15px] text-slate-800 leading-normal flex flex-col justify-between"
+                      style={{ fontFamily: '"TH Sarabun PSK", "TH Sarabun New", "Sarabun", sans-serif', fontSize: '16pt' }}
+                    >
+                      <div>
+                        <h4 className="text-center font-bold" style={{ fontSize: '18pt', marginBottom: '4px' }}>ทะเบียนรูปนักกีฬา</h4>
+                        <p className="text-center font-bold" style={{ fontSize: '16pt', marginBottom: '6px' }}>
+                          {matchTitle}
+                        </p>
+                        <div className="mb-4 text-center font-bold" style={{ fontSize: '16pt' }}>
+                          ชื่อหน่วยกีฬา <span className="inline-block border-b border-dotted border-black px-4 min-w-[250px] text-center font-bold">{reportTeamName || '.........................................................................'}</span>
+                        </div>
+
+                        {renderTeamBlock(
+                          `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ ${reportGender === 'male' ? 'ชาย' : 'หญิง'} ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                          activeTeam1,
+                          1
+                        )}
+
+                        {renderTeamBlock(
+                          `รุ่นอายุไม่เกิน ${toThaiNumerals(reportAgeGroup)} ปี เพศ ${reportGender === 'male' ? 'ชาย' : 'หญิง'} ประเภททีม ๓ คน (นักกีฬาสำรอง ๑ คน)`,
+                          activeTeam2,
+                          2
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
 
 
               </div>
