@@ -47,6 +47,19 @@ export async function callGeminiAPI(
     retryCount = 3
   } = options;
 
+  // ดึงแนวปฏิบัติเฉพาะของโรงเรียน (Custom SOP) มาพ่วงใน System Instruction
+  let finalSystemInstruction = systemInstruction || '';
+  try {
+    const { data: settingsData } = await supabase.from('settings').select('custom_sop').maybeSingle();
+    if (settingsData?.custom_sop && settingsData.custom_sop.trim() !== '') {
+      finalSystemInstruction = finalSystemInstruction 
+        ? `${finalSystemInstruction}\n\n[แนวปฏิบัติและข้อกำหนดพิเศษของโรงเรียน (SOP)]:\n${settingsData.custom_sop}`
+        : settingsData.custom_sop;
+    }
+  } catch (e) {
+    console.error("Error fetching custom_sop for Gemini API:", e);
+  }
+
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) throw new Error("กรุณาตั้งค่า Gemini API Key");
 
@@ -83,9 +96,9 @@ export async function callGeminiAPI(
             }
           };
 
-          if (systemInstruction) {
+          if (finalSystemInstruction) {
             body.systemInstruction = {
-              parts: [{ text: systemInstruction }]
+              parts: [{ text: finalSystemInstruction }]
             };
           }
 

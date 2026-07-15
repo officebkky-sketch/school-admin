@@ -31,7 +31,8 @@ export default function Settings() {
     line_group_id: '',
     line_oa_link: '',
     gemini_api_key: '',
-    ai_cowork_api_key: ''
+    ai_cowork_api_key: '',
+    custom_sop: ''
   });
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -349,6 +350,18 @@ export default function Settings() {
                 placeholder="ใส่ API Key แยกสำหรับ AI Cowork (หากมีหลายคีย์ ให้คั่นด้วยเครื่องหมายจุลภาค , )"
               />
               <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase italic">* แนะนำให้แยก Key หรือใส่หลายคีย์คั่นด้วยเครื่องหมายจุลภาค ( , ) เพื่อกระจายการทำงานไม่ให้กระทบงานสารบรรณเมื่อคุณครูใช้งานพร้อมกันจำนวนมาก</p>
+            </div>
+
+            <div className="space-y-1.5 pt-4 border-t border-slate-50">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#9333EA]">แนวปฏิบัติเฉพาะและ SOP ของโรงเรียน (AI System Instruction)</label>
+              <textarea 
+                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-purple-100 focus:border-purple-500 transition-all"
+                rows={5}
+                value={settings.custom_sop || ''}
+                onChange={e => setSettings({...settings, custom_sop: e.target.value})}
+                placeholder="กรอกระเบียบ แนวปฏิบัติเฉพาะของโรงเรียน หรือแนวทางปฏิบัติต่างๆ (เช่น วัฒนธรรมองค์กร, การใช้ภาษา, ลำดับการอนุมัติเอกสาร) เพื่อให้ AI นำไปวิเคราะห์ร่วมกับการตอบคำถาม..."
+              />
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">* ข้อมูลนี้จะทำหน้าที่เป็น Custom SOP แนบไปกับ System Instruction ของ AI ทุกฟังก์ชัน รวมถึง LINE Webhook ของโรงเรียน</p>
             </div>
           </div>
 
