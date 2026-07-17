@@ -460,7 +460,15 @@ export default function IncomingDocs() {
         // ส่งแจ้งเตือนข่าวสารเข้ากลุ่ม Telegram
         let telegramNotifyStatus = '';
         try {
-          const telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>จาก</b>: ${formData.from_agency}\n• <b>เลขที่รับ</b>: ${finalDocNum}\n\n📄 <a href="${file_url}">เปิดดูต้นฉบับหนังสือ</a>`;
+          let telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>จาก</b>: ${formData.from_agency}\n• <b>เลขที่รับ</b>: ${finalDocNum}\n\n📄 <a href="${file_url}">เปิดดูต้นฉบับหนังสือ</a>`;
+          
+          if (Array.isArray(att_urls) && att_urls.length > 0) {
+            telegramMsg += `\n📎 <b>ไฟล์แนบ:</b> `;
+            att_urls.forEach((url, i) => {
+              telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+            });
+          }
+
           const telegramReplyMarkup = {
             inline_keyboard: [
               [
@@ -523,7 +531,19 @@ export default function IncomingDocs() {
       try {
         let telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่ (${docsToPropose.length} ฉบับ)</b>\n\n`;
         docsToPropose.forEach((doc, idx) => {
-          telegramMsg += `${idx + 1}. <b>เรื่อง</b>: ${doc.subject}\n• <b>จาก</b>: ${doc.from_agency || '-'}\n• <b>เลขที่รับ</b>: ${doc.doc_number}\n\n`;
+          telegramMsg += `${idx + 1}. <b>เรื่อง</b>: ${doc.subject}\n• <b>จาก</b>: ${doc.from_agency || '-'}\n• <b>เลขที่รับ</b>: ${doc.doc_number}\n`;
+          if (doc.file_url) {
+            telegramMsg += `📄 <a href="${doc.file_url}">เปิดดูต้นฉบับหนังสือ</a>\n`;
+          }
+          const docAtts = Array.isArray(doc.attachment_urls) ? doc.attachment_urls : [];
+          if (docAtts.length > 0) {
+            telegramMsg += `📎 <b>ไฟล์แนบ:</b> `;
+            docAtts.forEach((url, i) => {
+              telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+            });
+            telegramMsg += `\n`;
+          }
+          telegramMsg += `\n`;
         });
         
         const telegramReplyMarkup = {
