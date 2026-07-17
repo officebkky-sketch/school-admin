@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, getActiveSchoolProfile } from '../lib/supabase';
 import { uploadToSupabase, uploadFileToDrive, deleteFromSupabase } from '../lib/storage';
 import { 
   Save, 
@@ -30,6 +30,12 @@ export default function Settings() {
     line_channel_access_token: '',
     line_group_id: '',
     line_oa_link: '',
+    telegram_bot_token: '',
+    telegram_bot_username: '',
+    telegram_group_id: '',
+    telegram_group_link: '',
+    telegram_group_id_central: '',
+    telegram_group_id_proposal: '',
     gemini_api_key: '',
     ai_cowork_api_key: '',
     custom_sop: ''
@@ -58,7 +64,12 @@ export default function Settings() {
 
       if (error && error.code !== 'PGRST116') throw error; // PGRST116 is 'no rows'
       if (data) {
-        setSettings(data);
+        const [centralId, proposalId] = (data.telegram_group_id || '').split('|');
+        setSettings({
+          ...data,
+          telegram_group_id_central: centralId || '',
+          telegram_group_id_proposal: proposalId || '',
+        });
         setPreviewUrl(data.school_logo_url);
         setSigPreviewUrl(data.director_signature_url);
       }
@@ -162,10 +173,14 @@ export default function Settings() {
         sigUrl = await uploadToSupabase(selectedSignature, 'system', sigPath);
       }
 
+      const { telegram_group_id_central, telegram_group_id_proposal, ...settingsPayload } = settings;
+      const combinedTelegramGroupId = `${(telegram_group_id_central || '').trim()}|${(telegram_group_id_proposal || '').trim()}`;
+
       const payload = { 
-        ...settings, 
+        ...settingsPayload, 
         school_logo_url: logoUrl, 
-        director_signature_url: sigUrl 
+        director_signature_url: sigUrl,
+        telegram_group_id: combinedTelegramGroupId
       };
       
       const { data: existing } = await supabase.from('settings').select('id').maybeSingle();
@@ -175,7 +190,50 @@ export default function Settings() {
         : await supabase.from('settings').insert([payload]);
 
       if (error) throw error;
-      alert('บันทึกการตั้งค่าเรียบร้อยแล้ว');
+
+      // จดทะเบียน Telegram Webhook อัตโนมัติ (หากกรอก Token ครบถ้วน)
+      let telegramWebhookNotice = "";
+      if (settings.telegram_bot_token && settings.telegram_bot_username) {
+        try {
+          const activeProfile = getActiveSchoolProfile();
+          const schoolId = activeProfile?.id || 'school_default';
+          const isWebUrl = typeof window !== 'undefined' && 
+                            window.location && 
+                            window.location.origin && 
+                            window.location.protocol.startsWith('http') &&
+                            !window.location.origin.includes('localhost') && 
+                            !window.location.origin.includes('127.0.0.1');
+
+          let vercelBaseUrl = isWebUrl ? window.location.origin : (activeProfile?.vercelUrl || window.location.origin);
+          
+          if (vercelBaseUrl && !vercelBaseUrl.includes('localhost') && !vercelBaseUrl.includes('127.0.0.1')) {
+            if (!vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
+              vercelBaseUrl = `https://${vercelBaseUrl}`;
+            }
+            if (vercelBaseUrl.endsWith('/')) {
+              vercelBaseUrl = vercelBaseUrl.slice(0, -1);
+            }
+            
+            const webhookUrl = `${vercelBaseUrl}/api/telegram-webhook?school_id=${schoolId}`;
+            const registerUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+            
+            const res = await fetch(registerUrl);
+            const resData = await res.json();
+            if (resData.ok) {
+              telegramWebhookNotice = "\n\n🤖 ระบบได้ทำการจดทะเบียน Webhook กับ Telegram บอทให้เรียบร้อยแล้วค่ะ!";
+            } else {
+              telegramWebhookNotice = `\n\n⚠️ คำเตือน: จดทะเบียน Webhook ไม่สำเร็จ (${resData.description || 'ไม่สามารถติดต่อ Telegram ได้'})`;
+            }
+          } else {
+            telegramWebhookNotice = "\n\nℹ️ หมายเหตุ: ไม่สามารถผูก Webhook อัตโนมัติในโหมดพัฒนา (Localhost) ได้ ระบบข้ามการผูกความปลอดภัยบอทไปก่อนค่ะ";
+          }
+        } catch (webhookErr: any) {
+          console.error('Error auto-registering Telegram webhook:', webhookErr);
+          telegramWebhookNotice = `\n\n⚠️ คำเตือน: ระบบขัดข้องขณะผูก Webhook (${webhookErr.message})`;
+        }
+      }
+
+      alert('บันทึกการตั้งค่าเรียบร้อยแล้ว' + telegramWebhookNotice);
       fetchSettings();
     } catch (err: any) {
       console.error(err);
@@ -311,6 +369,67 @@ export default function Settings() {
                 </div>
               </div>
               <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">Messaging API จะถูกนำมาใช้แทน LINE Notify ที่กำลังจะปิดตัวลง</p>
+            </div>
+
+            <div className="col-span-full space-y-4 pt-4 border-t border-slate-50">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                <Send size={16} className="text-brand-primary" /> การตั้งค่า Telegram Bot API
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-brand-primary">Telegram Bot Token</label>
+                  <input 
+                    type="password" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_bot_token || ''}
+                    onChange={e => setSettings({...settings, telegram_bot_token: e.target.value})}
+                    placeholder="ใส่ HTTP API Bot Token จาก BotFather (เช่น 123456789:ABCDefGh...)"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-brand-primary">Telegram Bot Username (ไม่ใส่ @)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_bot_username || ''}
+                    onChange={e => setSettings({...settings, telegram_bot_username: e.target.value})}
+                    placeholder="เช่น ChabaSchoolBot"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#229ED9]">Telegram Group ID (สำหรับแจ้งเตือนส่วนกลาง / PR)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_group_id_central || ''}
+                    onChange={e => setSettings({...settings, telegram_group_id_central: e.target.value})}
+                    placeholder="เช่น -1002030405060"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#229ED9]">Telegram Proposal Group ID (สำหรับเสนอหนังสือเกษียณ)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_group_id_proposal || ''}
+                    onChange={e => setSettings({...settings, telegram_group_id_proposal: e.target.value})}
+                    placeholder="เช่น -1002030405060"
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-full">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#229ED9]">ลิงก์คำเชิญเข้าร่วมกลุ่ม Telegram (Invite Link)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_group_link || ''}
+                    onChange={e => setSettings({...settings, telegram_group_link: e.target.value})}
+                    placeholder="เช่น https://t.me/+AbCdEfGh1234..."
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">
+                * ใช้สำหรับการผูกบัญชี Telegram Chat ID เพื่อรับส่งการแจ้งเตือนหนังสือราชการรายบุคคล
+              </p>
             </div>
           </div>
         </div>
