@@ -464,7 +464,7 @@ export default function IncomingDocs() {
           
           if (Array.isArray(att_urls) && att_urls.length > 0) {
             telegramMsg += `\n📎 <b>ไฟล์แนบ:</b> `;
-            att_urls.forEach((url, i) => {
+            att_urls.forEach((url: string, i: number) => {
               telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
             });
           }
@@ -538,7 +538,7 @@ export default function IncomingDocs() {
           const docAtts = Array.isArray(doc.attachment_urls) ? doc.attachment_urls : [];
           if (docAtts.length > 0) {
             telegramMsg += `📎 <b>ไฟล์แนบ:</b> `;
-            docAtts.forEach((url, i) => {
+            docAtts.forEach((url: string, i: number) => {
               telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
             });
             telegramMsg += `\n`;
