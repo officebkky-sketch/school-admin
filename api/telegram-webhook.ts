@@ -109,7 +109,13 @@ function extractDocSearchWord(message: string): string {
     keyword = keyword.replace(new RegExp(s + '$', 'g'), '');
     keyword = keyword.replace(new RegExp('\\s+' + s, 'g'), '');
   });
-  return keyword.trim();
+  
+  const keywordResult = keyword.trim();
+  const skipWords = ['วันนี้', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่', 'ชบา', 'น้องชบา', 'บอท', 'ขอ'];
+  if (skipWords.includes(keywordResult) || keywordResult.length <= 1) {
+    return '';
+  }
+  return keywordResult;
 }
 
 /** Smart Data Fetch — ดึงข้อมูลจริงจากฐานข้อมูลตามหมวดคำถาม (เทียบเท่า LINE Bot) */
