@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, getActiveSchoolProfile } from '../lib/supabase';
 import { uploadToSupabase, uploadFileToDrive, deleteFromSupabase } from '../lib/storage';
 import { 
   Save, 
@@ -30,8 +30,15 @@ export default function Settings() {
     line_channel_access_token: '',
     line_group_id: '',
     line_oa_link: '',
+    telegram_bot_token: '',
+    telegram_bot_username: '',
+    telegram_group_id: '',
+    telegram_group_link: '',
+    telegram_group_id_central: '',
+    telegram_group_id_proposal: '',
     gemini_api_key: '',
-    ai_cowork_api_key: ''
+    ai_cowork_api_key: '',
+    custom_sop: ''
   });
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -57,7 +64,12 @@ export default function Settings() {
 
       if (error && error.code !== 'PGRST116') throw error; // PGRST116 is 'no rows'
       if (data) {
-        setSettings(data);
+        const [centralId, proposalId] = (data.telegram_group_id || '').split('|');
+        setSettings({
+          ...data,
+          telegram_group_id_central: centralId || '',
+          telegram_group_id_proposal: proposalId || '',
+        });
         setPreviewUrl(data.school_logo_url);
         setSigPreviewUrl(data.director_signature_url);
       }
@@ -161,10 +173,14 @@ export default function Settings() {
         sigUrl = await uploadToSupabase(selectedSignature, 'system', sigPath);
       }
 
+      const { telegram_group_id_central, telegram_group_id_proposal, ...settingsPayload } = settings;
+      const combinedTelegramGroupId = `${(telegram_group_id_central || '').trim()}|${(telegram_group_id_proposal || '').trim()}`;
+
       const payload = { 
-        ...settings, 
+        ...settingsPayload, 
         school_logo_url: logoUrl, 
-        director_signature_url: sigUrl 
+        director_signature_url: sigUrl,
+        telegram_group_id: combinedTelegramGroupId
       };
       
       const { data: existing } = await supabase.from('settings').select('id').maybeSingle();
@@ -174,7 +190,50 @@ export default function Settings() {
         : await supabase.from('settings').insert([payload]);
 
       if (error) throw error;
-      alert('บันทึกการตั้งค่าเรียบร้อยแล้ว');
+
+      // จดทะเบียน Telegram Webhook อัตโนมัติ (หากกรอก Token ครบถ้วน)
+      let telegramWebhookNotice = "";
+      if (settings.telegram_bot_token && settings.telegram_bot_username) {
+        try {
+          const activeProfile = getActiveSchoolProfile();
+          const schoolId = activeProfile?.id || 'school_default';
+          const isWebUrl = typeof window !== 'undefined' && 
+                            window.location && 
+                            window.location.origin && 
+                            window.location.protocol.startsWith('http') &&
+                            !window.location.origin.includes('localhost') && 
+                            !window.location.origin.includes('127.0.0.1');
+
+          let vercelBaseUrl = isWebUrl ? window.location.origin : (activeProfile?.vercelUrl || window.location.origin);
+          
+          if (vercelBaseUrl && !vercelBaseUrl.includes('localhost') && !vercelBaseUrl.includes('127.0.0.1')) {
+            if (!vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
+              vercelBaseUrl = `https://${vercelBaseUrl}`;
+            }
+            if (vercelBaseUrl.endsWith('/')) {
+              vercelBaseUrl = vercelBaseUrl.slice(0, -1);
+            }
+            
+            const webhookUrl = `${vercelBaseUrl}/api/telegram-webhook?school_id=${schoolId}`;
+            const registerUrl = `https://api.telegram.org/bot${settings.telegram_bot_token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+            
+            const res = await fetch(registerUrl);
+            const resData = await res.json();
+            if (resData.ok) {
+              telegramWebhookNotice = "\n\n🤖 ระบบได้ทำการจดทะเบียน Webhook กับ Telegram บอทให้เรียบร้อยแล้วค่ะ!";
+            } else {
+              telegramWebhookNotice = `\n\n⚠️ คำเตือน: จดทะเบียน Webhook ไม่สำเร็จ (${resData.description || 'ไม่สามารถติดต่อ Telegram ได้'})`;
+            }
+          } else {
+            telegramWebhookNotice = "\n\nℹ️ หมายเหตุ: ไม่สามารถผูก Webhook อัตโนมัติในโหมดพัฒนา (Localhost) ได้ ระบบข้ามการผูกความปลอดภัยบอทไปก่อนค่ะ";
+          }
+        } catch (webhookErr: any) {
+          console.error('Error auto-registering Telegram webhook:', webhookErr);
+          telegramWebhookNotice = `\n\n⚠️ คำเตือน: ระบบขัดข้องขณะผูก Webhook (${webhookErr.message})`;
+        }
+      }
+
+      alert('บันทึกการตั้งค่าเรียบร้อยแล้ว' + telegramWebhookNotice);
       fetchSettings();
     } catch (err: any) {
       console.error(err);
@@ -311,6 +370,67 @@ export default function Settings() {
               </div>
               <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">Messaging API จะถูกนำมาใช้แทน LINE Notify ที่กำลังจะปิดตัวลง</p>
             </div>
+
+            <div className="col-span-full space-y-4 pt-4 border-t border-slate-50">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                <Send size={16} className="text-brand-primary" /> การตั้งค่า Telegram Bot API
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-brand-primary">Telegram Bot Token</label>
+                  <input 
+                    type="password" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_bot_token || ''}
+                    onChange={e => setSettings({...settings, telegram_bot_token: e.target.value})}
+                    placeholder="ใส่ HTTP API Bot Token จาก BotFather (เช่น 123456789:ABCDefGh...)"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-brand-primary">Telegram Bot Username (ไม่ใส่ @)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_bot_username || ''}
+                    onChange={e => setSettings({...settings, telegram_bot_username: e.target.value})}
+                    placeholder="เช่น ChabaSchoolBot"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#229ED9]">Telegram Group ID (สำหรับแจ้งเตือนส่วนกลาง / PR)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_group_id_central || ''}
+                    onChange={e => setSettings({...settings, telegram_group_id_central: e.target.value})}
+                    placeholder="เช่น -1002030405060"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#229ED9]">Telegram Proposal Group ID (สำหรับเสนอหนังสือเกษียณ)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_group_id_proposal || ''}
+                    onChange={e => setSettings({...settings, telegram_group_id_proposal: e.target.value})}
+                    placeholder="เช่น -1002030405060"
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-full">
+                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#229ED9]">ลิงก์คำเชิญเข้าร่วมกลุ่ม Telegram (Invite Link)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                    value={settings.telegram_group_link || ''}
+                    onChange={e => setSettings({...settings, telegram_group_link: e.target.value})}
+                    placeholder="เช่น https://t.me/+AbCdEfGh1234..."
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">
+                * ใช้สำหรับการผูกบัญชี Telegram Chat ID เพื่อรับส่งการแจ้งเตือนหนังสือราชการรายบุคคล
+              </p>
+            </div>
           </div>
         </div>
 
@@ -349,6 +469,18 @@ export default function Settings() {
                 placeholder="ใส่ API Key แยกสำหรับ AI Cowork (หากมีหลายคีย์ ให้คั่นด้วยเครื่องหมายจุลภาค , )"
               />
               <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase italic">* แนะนำให้แยก Key หรือใส่หลายคีย์คั่นด้วยเครื่องหมายจุลภาค ( , ) เพื่อกระจายการทำงานไม่ให้กระทบงานสารบรรณเมื่อคุณครูใช้งานพร้อมกันจำนวนมาก</p>
+            </div>
+
+            <div className="space-y-1.5 pt-4 border-t border-slate-50">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-[#9333EA]">แนวปฏิบัติเฉพาะและ SOP ของโรงเรียน (AI System Instruction)</label>
+              <textarea 
+                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-purple-100 focus:border-purple-500 transition-all"
+                rows={5}
+                value={settings.custom_sop || ''}
+                onChange={e => setSettings({...settings, custom_sop: e.target.value})}
+                placeholder="กรอกระเบียบ แนวปฏิบัติเฉพาะของโรงเรียน หรือแนวทางปฏิบัติต่างๆ (เช่น วัฒนธรรมองค์กร, การใช้ภาษา, ลำดับการอนุมัติเอกสาร) เพื่อให้ AI นำไปวิเคราะห์ร่วมกับการตอบคำถาม..."
+              />
+              <p className="text-[10px] text-slate-400 font-bold ml-1 uppercase">* ข้อมูลนี้จะทำหน้าที่เป็น Custom SOP แนบไปกับ System Instruction ของ AI ทุกฟังก์ชัน รวมถึง LINE Webhook ของโรงเรียน</p>
             </div>
           </div>
 
@@ -571,6 +703,21 @@ export default function Settings() {
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.14</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 มิ.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มโมดูลย่อย <strong>"ส่งแผนการสอน"</strong> ของฝ่ายวิชาการ อนุมัติโดย ผอ./วิชาการ พร้อมพิมพ์แบบคำขอเสนออนุมัติขนาด A4 มีตราครุฑตามระเบียบงานสารบรรณ</li>
+                  <li>อัปเกรดระบบลงทะเบียนนักกีฬา (ระดับจังหวัด): แปลงตัวเลขในเอกสารเป็น <strong>"ตัวเลขไทย"</strong> อัตโนมัติ ปรับปรุงหน้าสิ่งพิมพ์บังคับขนาด 16pt (TH Sarabun) และลดระยะห่างกล่องลงชื่อ ผอ. เพื่อความสมบูรณ์</li>
+                  <li>แก้ไขปัญหาหน้าสิ่งพิมพ์ของนักกีฬาเกิดหน้าว่างหน้าสุดท้าย ด้วยการซ่อนแถบเครดิตและโลโก้ท้ายระบบ (IdentityFooter) ขณะสั่งพิมพ์</li>
+                  <li>แก้ไขการตรวจสอบข้อมูลเพศของนักเรียน รองรับคำนำหน้าย่อ <code>"ช"</code> และ <code>"ญ"</code> เพื่อป้องกันการแสดงผลผิดพลาด</li>
+                  <li>ปรับปรุงสิทธิ์การเข้าใช้งาน: แยกเมนูของครูทั่วไปเป็น <strong>"งานแผนการสอน"</strong> (เข้าถึงเฉพาะส่งแผน) และซ่อนเมนูวิชาการอื่นๆ รวมถึงระบบห้องสมุด</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.13</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(18 มิ.ย. 2569)</span>

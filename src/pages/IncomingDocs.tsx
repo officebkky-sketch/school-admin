@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { uploadFileToDrive, deleteFileFromDrive, uploadToSupabase, deleteFromSupabase } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage, sendBulkFlexCarousel } from '../lib/lineNotify';
+import { sendTelegramNotification } from '../lib/telegramNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
 import Modal from '../components/Modal';
@@ -267,7 +268,37 @@ export default function IncomingDocs() {
         lineNotifyStatus = `❌ เกิดข้อผิดพลาดในการส่ง LINE: ${lineErr.message}`;
       }
 
-      alert(`เกษียณหนังสือและมอบหมายงานเรียบร้อยแล้ว\n\n${lineNotifyStatus}`);
+      // ส่งการแจ้งเตือนทาง Telegram
+      let telegramNotifyStatus = '';
+      try {
+        let telegramChatId = undefined;
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('telegram_chat_id')
+          .eq('email', teacher.email)
+          .maybeSingle();
+
+        if (prof?.telegram_chat_id) {
+          telegramChatId = prof.telegram_chat_id;
+        }
+
+        if (telegramChatId) {
+          // ส่งตรงถึงครูผู้รับมอบหมายทาง Telegram
+          const telegramPersonalMsg = `📬 <b>มีงานมอบหมายใหม่ถึงคุณครูค่ะ</b>\n\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ/แนวทาง</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสาร</a>`;
+          await sendTelegramNotification(telegramPersonalMsg, telegramChatId);
+          telegramNotifyStatus = ` และ Telegram ✅`;
+        } else {
+          // ส่งเข้ากลุ่ม Telegram ส่วนกลาง
+          const telegramGroupMsg = `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: ${teacherName}\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสาร</a>`;
+          await sendTelegramNotification(telegramGroupMsg, 'central');
+          telegramNotifyStatus = ' และส่งเข้ากลุ่ม Telegram ส่วนกลาง 📣';
+        }
+      } catch (tgErr: any) {
+        console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
+        telegramNotifyStatus = ` (Telegram ล้มเหลว: ${tgErr.message})`;
+      }
+
+      alert(`เกษียณหนังสือและมอบหมายงานเรียบร้อยแล้ว\n\n${lineNotifyStatus}${telegramNotifyStatus}`);
       setIsAssignModalOpen(false);
       resetForm();
       fetchDocs();
@@ -425,6 +456,34 @@ export default function IncomingDocs() {
           console.error('[LINE NOTIFY ERROR]', lineErr);
           lineNotifyStatus = ' แต่ไม่สามารถส่งแจ้งเตือน LINE ได้ (กรุณาเสนอหนังสือแบบกลุ่มแทน)';
         }
+
+        // ส่งแจ้งเตือนข่าวสารเข้ากลุ่ม Telegram
+        let telegramNotifyStatus = '';
+        try {
+          let telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>จาก</b>: ${formData.from_agency}\n• <b>เลขที่รับ</b>: ${finalDocNum}\n\n📄 <a href="${file_url}">เปิดดูต้นฉบับหนังสือ</a>`;
+          
+          if (Array.isArray(att_urls) && att_urls.length > 0) {
+            telegramMsg += `\n📎 <b>ไฟล์แนบ:</b> `;
+            att_urls.forEach((url: string, i: number) => {
+              telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+            });
+          }
+
+          const telegramReplyMarkup = {
+            inline_keyboard: [
+              [
+                { text: '✍️ เกษียณสั่งการ (Telegram)', callback_data: `action=start_assign&id=${insertedDoc?.id || ''}` }
+              ]
+            ]
+          };
+          await sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup);
+          telegramNotifyStatus = ' และส่งแจ้งเตือน Telegram สำเร็จ ✅';
+        } catch (tgErr: any) {
+          console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
+          telegramNotifyStatus = ` (Telegram ล้มเหลว: ${tgErr.message})`;
+        }
+
+        lineNotifyStatus += telegramNotifyStatus;
       } else {
         lineNotifyStatus = ' (พักรอเสนอผู้บริหารเรียบร้อย)';
       }
@@ -467,6 +526,39 @@ export default function IncomingDocs() {
         carouselItems
       );
 
+      // ส่งแจ้งเตือน Telegram สำหรับการเสนอหลายฉบับพร้อมกัน (จัดรวมเป็นข้อความเดียวแบบมีปุ่มสั่งการแยก)
+      let telegramNotifyStatus = '';
+      try {
+        let telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่ (${docsToPropose.length} ฉบับ)</b>\n\n`;
+        docsToPropose.forEach((doc, idx) => {
+          telegramMsg += `${idx + 1}. <b>เรื่อง</b>: ${doc.subject}\n• <b>จาก</b>: ${doc.from_agency || '-'}\n• <b>เลขที่รับ</b>: ${doc.doc_number}\n`;
+          if (doc.file_url) {
+            telegramMsg += `📄 <a href="${doc.file_url}">เปิดดูต้นฉบับหนังสือ</a>\n`;
+          }
+          const docAtts = Array.isArray(doc.attachment_urls) ? doc.attachment_urls : [];
+          if (docAtts.length > 0) {
+            telegramMsg += `📎 <b>ไฟล์แนบ:</b> `;
+            docAtts.forEach((url: string, i: number) => {
+              telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+            });
+            telegramMsg += `\n`;
+          }
+          telegramMsg += `\n`;
+        });
+        
+        const telegramReplyMarkup = {
+          inline_keyboard: docsToPropose.map(doc => ([
+            { text: `✍️ สั่งการเรื่องที่ ${doc.doc_number}`, callback_data: `action=start_assign&id=${doc.id}` }
+          ]))
+        };
+
+        await sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup);
+        telegramNotifyStatus = ' และ Telegram ✅';
+      } catch (tgErr: any) {
+        console.error('[TELEGRAM BULK NOTIFY ERROR]', tgErr);
+        telegramNotifyStatus = ` (Telegram ล้มเหลว: ${tgErr.message})`;
+      }
+
       const { error } = await supabase
         .from('incoming_docs')
         .update({ status: 'pending' })
@@ -474,7 +566,7 @@ export default function IncomingDocs() {
 
       if (error) throw error;
 
-      alert(`เสนอหนังสือจำนวน ${selectedHoldingIds.length} ฉบับไปยัง LINE ผอ. เรียบร้อยแล้ว`);
+      alert(`เสนอหนังสือจำนวน ${selectedHoldingIds.length} ฉบับไปยัง LINE ผอ. เรียบร้อยแล้ว${telegramNotifyStatus}`);
       setSelectedHoldingIds([]);
       fetchDocs();
     } catch (err: any) {

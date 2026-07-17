@@ -10,6 +10,7 @@ interface Profile {
   status: string;
   signature_url?: string;
   line_user_id?: string;
+  telegram_chat_id?: string;
   extra_permissions?: Record<string, any>;
 }
 

@@ -1218,3 +1218,87 @@ CREATE POLICY "Allow all users to view logs" ON public.lesson_plan_logs
 DROP POLICY IF EXISTS "Allow users to insert logs" ON public.lesson_plan_logs;
 CREATE POLICY "Allow users to insert logs" ON public.lesson_plan_logs
   FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+
+-- ====================================================================
+-- 7. ATHLETICS REGISTRATION SYSTEM (ระบบลงทะเบียนนักกีฬาและกรีฑา)
+-- Description:
+-- - สร้างตาราง public.athletics_registrations เพื่อเก็บประวัตินักกีฬาและชนิดกีฬา
+-- - ตั้งค่า Row Level Security (RLS) และสร้าง Index เพื่อเร่งความเร็วในการค้นหา
+-- ====================================================================
+
+-- สร้างตารางลงทะเบียนนักกีฬา
+CREATE TABLE IF NOT EXISTS public.athletics_registrations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  student_id UUID NOT NULL, -- อ้างอิงรหัสนักเรียน students.id
+  academic_year TEXT NOT NULL, -- ปีการศึกษาที่สมัคร (เช่น '2569')
+  prefix TEXT, -- ข้อมูล Snapshot ชื่อนักกีฬา ป้องกันข้อมูลเสียหายภายหลัง
+  first_name TEXT,
+  last_name TEXT,
+  gender TEXT,
+  birth_date DATE,
+  class_level TEXT,
+  room TEXT,
+  weight NUMERIC,
+  height NUMERIC,
+  photo_url TEXT,
+  citizen_id TEXT, -- เลขประจำตัวประชาชน 13 หลัก
+  sport_id TEXT, -- รหัสหมายเลขนักกีฬา / โค้ดส่งตัว (เช่น '002')
+  sport_type TEXT, -- ชนิดกีฬาที่สมัคร (เช่น 'วิ่ง 100 เมตร', 'ฟุตบอล')
+  age_group TEXT, -- รุ่นอายุ (เช่น 'รุ่นอายุไม่เกิน 8 ปี')
+  shirt_size TEXT, -- ขนาดเสื้อนักกีฬา
+  status TEXT DEFAULT 'active',
+  coach_name TEXT,
+  coach_phone TEXT,
+  is_substitute BOOLEAN DEFAULT false, -- ตัวจริง/ตัวสำรอง (ค่าเริ่มต้น false = ตัวจริง)
+  competition_type TEXT DEFAULT 'local', -- ประเภทรายการแข่งขัน ('local' = กรีฑาตำบลเขาชัยสน, 'provincial' = กีฬาจังหวัดพัทลุง)
+  registered_by UUID REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- เปิดการใช้งาน RLS
+ALTER TABLE public.athletics_registrations ENABLE ROW LEVEL SECURITY;
+
+-- สิทธิ์การเข้าถึง: ให้ครู ผู้ควบคุม และแอดมินทุกคน เรียกดู (SELECT) ข้อมูลได้
+DROP POLICY IF EXISTS "Allow authenticated staff to view registrations" ON public.athletics_registrations;
+CREATE POLICY "Allow authenticated staff to view registrations" ON public.athletics_registrations
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('teacher', 'director', 'admin')
+    )
+  );
+
+-- สิทธิ์การเข้าถึง: ให้ Admin, ผู้อำนวยการ หรือ ครูที่ได้รับสิทธิ์พิเศษ 'access_athletics' สามารถจัดการข้อมูลได้ (ALL)
+DROP POLICY IF EXISTS "Allow authorized staff to manage registrations" ON public.athletics_registrations;
+CREATE POLICY "Allow authorized staff to manage registrations" ON public.athletics_registrations
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_athletics')::boolean = true)
+      )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (
+        profiles.role IN ('director', 'admin') 
+        OR (profiles.role = 'teacher' AND (profiles.extra_permissions->>'access_athletics')::boolean = true)
+      )
+    )
+  );
+
+-- สร้างดัชนี (Indexes) เพื่อเพิ่มความเร็วในการสืบค้นข้อมูล
+CREATE INDEX IF NOT EXISTS idx_athletics_student_id ON public.athletics_registrations(student_id);
+CREATE INDEX IF NOT EXISTS idx_athletics_academic_year ON public.athletics_registrations(academic_year);
+CREATE INDEX IF NOT EXISTS idx_athletics_sport_type ON public.athletics_registrations(sport_type);
+CREATE INDEX IF NOT EXISTS idx_athletics_age_group ON public.athletics_registrations(age_group);
+CREATE INDEX IF NOT EXISTS idx_athletics_citizen_id ON public.athletics_registrations(citizen_id);
+CREATE INDEX IF NOT EXISTS idx_athletics_is_substitute ON public.athletics_registrations(is_substitute);
+CREATE INDEX IF NOT EXISTS idx_athletics_competition_type ON public.athletics_registrations(competition_type);

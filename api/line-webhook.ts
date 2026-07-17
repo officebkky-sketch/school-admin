@@ -282,7 +282,7 @@ function formatFallbackResponse(context: string, userMsg: string): string {
 
 async function handleFastAI(replyToken: string, message: string, _profile: any) {
   try {
-    const { data: sets } = await supabaseAdmin.from('settings').select('school_name, gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();
+    const { data: sets } = await supabaseAdmin.from('settings').select('school_name, gemini_api_key, ai_cowork_api_key, current_academic_year, custom_sop').limit(1).maybeSingle();
     let apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key || '';
     if (apiKey.includes(',')) {
       const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
@@ -291,18 +291,40 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
     const openaiApiKey = process.env.OPENAI_API_KEY;
     const currentYear = sets?.current_academic_year || '2569';
     const schoolName = sets?.school_name || 'โรงเรียน';
+    const lineUserId = _profile?.line_user_id || '';
     
-    console.log(`[LINE WEBHOOK] Message received: "${message}"`);
+    console.log(`[LINE WEBHOOK] Message received: "${message}" from user ${lineUserId}`);
     
-    // 1. Smart Data Fetch (Universal Database Router)
+    // 1. ดึงประวัติสนทนาย้อนหลัง (Conversational Memory)
+    let chatHistoryContext = "";
+    if (lineUserId) {
+      try {
+        const { data: pastChats } = await supabaseAdmin
+          .from('line_chats')
+          .select('message, reply')
+          .eq('line_user_id', lineUserId)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (pastChats && pastChats.length > 0) {
+          chatHistoryContext = pastChats.reverse().map(c => `ครู: ${c.message}\nชบา: ${c.reply}`).join('\n');
+        }
+      } catch (chatErr) {
+        console.error("[LINE WEBHOOK] Error fetching chat history:", chatErr);
+      }
+    }
+
+    // 2. Smart Data Fetch (Universal Database Router)
     const contextData = await smartFetchContext(message, currentYear, supabaseAdmin);
     console.log(`[LINE WEBHOOK] Context Data size: ${contextData.length} chars`);
 
-    // 2. High-Speed Direct Prompting with Extraction Tag
+    // 3. High-Speed Direct Prompting with Extraction Tag
     const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยครูเพศหญิงของ${schoolName} (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
 ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู" (ห้ามใช้หางเสียง "ครับ" หรือคำพูดเชิงผู้ชายเด็ดขาด)
+${sets?.custom_sop ? `\n[แนวปฏิบัติและข้อกำหนดพิเศษของโรงเรียนที่ชบาต้องตอบตามระเบียบนี้อย่างเคร่งครัด]:\n${sets.custom_sop}\n` : ''}
 กฎเหล็ก:
 - ตอบเฉพาะ "คำตอบสุดท้ายที่จะส่งให้ครู" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
+- ใช้ประวัติการคุยล่าสุดในการเข้าใจคำถามถัดไป ในกรณีที่คุณครูคุยต่อเนื่องหรือขอให้แก้คำตอบก่อนหน้า
 - ห้ามพิมพ์ขั้นตอนการคิด (Thinking), ห้ามทวนคำถาม, ห้ามเกริ่นนำใดๆ นอกแท็ก <ans>
 - ห้ามจินตนาการ ห้ามสร้าง คาดเดา หรือสมมติข้อมูลใดๆ เช่น ชื่อคน ชื่อโครงการ วันที่ หรือตัวเลขขึ้นมาเองโดยเด็ดขาด หากข้อมูลไม่อยู่ใน "ข้อมูลฐานข้อมูลโรงเรียน" ที่ส่งมา ให้ตอบอย่างสุภาพว่าไม่พบข้อมูลดังกล่าวในระบบ (เช่น "ไม่พบข้อมูลรายชื่อครูในระบบค่ะ" หรือ "ไม่มีข้อมูลส่วนนี้ในฐานข้อมูลค่ะ")
 - การแยกแยะไฟล์ของหนังสือรับ (incoming_docs):
@@ -315,7 +337,7 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
 - ใช้ Emoji ให้ดูเป็นมิตรและเว้นบรรทัดให้อ่านง่ายบนมือถือ
 - ห้ามใช้ Markdown Table ในการตอบคำถามโดยเด็ดขาด ให้ใช้ Bullet points และการเว้นบรรทัดแทน`;
 
-    const userPrompt = `ข้อมูลฐานข้อมูลโรงเรียน: ${contextData || 'ไม่พบข้อมูลที่เกี่ยวข้องในฐานข้อมูลด่วน'}\nปีการศึกษา: ${currentYear}\nคำถามของคุณครู: "${message}"\nกรุณาตอบในแท็ก <ans> ให้ชบาหน่อยนะคะ`;
+    const userPrompt = `${chatHistoryContext ? `ประวัติการสนทนาล่าสุดของครูคนนี้:\n${chatHistoryContext}\n\n` : ''}ข้อมูลฐานข้อมูลโรงเรียน: ${contextData || 'ไม่พบข้อมูลที่เกี่ยวข้องในฐานข้อมูลด่วน'}\nปีการศึกษา: ${currentYear}\nคำถามของคุณครู: "${message}"\nกรุณาตอบในแท็ก <ans> ให้ชบาหน่อยนะคะ`;
 
     let rawResponse = "";
     if (apiKey) {
@@ -327,7 +349,7 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
       rawResponse = await callOpenAI(systemPrompt, userPrompt, openaiApiKey);
     }
     
-    // 3. Absolute Extraction Protocol
+    // 4. Absolute Extraction Protocol
     let finalAnswer = "";
     if (!rawResponse) {
       finalAnswer = "ขออภัยนะคะคุณครู ตอนนี้ระบบสมองของชบามีการเชื่อมต่อขัดข้องชั่วคราวค่ะ รบกวนลองใหม่อีกครั้งในภายหลังนะคะ 🙏🌸";
@@ -348,12 +370,12 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
       }
     }
 
-    // 4. Final Polish & Cleanup
+    // 5. Final Polish & Cleanup
     if (rawResponse) {
       finalAnswer = finalAnswer
         .replace(/AI Cowork/gi, 'น้องชบา')
         .replace(/ครับ/g, 'ค่ะ')
-        .replace(/^\s*\*\s+/gm, '• ') // แปลงดอกจันเดี่ยวของ bullet point เป็นจุดกลม
+        .replace(/^\s*\*\s+/gm, '• ')
         .split('\n')
         .filter(line => !line.match(/^\s*(\*|-)?\s*(Identity|Role|User|Context|Input|Logic|Drafting|Winner|Step|Goal|Strict|Formatting|Section|Check|Evaluation|Actionable|Final|Plan|Result).*?:/i))
         .join('\n')
@@ -361,7 +383,22 @@ async function handleFastAI(replyToken: string, message: string, _profile: any) 
     }
 
     console.log(`[LINE WEBHOOK] Sending response (length ${finalAnswer.length}): ${JSON.stringify(finalAnswer)}`);
-    if (finalAnswer) await replyToLine(replyToken, finalAnswer);
+    if (finalAnswer) {
+      await replyToLine(replyToken, finalAnswer);
+      
+      // 6. บันทึกประวัติการคุย (Conversational Memory) ลงในไลน์แชท
+      if (lineUserId) {
+        try {
+          await supabaseAdmin.from('line_chats').insert([{
+            line_user_id: lineUserId,
+            message: message,
+            reply: finalAnswer
+          }]);
+        } catch (saveErr) {
+          console.error("[LINE WEBHOOK] Save chat memory log failed:", saveErr);
+        }
+      }
+    }
 
   } catch (err) { console.error("[LINE WEBHOOK ERROR]", err); }
 }

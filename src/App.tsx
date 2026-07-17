@@ -29,6 +29,7 @@ import AICowork from './pages/AICowork';
 import ARLearning from './pages/ARLearning';
 import ARAdmin from './pages/ARAdmin';
 import ServiceArea from './pages/ServiceArea';
+import Athletics from './pages/Athletics';
 import IdentityFooter from './components/IdentityFooter';
 
 import { 
@@ -67,7 +68,7 @@ import {
 
 const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics';
 
 function App() {
   const { user, profile, loading, signOut } = useAuth();
@@ -192,6 +193,7 @@ function App() {
       const isRestrictedLibrary = activeTab === 'library';
       const isRestrictedFinance = activeTab === 'finance' || activeTab === 'utilities' || activeTab === 'free_education';
       const isRestrictedAdmin = activeTab === 'users' || activeTab === 'settings';
+      const isRestrictedAthletics = activeTab === 'athletics';
       
       if (isRestrictedDoc && !extraPerms.access_administrative) {
         setActiveTab('dashboard');
@@ -206,6 +208,8 @@ function App() {
       } else if (isRestrictedLibrary && !extraPerms.access_academic) {
         setActiveTab('dashboard');
       } else if (isRestrictedFinance && !extraPerms.access_finance) {
+        setActiveTab('dashboard');
+      } else if (isRestrictedAthletics && !extraPerms.access_athletics) {
         setActiveTab('dashboard');
       } else if (isRestrictedAdmin && !isAdmin) {
         setActiveTab('dashboard');
@@ -240,6 +244,7 @@ function App() {
   const canAccessAcademic = !isGuest && (isAdmin || isDirector || isTeacher || extraPerms.access_academic);
   const canAccessLibrary = !isGuest && (isAdmin || isDirector || extraPerms.access_academic);
   const canAccessFinance = !isGuest && (isAdmin || isDirector || extraPerms.access_finance);
+  const canAccessAthletics = !isGuest && (isAdmin || isDirector || extraPerms.access_athletics);
 
   return (
     <div className="min-h-screen flex bg-slate-50">
@@ -305,6 +310,7 @@ function App() {
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">งานบริหารทั่วไป</div>
               {canAccessStudentAffairs && <SidebarItem icon={<Users size={20} />} label="ข้อมูลนักเรียน" active={activeTab === 'students'} onClick={() => setActiveTab('students')} />}
+              {canAccessAthletics && <SidebarItem icon={<Gamepad2 size={20} />} label="งานลงทะเบียนนักกีฬา" active={activeTab === 'athletics'} onClick={() => setActiveTab('athletics')} />}
               {canAccessStudentAffairs && <SidebarItem icon={<MapPin size={20} />} label="เด็กในเขตบริการ (ทร.14)" active={activeTab === 'service_area'} onClick={() => setActiveTab('service_area')} />}
               <SidebarItem icon={<Printer size={20} />} label="พิมพ์รายชื่อ" active={activeTab === 'custom_print'} onClick={() => setActiveTab('custom_print')} />
               {canAccessReports && <SidebarItem icon={<PieChart size={20} />} label="รายงาน LEC" active={activeTab === 'lec'} onClick={() => setActiveTab('lec')} />}
@@ -332,7 +338,7 @@ function App() {
               Smart School Admin © 2026<br/>
               <span className="text-brand-primary">Phairot Makkaew & Gemini AI</span><br/>
               {schoolName}<br/>
-              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.1.13'}</span>
+              <span className="text-slate-500 normal-case font-semibold">Version {import.meta.env.VITE_APP_VERSION || '1.1.14'}</span>
             </p>
           </div>
         </div>
@@ -368,6 +374,7 @@ function App() {
             {activeTab === 'ar_learning' && 'น้องชบาพาพิชิต (AR)'}
             {activeTab === 'ar_admin' && 'จัดการด่านบทเรียน น้องชบาพาพิชิต (AR)'}
             {activeTab === 'service_area' && 'เด็กในเขตพื้นที่บริการ (ทร.14)'}
+            {activeTab === 'athletics' && 'งานลงทะเบียนนักกีฬา'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -414,6 +421,7 @@ function App() {
             {activeTab === 'ar_learning' && <ARLearning onBack={() => setActiveTab('academic')} />}
             {activeTab === 'ar_admin' && <ARAdmin onBack={() => setActiveTab('academic')} />}
             {activeTab === 'service_area' && <ServiceArea />}
+            {activeTab === 'athletics' && <Athletics />}
             
             <IdentityFooter schoolName={schoolName} schoolLogo={schoolLogo} localGovName={localGovName} />
           </div>

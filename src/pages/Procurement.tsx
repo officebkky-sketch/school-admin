@@ -28,6 +28,7 @@ type ProcurementTab = 'overview' | 'projects' | 'transfers' | 'vendors' | 'asset
 
 const DOCUMENT_SETS = [
   { id: 'material_egp', name: 'ชุดซื้อวัสดุ (เกิน 5,000 ลงระบบ e-GP)', folder: 'แบบฟอร์มจัดซื้อวัสดุ (เกิน 5000 ลงระบบ e-GP)' },
+  { id: 'w119', name: 'ชุดจัดซื้อจัดจ้างตาม ว.119 (ไม่เกิน 10,000 บาท)', folder: 'รายงานขอความเห็นชอบและเบิกจ่าย ว.119' },
   { id: 'service_w877', name: 'ชุดจ้างเหมาบริการ 12 เดือน (ว.877)', folder: 'จ้างเหมาบริการ 12 เดือน ตาม ว.877' },
   { id: 'repair_egp', name: 'ชุดจ้างปรับปรุง/ซ่อมแซม (ลงระบบ e-GP)', folder: 'จ้างปรับปรุงซ่อมแซม-ก่อสร้าง (เกิน 5000 ลงระบบ e-GP)' },
   { id: 'general_job', name: 'ชุดจ้างทำของ (ลงระบบ e-GP)', folder: 'แบบฟอร์มจัดจ้างทำของ (เกิน 5000 ลงระบบ e-GP)' }
@@ -100,7 +101,13 @@ export default function Procurement() {
     vendor_info: {
       name: '',
       address: '',
-      tax_id: ''
+      tax_id: '',
+      w119_table_no: '1',
+      w119_clause_no: '',
+      receipt_book_no: '',
+      receipt_no: '',
+      receipt_date: new Date().toISOString().split('T')[0],
+      payee_name: ''
     },
     doc_number: '',
     order_number: '',
@@ -438,7 +445,17 @@ export default function Procurement() {
       head_officer_id: procurement.head_officer_id || '',
       committees: initialCommittees,
       document_set_id: procurement.document_set_id || 'material_egp',
-      vendor_info: procurement.vendor_info || { name: '', address: '', tax_id: '' },
+      vendor_info: procurement.vendor_info || { 
+        name: '', 
+        address: '', 
+        tax_id: '',
+        w119_table_no: '1',
+        w119_clause_no: '',
+        receipt_book_no: '',
+        receipt_no: '',
+        receipt_date: new Date().toISOString().split('T')[0],
+        payee_name: ''
+      },
       doc_number: procurement.doc_number || '',
       order_number: procurement.order_number || '',
       po_number: procurement.po_number || '',
@@ -698,6 +715,13 @@ export default function Procurement() {
     // ดึงข้อมูลรายการสินค้ามาด้วยเพื่อให้ AI มีข้อมูลครบ
     const { data: items } = await supabase.from('procurement_items').select('*').eq('procurement_id', procurement.id);
     setSelectedProcurement({ ...procurement, items: items || [] });
+    
+    if (procurement.document_set_id === 'w119') {
+      setActiveDocId('w119_report');
+    } else {
+      setActiveDocId('request');
+    }
+    
     setIsDocumentCenterOpen(true);
   }
 
@@ -711,19 +735,31 @@ export default function Procurement() {
       
       const itemsList = selectedProcurement.items.map((i: any) => `- ${i.item_name} จำนวน ${i.quantity} ${i.unit} ราคาหน่วยละ ${i.price_per_unit} บาท`).join('\n');
       
-      const prompt = `เขียน "เนื้อหาภายใน" สำหรับเอกสารประเภท "${docType}" ของงานพัสดุโรงเรียน
-      โดยใช้ข้อมูลดังนี้:
-      - ชื่อรายการ/โครงการ: ${selectedProcurement.project_name}
-      - รายการพัสดุ: ${itemsList}
-      - งบประมาณรวม: ${selectedProcurement.total_amount} บาท
-      - เหตุผลความจำเป็น: ${selectedProcurement.necessity_reason}
-      
-      กฎเหล็ก:
-      1. ร่างเฉพาะ "เนื้อความส่วนเนื้อหา" เท่านั้น ห้ามใส่ส่วนหัว (เช่น บันทึกข้อความ, ส่วนราชการ, ที่, วันที่, เรื่อง, เรียน) เพราะระบบมีส่วนหัวอยู่แล้ว
-      2. ห้ามใช้สัญลักษณ์ Markdown เช่น ** หรือ # 
-      3. ห้ามมีคำนำหน้าหรือคำลงท้ายที่คุยกับผู้ใช้ (เช่น นี่คือร่างเนื้อหา...)
-      4. ใช้ภาษาราชการที่เป็นทางการที่สุด
-      5. แบ่งเป็นหัวข้อ 1. ความเป็นมา 2. รายละเอียด 3. งบประมาณ 4. ข้อเสนอพิจารณา ให้ชัดเจน`;
+      const isW119Report = docType === 'w119_report';
+      const prompt = isW119Report
+        ? `เขียน "รายละเอียดพัสดุและผลการตรวจสอบความคุ้มค่าในการจัดหา" สำหรับรายงานขอความเห็นชอบและขอเบิกจ่ายเงินตาม ว.119
+        - ชื่อรายการ/โครงการ: ${selectedProcurement.project_name}
+        - รายการพัสดุ: ${itemsList}
+        - งบประมาณรวม: ${selectedProcurement.total_amount} บาท
+        - เหตุผลความจำเป็น: ${selectedProcurement.necessity_reason}
+        
+        กฎเหล็ก:
+        1. ร่างในลักษณะความเรียงภาษาราชการที่เป็นทางการที่สุด
+        2. ห้ามใส่ส่วนหัว (บันทึกข้อความ, ถึงใคร) และห้ามใส่สัญลักษณ์ Markdown เช่น ** หรือ #
+        3. เขียนอธิบายถึงความถูกต้องเหมาะสมของราคาสินค้าเมื่อเทียบกับท้องตลาด และประโยชน์สูงสุดที่นักเรียนและโรงเรียนจะได้รับ`
+        : `เขียน "เนื้อหาภายใน" สำหรับเอกสารประเภท "${docType}" ของงานพัสดุโรงเรียน
+        โดยใช้ข้อมูลดังนี้:
+        - ชื่อรายการ/โครงการ: ${selectedProcurement.project_name}
+        - รายการพัสดุ: ${itemsList}
+        - งบประมาณรวม: ${selectedProcurement.total_amount} บาท
+        - เหตุผลความจำเป็น: ${selectedProcurement.necessity_reason}
+        
+        กฎเหล็ก:
+        1. ร่างเฉพาะ "เนื้อความส่วนเนื้อหา" เท่านั้น ห้ามใส่ส่วนหัว (เช่น บันทึกข้อความ, ส่วนราชการ, ที่, วันที่, เรื่อง, เรียน) เพราะระบบมีส่วนหัวอยู่แล้ว
+        2. ห้ามใช้สัญลักษณ์ Markdown เช่น ** หรือ # 
+        3. ห้ามมีคำนำหน้าหรือคำลงท้ายที่คุยกับผู้ใช้ (เช่น นี่คือร่างเนื้อหา...)
+        4. ใช้ภาษาราชการที่เป็นทางการที่สุด
+        5. แบ่งเป็นหัวข้อ 1. ความเป็นมา 2. รายละเอียด 3. งบประมาณ 4. ข้อเสนอพิจารณา ให้ชัดเจน`;
       
       const draft = await generateAIDraft(prompt, apiKey);
       
@@ -887,7 +923,17 @@ export default function Procurement() {
                       head_officer_id: '',
                       committees: [{ teacher_id: '', role: 'ประธานกรรมการ' }],
                       document_set_id: 'material_egp',
-                      vendor_info: { name: '', address: '', tax_id: '' },
+                      vendor_info: { 
+                        name: '', 
+                        address: '', 
+                        tax_id: '',
+                        w119_table_no: '1',
+                        w119_clause_no: '',
+                        receipt_book_no: '',
+                        receipt_no: '',
+                        receipt_date: new Date().toISOString().split('T')[0],
+                        payee_name: ''
+                      },
                       doc_number: '',
                       order_number: '',
                       po_number: '',
@@ -1219,6 +1265,7 @@ export default function Procurement() {
                             setNewProcurement({
                               ...newProcurement,
                               vendor_info: {
+                                ...newProcurement.vendor_info,
                                 name: vendor.name,
                                 address: vendor.address || '',
                                 tax_id: vendor.tax_id || ''
@@ -1240,6 +1287,43 @@ export default function Procurement() {
                   <input type="text" placeholder="ที่อยู่ร้านค้า..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.address} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, address: e.target.value}})} />
                   <input type="text" placeholder="เลขที่เสียภาษี / บัตรประชาชน..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.tax_id} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, tax_id: e.target.value}})} />
                 </div>
+                
+                {newProcurement.document_set_id === 'w119' && (
+                  <div className="space-y-4 pt-4 border-t border-dashed border-slate-150">
+                    <label className="text-[10px] font-black text-brand-primary uppercase tracking-widest ml-2">4.1 ข้อมูลจัดซื้อจัดจ้างตาม ว.119</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">อ้างอิง ว.119 ตารางที่</label>
+                        <select className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.w119_table_no || '1'} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, w119_table_no: e.target.value}})}>
+                          <option value="1">ตาราง 1 (ต้องดำเนินการภายใต้ พ.ร.บ. จัดซื้อฯ)</option>
+                          <option value="2">ตาราง 2 (ไม่ใช่การจัดซื้อจัดจ้างตาม พ.ร.บ. จัดซื้อฯ)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">อ้างอิงข้อที่ (ในตารางที่เลือก)</label>
+                        <input type="text" placeholder="เช่น 3 (การจัดประชุมสัมมนา) หรือ 15 (น้ำดื่ม)" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.w119_clause_no || ''} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, w119_clause_no: e.target.value}})} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">จ่ายเงินให้แก่ (หากว่าง จะใช้ชื่อผู้ขาย)</label>
+                        <input type="text" placeholder="ระบุผู้รับเงิน..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.payee_name || ''} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, payee_name: e.target.value}})} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">ใบสำคัญ/ใบเสร็จ เล่มที่</label>
+                        <input type="text" placeholder="เช่น 01 (ถ้ามี)" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.receipt_book_no || ''} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, receipt_book_no: e.target.value}})} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">ใบสำคัญ/ใบเสร็จ เลขที่</label>
+                        <input type="text" placeholder="ระบุเลขที่..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.receipt_no || ''} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, receipt_no: e.target.value}})} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 ml-2 uppercase">วันที่ในหลักฐานใบเสร็จ</label>
+                        <input type="date" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none" value={newProcurement.vendor_info.receipt_date || ''} onChange={e => setNewProcurement({...newProcurement, vendor_info: {...newProcurement.vendor_info, receipt_date: e.target.value}})} />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -1307,26 +1391,33 @@ export default function Procurement() {
               {/* Left: Document List */}
               <div className="w-full md:w-80 border-r border-slate-50 overflow-y-auto p-4 space-y-2 bg-slate-50/20">
                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-2 block">รายการเอกสารในชุด</label>
-                {PROCUREMENT_DOCS.map(doc => (
-                  <button 
-                    key={doc.id}
-                    onClick={() => {
-                      setActiveDocId(doc.id);
-                      handleAIDraftDocument(doc.id); // ใช้ id แทนชื่อเพื่อความแม่นยำ
-                    }}
-                    className={`w-full text-left p-4 rounded-[24px] hover:bg-white hover:shadow-md transition-all group border ${activeDocId === doc.id ? 'bg-white shadow-md border-slate-100' : 'border-transparent hover:border-slate-50'}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center transition-colors ${activeDocId === doc.id ? 'text-brand-primary' : 'text-slate-400 group-hover:text-brand-primary'}`}>
-                        {doc.icon}
+                {(() => {
+                  const isW119 = selectedProcurement.document_set_id === 'w119';
+                  const displayedDocs = isW119
+                    ? [{ id: 'w119_report', name: 'รายงานขอความเห็นชอบและเบิกจ่าย (ว.119)', icon: <FileCheck className="text-emerald-500" size={18} />, description: 'บันทึกข้อความขออนุมัติและเบิกจ่ายเงินในใบเดียว' }]
+                    : PROCUREMENT_DOCS;
+                  
+                  return displayedDocs.map(doc => (
+                    <button 
+                      key={doc.id}
+                      onClick={() => {
+                        setActiveDocId(doc.id);
+                        handleAIDraftDocument(doc.id);
+                      }}
+                      className={`w-full text-left p-4 rounded-[24px] hover:bg-white hover:shadow-md transition-all group border ${activeDocId === doc.id ? 'bg-white shadow-md border-slate-100' : 'border-transparent hover:border-slate-50'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center transition-colors ${activeDocId === doc.id ? 'text-brand-primary' : 'text-slate-400 group-hover:text-brand-primary'}`}>
+                          {doc.icon}
+                        </div>
+                        <div>
+                          <div className="text-xs font-black text-slate-700">{doc.name}</div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 line-clamp-1">{doc.description}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="text-xs font-black text-slate-700">{doc.name}</div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 line-clamp-1">{doc.description}</div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  ));
+                })()}
               </div>
 
               {/* Right: Preview Area */}

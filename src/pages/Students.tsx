@@ -296,6 +296,32 @@ export default function Students() {
 
       if (error) throw error;
       
+      // ซิงก์ข้อมูลที่อัปเดตไปยังระบบกีฬา (athletics_registrations)
+      if (currentId) {
+        try {
+          const syncPayload = {
+            prefix: payload.prefix,
+            first_name: payload.first_name,
+            last_name: payload.last_name,
+            gender: payload.gender,
+            birth_date: payload.birth_date,
+            class_level: payload.class_level,
+            room: payload.room,
+            weight: payload.weight ? parseFloat(payload.weight.toString()) : null,
+            height: payload.height ? parseFloat(payload.height.toString()) : null,
+            photo_url: photo_url,
+            citizen_id: payload.national_id
+          };
+
+          await supabase
+            .from('athletics_registrations')
+            .update(syncPayload)
+            .eq('student_id', currentId);
+        } catch (syncErr) {
+          console.warn('⚠️ ไม่สามารถซิงก์ข้อมูลไปยังระบบกีฬาได้:', syncErr);
+        }
+      }
+
       alert(currentId ? 'อัปเดตข้อมูลสำเร็จ' : 'เพิ่มข้อมูลสำเร็จ');
       setIsModalOpen(false);
       resetForm();

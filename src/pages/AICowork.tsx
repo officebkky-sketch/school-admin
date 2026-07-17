@@ -59,7 +59,7 @@ const KNOWLEDGE_FOLDERS = [
 
 export default function AICowork() {
   const { user, profile } = useAuth();
-  const [activeView, setActiveTab] = useState<'chat' | 'drive' | 'intelligence'>('chat');
+  const [activeView, setActiveTab] = useState<'chat' | 'drive' | 'intelligence' | 'checklist'>('chat');
   const [loading, setLoading] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [files, setFiles] = useState<any[]>([]);
@@ -80,6 +80,112 @@ export default function AICowork() {
   const [isThinking, setIsThinking] = useState(false);
   const [searchSource, setSearchSource] = useState<'all' | 'global' | 'private'>('all');
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Checklist States
+  const [checklistFile, setChecklistFile] = useState<File | null>(null);
+  const [checklistPreview, setChecklistPreview] = useState<string | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkingResults, setCheckingResults] = useState<any>(null);
+  const [selectedDocType, setSelectedDocType] = useState<string>('memo');
+
+  const handleChecklistFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setChecklistFile(file);
+      setChecklistPreview(URL.createObjectURL(file));
+      setCheckingResults(null);
+    }
+  };
+
+  const handleAnalyzeDocument = async () => {
+    if (!checklistFile) return;
+    setIsChecking(true);
+    setCheckingResults(null);
+    try {
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, custom_sop').single();
+      const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+      if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ในหน้าตั้งค่าระบบก่อนค่ะ');
+
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          const base64Data = (reader.result as string).split(',')[1];
+          const mimeType = checklistFile.type;
+
+          const prompt = `คุณคือ "น้องชบา" AI ผู้ช่วยฝ่ายวิชาการและสารบรรณมืออาชีพของโรงเรียน
+          หน้าที่ของคุณคือตรวจสอบเอกสารราชการที่ผู้ใช้ส่งมาว่าถูกต้องและมีโครงสร้างครบถ้วนตามหลักเกณฑ์หรือไม่
+          
+          ประเภทเอกสารที่ตรวจสอบ: ${selectedDocType === 'memo' ? 'บันทึกข้อความราชการทั่วไป' : selectedDocType === 'procurement' ? 'รายงานขออนุมัติจัดซื้อจัดจ้าง' : selectedDocType === 'leave' ? 'ใบลาหยุดราชการ' : 'หนังสือราชการภายนอก'}
+          ${settings?.custom_sop ? `\nแนวปฏิบัติพิเศษ (SOP) ของโรงเรียนเพิ่มเติม:\n${settings.custom_sop}` : ''}
+          
+          วิเคราะห์ภาพเอกสารนี้และตอบกลับเป็นรูปแบบ JSON โดยมีโครงสร้างดังนี้เท่านั้น (ห้ามมี Markdown หรือคำพูดอื่นๆ นอก JSON):
+          {
+            "doc_type_detected": "ระบุประเภทเอกสารที่ตรวจจับได้จากภาพ",
+            "passed": true หรือ false (เป็น true หากผ่านเกณฑ์หลัก 70% ขึ้นไป),
+            "score": 0-100 (คะแนนความสมบูรณ์),
+            "checklists": [
+              { "element": "ตราครุฑ", "exists": true/false, "detail": "คำอธิบายรายละเอียด เช่น ตราครุฑอยู่กึ่งกลางด้านบน ถูกต้อง หรือ ไม่พบตราครุฑ" },
+              { "element": "การระบุเลขที่หนังสือ (ที่)", "exists": true/false, "detail": "..." },
+              { "element": "การระบุลงวันที่", "exists": true/false, "detail": "..." },
+              { "element": "ลายมือชื่อผู้เสนอ/ผู้ลงนาม", "exists": true/false, "detail": "..." },
+              { "element": "ความสอดคล้องตามแนวปฏิบัติ (SOP)", "exists": true/false, "detail": "..." }
+            ],
+            "issues": [
+              "ระบุปัญหาหรือจุดที่ต้องแก้ไข/จุดที่ขาดหายไปเป็นข้อๆ"
+            ],
+            "suggestions": "ข้อเสนอแนะในการปรับปรุงแก้ไขเอกสารเพื่อความถูกต้องตามระเบียบสารบรรณ"
+          }`;
+
+          const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
+          const currentKey = keys[Math.floor(Math.random() * keys.length)];
+          const version = "v1beta";
+          const modelName = "gemini-2.5-flash";
+
+          const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${currentKey}`;
+          
+          const body = {
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: base64Data } }
+              ]
+            }],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: "application/json"
+            }
+          };
+
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+
+          if (!res.ok) {
+            const errBody = await res.text();
+            throw new Error(`Google API Error: ${res.statusText} (${errBody})`);
+          }
+
+          const resJson = await res.json();
+          const responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (!responseText) throw new Error("ไม่ได้รับผลการวิเคราะห์กลับมาจาก AI");
+
+          const parsed = JSON.parse(responseText);
+          setCheckingResults(parsed);
+        } catch (e: any) {
+          alert('เกิดข้อผิดพลาดในการวิเคราะห์เอกสาร: ' + e.message);
+        } finally {
+          setIsChecking(false);
+        }
+      };
+      reader.readAsDataURL(checklistFile);
+    } catch (err: any) {
+      alert(err.message);
+      setIsChecking(false);
+    }
+  };
 
   const QUICK_TOOLS = [
     { 
@@ -362,6 +468,12 @@ export default function AICowork() {
           className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeView === 'drive' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
         >
           <Database size={18} /> Virtual Drive
+        </button>
+        <button 
+          onClick={() => setActiveTab('checklist')} 
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-black text-sm transition-all ${activeView === 'checklist' ? 'bg-brand-primary text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+        >
+          <FileSearch size={18} /> ตรวจเอกสารอัจฉริยะ
         </button>
         {(profile?.role === 'admin' || profile?.role === 'director') && (
           <button 
@@ -765,6 +877,152 @@ export default function AICowork() {
                    <BrainCircuit size={80} className="mb-6 opacity-10" />
                    <p className="text-xl font-black uppercase tracking-[0.2em]">สมองชบายังว่างเปล่าค่ะ</p>
                    <p className="text-sm font-bold mt-2 text-slate-400 max-w-sm text-center">เริ่มสอนงานชบาโดยการอัปโหลดระเบียบหรือคู่มือการทำงานของโรงเรียนนะคะ เพื่อให้ชบาช่วยตอบคำถามและร่างเอกสารได้แม่นยำขึ้น</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeView === 'checklist' && (
+        <div className="flex-1 flex flex-col bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-10 border-b border-slate-50 bg-gradient-to-r from-purple-50/50 to-indigo-50/50 flex justify-between items-center">
+            <div>
+              <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3 tracking-tight">
+                <FileSearch size={32} className="text-purple-600" /> ระบบตรวจเอกสารราชการอัจฉริยะ (AI Workflow Checklist)
+              </h3>
+              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">อัปโหลดภาพเอกสารราชการเพื่อให้ AI ตรวจสอบความถูกต้องตามแบบแผนและ SOP ของโรงเรียน</p>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+            {/* Left Column: Upload and Form */}
+            <div className="w-full md:w-1/2 border-r border-slate-50 overflow-y-auto p-10 space-y-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-purple-600">เลือกประเภทเอกสารที่ต้องการตรวจ</label>
+                <select 
+                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-none"
+                  value={selectedDocType}
+                  onChange={e => setSelectedDocType(e.target.value)}
+                >
+                  <option value="memo">บันทึกข้อความเสนอขออนุมัติทั่วไป</option>
+                  <option value="procurement">บันทึกข้อความขอจัดซื้อจัดจ้าง (ว.119 / e-GP)</option>
+                  <option value="leave">ใบลาหยุดราชการ (ลาป่วย, ลากิจ, ลาพักผ่อน)</option>
+                  <option value="external">หนังสือราชการภายนอก (มีครุฑกึ่งกลางด้านบน)</option>
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-purple-600">อัปโหลดไฟล์ภาพเอกสาร (PNG, JPG, JPEG)</label>
+                <label className="w-full h-64 border-4 border-dashed border-slate-100 rounded-[32px] flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-purple-200 transition-all relative overflow-hidden group">
+                  <input type="file" className="hidden" accept="image/*" onChange={handleChecklistFileChange} />
+                  {checklistPreview ? (
+                    <img src={checklistPreview} alt="Preview" className="absolute inset-0 w-full h-full object-contain p-4" />
+                  ) : (
+                    <div className="text-center p-6 space-y-4">
+                      <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                        <UploadCloud size={32} />
+                      </div>
+                      <div>
+                        <p className="font-black text-slate-700 text-sm">คลิกเพื่อเลือกไฟล์รูปภาพเอกสาร</p>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">รองรับไฟล์รูปภาพจากการถ่ายรูปหรือสแกนทุกประเภท</p>
+                      </div>
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              {checklistFile && (
+                <button
+                  type="button"
+                  disabled={isChecking}
+                  onClick={handleAnalyzeDocument}
+                  className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-100 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {isChecking ? (
+                    <>
+                      <Loader2 className="animate-spin" size={18} />
+                      กำลังวิเคราะห์เอกสาร...
+                    </>
+                  ) : (
+                    <>
+                      <FileSearch size={18} />
+                      เริ่มตรวจสอบความถูกต้องของเอกสาร
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Right Column: AI Analysis Result */}
+            <div className="flex-1 bg-slate-50/20 overflow-y-auto p-10 custom-scrollbar">
+              {checkingResults ? (
+                <div className="space-y-6">
+                  {/* Status Banner */}
+                  <div className={`p-6 rounded-[32px] border flex items-center gap-4 ${checkingResults.passed ? 'bg-green-50 border-green-100 text-green-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${checkingResults.passed ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+                      {checkingResults.passed ? <CheckCircle2 size={24} /> : <Trash2 size={24} />}
+                    </div>
+                    <div>
+                      <h4 className="font-black text-lg">
+                        {checkingResults.passed ? 'ผลการตรวจสอบ: ผ่านเกณฑ์ความสมบูรณ์' : 'ผลการตรวจสอบ: ต้องแก้ไขเอกสาร'}
+                      </h4>
+                      <p className="text-[10px] font-black uppercase tracking-widest mt-1 opacity-80">
+                        ประเภทที่ตรวจพบ: {checkingResults.doc_type_detected} | คะแนนความสมบูรณ์: {checkingResults.score}/100
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Checklist Elements */}
+                  <div className="bg-white p-8 rounded-[32px] border border-slate-100 space-y-4 shadow-sm">
+                    <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest mb-4 text-purple-600">องค์ประกอบตามระเบียบพัสดุและสารบรรณ</h4>
+                    <div className="divide-y divide-slate-50">
+                      {checkingResults.checklists?.map((item: any, idx: number) => (
+                        <div key={idx} className="py-4 flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-black text-slate-700">{item.element}</p>
+                            <p className="text-xs text-slate-400 font-bold mt-1 leading-relaxed">{item.detail}</p>
+                          </div>
+                          <div className={`px-4 py-1.5 rounded-full font-black text-[9px] uppercase tracking-widest ${item.exists ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
+                            {item.exists ? 'พบองค์ประกอบ' : 'ไม่พบ'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Issues Detected */}
+                  {checkingResults.issues && checkingResults.issues.length > 0 && (
+                    <div className="bg-red-50/50 p-8 rounded-[32px] border border-red-100/50 space-y-3">
+                      <h4 className="font-black text-red-800 text-xs uppercase tracking-widest mb-2 flex items-center gap-2">⚠️ จุดพิจารณาที่ต้องตรวจสอบหรือแก้ไข</h4>
+                      <ul className="space-y-2">
+                        {checkingResults.issues.map((issue: string, idx: number) => (
+                          <li key={idx} className="text-xs text-red-700 font-bold flex items-start gap-2 leading-relaxed">
+                            <span className="mt-1 text-red-500">•</span> {issue}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* AI Suggestions */}
+                  {checkingResults.suggestions && (
+                    <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm space-y-3">
+                      <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest mb-2 text-indigo-600">💡 ข้อเสนอแนะจากน้องชบาเพื่อปรับปรุงเอกสาร</h4>
+                      <p className="text-xs text-slate-600 font-bold leading-relaxed whitespace-pre-wrap">{checkingResults.suggestions}</p>
+                    </div>
+                  )}
+                </div>
+              ) : isChecking ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4 py-20">
+                  <Loader2 className="animate-spin text-purple-600" size={64} />
+                  <p className="font-black text-[10px] text-slate-400 uppercase tracking-[0.2em] animate-pulse">น้องชบากำลังอ่านเนื้อหาและตรวจสอบตาม SOP โรงเรียนค่ะ...</p>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-slate-300 text-center py-20 border-4 border-dashed border-slate-50 rounded-[40px] bg-white">
+                  <FileSearch size={80} className="mb-6 opacity-10" />
+                  <p className="text-xl font-black uppercase tracking-[0.2em]">รอการตรวจสอบเอกสาร</p>
+                  <p className="text-xs font-bold text-slate-400 mt-2 max-w-sm">อัปโหลดภาพเอกสารทางด้านซ้ายเพื่อเปิดระบบสแกนตรวจสอบความถูกต้องอัจฉริยะ (AI Checklist)</p>
                 </div>
               )}
             </div>

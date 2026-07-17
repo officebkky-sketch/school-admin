@@ -600,6 +600,158 @@ export async function generateProcurementDoc(docId: string, data: any, _aiDraftC
       page.drawText('ผู้อำนวยการโรงเรียนบ้านควนโคกยา', { x: width / 2 - 75, y: currentY - 16, size: 15, font: sarabunFont });
     }
 
+    else if (docId === 'w119_report') {
+      page.drawImage(garudaImage, { x: 50, y: height - 60, width: 40, height: 40 });
+      page.drawText('บันทึกข้อความ', { x: width / 2 - 50, y: height - 48, size: 24, font: sarabunBold });
+      let currentY = height - 80;
+      page.drawText('ส่วนราชการ', { x: 50, y: currentY, size: 15, font: sarabunBold });
+      page.drawText(`โรงเรียนบ้านควนโคกยา (งานพัสดุ)`, { x: 110, y: currentY, size: 15, font: sarabunFont });
+      for (let i = 265; i < width - margin; i += 5) { page.drawText('.', { x: i, y: currentY, size: 10, font: sarabunFont, color: rgb(0.7,0.7,0.7) }); }
+      currentY -= 18;
+      page.drawText('ที่', { x: 50, y: currentY, size: 15, font: sarabunBold });
+      page.drawText(toThaiNumerals(data.doc_number || '-'), { x: 65, y: currentY, size: 15, font: sarabunFont });
+      for (let i = 80; i < width / 2 - 20; i += 5) { page.drawText('.', { x: i, y: currentY, size: 10, font: sarabunFont, color: rgb(0.7,0.7,0.7) }); }
+      page.drawText('วันที่', { x: width / 2, y: currentY, size: 15, font: sarabunBold });
+      page.drawText(formatThaiDateFull(data.order_date), { x: width / 2 + 30, y: currentY, size: 15, font: sarabunFont });
+      for (let i = width / 2 + 100; i < width - margin; i += 5) { page.drawText('.', { x: i, y: currentY, size: 10, font: sarabunFont, color: rgb(0.7,0.7,0.7) }); }
+      currentY -= 18;
+      page.drawText('เรื่อง', { x: 50, y: currentY, size: 15, font: sarabunBold });
+      const titleText = `รายงานขอความเห็นชอบและขออนุมัติเบิกจ่ายเงินจัดซื้อจัดจ้างตาม ว.๑๑๙`;
+      page.drawText(titleText, { x: 85, y: currentY, size: 15, font: sarabunFont });
+      for (let i = 85 + sarabunFont.widthOfTextAtSize(titleText, 15); i < width - margin; i += 5) { page.drawText('.', { x: i, y: currentY, size: 10, font: sarabunFont, color: rgb(0.7,0.7,0.7) }); }
+      currentY -= 22;
+      page.drawText('เรียน  ผู้อำนวยการโรงเรียนบ้านควนโคกยา', { x: 50, y: currentY, size: 15, font: sarabunFont });
+      currentY -= 25;
+
+      const w119Table = toThaiNumerals(data.vendor_info?.w119_table_no || '๑');
+      const w119Clause = toThaiNumerals(data.vendor_info?.w119_clause_no || '๓');
+      const receiptBook = toThaiNumerals(data.vendor_info?.receipt_book_no || '-');
+      const receiptNo = toThaiNumerals(data.vendor_info?.receipt_no || '-');
+      const receiptDate = data.vendor_info?.receipt_date ? formatThaiDateFull(data.vendor_info.receipt_date) : '-';
+      const payeeName = data.vendor_info?.payee_name || data.vendor_info?.name || '................................................';
+      const vendorName = data.vendor_info?.name || '................................................';
+      const amountThai = toThaiNumerals(Number(data.total_amount).toLocaleString());
+      const amountText = numToThaiBaht(Number(data.total_amount) || 0);
+      const isHire = data.procurement_type === 'จ้าง';
+      const itemsCount = toThaiNumerals(data.items?.length || 1);
+      const cleanReason = (data.necessity_reason || 'ใช้ในการจัดการเรียนการสอน').replace(/\n/g, ' ').replace(/\r/g, '').trim().replace(/^เพื่อ\s*/, '');
+
+      // ย่อหน้านำเรื่อง
+      const officer = data.officerName || '................................................';
+      const introText = `ด้วยข้าพเจ้า ${officer} มีความจำเป็นที่จะต้องใช้พัสดุเพื่อเป็นค่าใช้จ่ายในการ${isHire ? 'จ้าง' : 'ซื้อ'} ${data.project_name} เพื่อใช้ ${cleanReason} เนื่องจากมีวงเงินการจัดซื้อจัดจ้างครั้งหนึ่งไม่เกิน ๑๐,๐๐๐ บาท ตามหนังสือคณะกรรมการวินิจฉัยปัญหาการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ ด่วนที่สุด ที่ กค (กวจ) ๐๔๐๕.๒/ว ๑๑๙ ลว ๙ มีนาคม ๒๕๖๑ ตาราง ${w119Table} ข้อ ${w119Clause}`;
+      
+      const introLines = wrapThaiText(introText, contentWidth - 30, sarabunFont, 15);
+      let isFirstLine = true;
+      for (const line of introLines) {
+        page.drawText(line.trim(), { x: isFirstLine ? 80 : 50, y: currentY, size: 15, font: sarabunFont });
+        currentY -= lineSpacing;
+        isFirstLine = false;
+      }
+      currentY -= 5;
+
+      // รายละเอียดการดำเนินการ
+      const detailText = `จึงได้ดำเนินการ${isHire ? 'จ้าง' : 'ซื้อ'} จาก ${vendorName} จำนวน ${itemsCount} รายการ เป็นเงิน ${amountThai} บาท (${amountText}) ตามหลักฐานการจัด${isHire ? 'จ้าง' : 'ซื้อ'}เป็น ตามใบส่งของ/ใบเสร็จรับเงิน/ใบสำคัญรับเงิน ${data.vendor_info?.receipt_book_no ? `เล่มที่ ${receiptBook}` : ''} เลขที่ ${receiptNo} ลงวันที่ ${receiptDate} ตามเอกสารที่แนบ`;
+      const detailLines = wrapThaiText(detailText, contentWidth - 30, sarabunFont, 15);
+      isFirstLine = true;
+      for (const line of detailLines) {
+        page.drawText(line.trim(), { x: isFirstLine ? 80 : 50, y: currentY, size: 15, font: sarabunFont });
+        currentY -= lineSpacing;
+        isFirstLine = false;
+      }
+      currentY -= 15;
+
+      page.drawText('จึงเรียนมาเพื่อโปรดพิจารณา', { x: 80, y: currentY, size: 15, font: sarabunFont });
+      currentY -= 18;
+      page.drawText('๑. ให้ความเห็นชอบ', { x: 95, y: currentY, size: 15, font: sarabunFont });
+      currentY -= 16;
+      page.drawText(`๒. อนุมัติให้เบิกจ่ายเงิน ให้แก่ ${payeeName}`, { x: 95, y: currentY, size: 15, font: sarabunFont });
+      
+      currentY -= 35;
+      page.drawText('ลงชื่อ............................................................ผู้รายงาน', { x: width - 300, y: currentY, size: 15, font: sarabunFont });
+      currentY -= 16;
+      page.drawText(`(${officer})`, { x: width - 275, y: currentY, size: 15, font: sarabunFont });
+      currentY -= 15;
+      page.drawText('ตำแหน่ง เจ้าหน้าที่พัสดุ', { x: width - 260, y: currentY, size: 15, font: sarabunFont });
+
+      // วาดกรอบตาราง 2 ส่วน (ตรวจสอบ / คำสั่ง ผอ.)
+      currentY -= 25;
+      const tableHeight = 175;
+      const tableTopY = currentY;
+      const tableBottomY = currentY - tableHeight;
+      const tableLeftX = margin;
+      const tableRightX = width - margin;
+      const tableMiddleX = margin + (contentWidth / 2);
+
+      // วาดกรอบ
+      page.drawRectangle({
+        x: tableLeftX,
+        y: tableBottomY,
+        width: contentWidth,
+        height: tableHeight,
+        borderColor: rgb(0.2, 0.2, 0.2),
+        borderWidth: 1,
+      });
+
+      // วาดเส้นแบ่งครึ่ง
+      page.drawLine({
+        start: { x: tableMiddleX, y: tableTopY },
+        end: { x: tableMiddleX, y: tableBottomY },
+        color: rgb(0.2, 0.2, 0.2),
+        thickness: 1
+      });
+
+      // --- ฝั่งซ้าย: ตรวจสอบพัสดุ ---
+      let leftY = tableTopY - 18;
+      page.drawText('เรียน  ผู้อำนวยการโรงเรียนบ้านควนโคกยา', { x: tableLeftX + 15, y: leftY, size: 13, font: sarabunBold });
+      leftY -= 16;
+      
+      const inspectText1 = `ได้ตรวจสอบรายละเอียดแล้วถูกต้องตามหนังสือที่ กค (กวจ) ๐๔๐๕.๒/ว ๑๑๙ ลว ๙ มีนาคม ๒๕๖๑ ตาราง ${w119Table} ข้อ ${w119Clause} เห็นควรอนุมัติเงินอุดหนุนรายหัวตามแผนปฏิบัติการประจำปีงบประมาณ พ.ศ. ๒๕๖๙ โครงการ ${data.school_projects?.project_name || '-'}`;
+      const inspectLines = wrapThaiText(inspectText1, (contentWidth / 2) - 30, sarabunFont, 13);
+      isFirstLine = true;
+      for (const line of inspectLines.slice(0, 3)) { // จำกัดไม่ให้ล้นกล่อง
+        page.drawText(line.trim(), { x: isFirstLine ? tableLeftX + 35 : tableLeftX + 15, y: leftY, size: 13, font: sarabunFont });
+        leftY -= 14;
+        isFirstLine = false;
+      }
+      
+      const inspectText2 = `จำนวนเงิน ${amountThai} บาท (${amountText}) ให้แก่ ${payeeName}`;
+      const inspectLines2 = wrapThaiText(inspectText2, (contentWidth / 2) - 30, sarabunFont, 13);
+      for (const line of inspectLines2.slice(0, 2)) {
+        page.drawText(line.trim(), { x: tableLeftX + 15, y: leftY, size: 13, font: sarabunFont });
+        leftY -= 14;
+      }
+      
+      leftY = tableBottomY + 50;
+      page.drawText('ลงชื่อ......................................................เจ้าหน้าที่พัสดุ', { x: tableLeftX + 15, y: leftY, size: 13, font: sarabunFont });
+      leftY -= 14;
+      page.drawText(`(${data.officerName || '................................................'})`, { x: tableLeftX + 45, y: leftY, size: 13, font: sarabunFont });
+      
+      leftY -= 20;
+      page.drawText('ลงชื่อ......................................................หัวหน้าเจ้าหน้าที่พัสดุ', { x: tableLeftX + 15, y: leftY, size: 13, font: sarabunFont });
+      leftY -= 14;
+      page.drawText(`(${data.headOfficerName || '................................................'})`, { x: tableLeftX + 45, y: leftY, size: 13, font: sarabunFont });
+
+      // --- ฝั่งขวา: คำสั่ง ผอ. ---
+      let rightY = tableTopY - 18;
+      page.drawText('คำสั่งของผู้อำนวยการ', { x: tableMiddleX + 15, y: rightY, size: 13, font: sarabunBold });
+      rightY -= 18;
+      
+      page.drawText('[  ]  เห็นชอบ', { x: tableMiddleX + 35, y: rightY, size: 13, font: sarabunBold });
+      rightY -= 16;
+      page.drawText('[  ]  อนุมัติให้เบิกจ่ายเงินตามเสนอ', { x: tableMiddleX + 35, y: rightY, size: 13, font: sarabunBold });
+      rightY -= 16;
+      page.drawText(`จ่ายเงินให้แก่  ${payeeName}`, { x: tableMiddleX + 55, y: rightY, size: 13, font: sarabunFont });
+      
+      rightY = tableBottomY + 50;
+      page.drawText('ลงชื่อ......................................................................', { x: tableMiddleX + 25, y: rightY, size: 13, font: sarabunFont });
+      rightY -= 14;
+      page.drawText(`(${data.directorName})`, { x: tableMiddleX + 55, y: rightY, size: 13, font: sarabunFont });
+      rightY -= 14;
+      page.drawText('ผู้อำนวยการโรงเรียนบ้านควนโคกยา', { x: tableMiddleX + 45, y: rightY, size: 13, font: sarabunFont });
+      rightY -= 16;
+      page.drawText(`วันที่ ........ เดือน .................... พ.ศ. ............`, { x: tableMiddleX + 30, y: rightY, size: 13, font: sarabunFont });
+    }
+
     const pdfBytes = await pdfDoc.save();
     return new Blob([pdfBytes as any], { type: 'application/pdf' });
   } catch (err) {
