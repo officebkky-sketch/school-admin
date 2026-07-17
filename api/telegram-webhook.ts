@@ -764,7 +764,7 @@ export default async function handler(req: any, res: any) {
     // --- 2. ดึงข้อมูลทั้งหมดจากตาราง settings (ซึ่งมีเพียงแถวเดียวสำหรับโครงการโรงเรียนนี้) ---
     const { data: settings, error: settingsErr } = await supabase
       .from('settings')
-      .select('school_name, telegram_bot_token, gemini_api_key, ai_cowork_api_key, current_academic_year')
+      .select('school_name, telegram_bot_token, telegram_bot_username, gemini_api_key, ai_cowork_api_key, current_academic_year')
       .single();
 
     if (settingsErr || !settings?.telegram_bot_token) {
@@ -1756,7 +1756,7 @@ export default async function handler(req: any, res: any) {
 
     // จัดการข้อความสนทนาทั่วไป
     const isGroup = chatId < 0;
-    const botMention = `@${school.telegram_bot_token?.split(':')[0] || 'ChabaSchoolBot'}`;
+    const botMention = settings.telegram_bot_username ? `@${settings.telegram_bot_username}` : `@${settings.telegram_bot_token?.split(':')[0] || 'ChabaSchoolBot'}`;
     const isMentioned = !isGroup || rawText.includes(botMention) || rawText.includes('ชบา') || rawText.includes('น้องชบา');
 
     if (isGroup && !isMentioned) {
@@ -1780,7 +1780,7 @@ export default async function handler(req: any, res: any) {
 
       if (apiKey) {
         // --- โหมด AI อัจฉริยะ (Jarvis Mode V2 with Strict Rules) ---
-        const systemPrompt = `คุณคือ "น้องชบา AI" ผู้ช่วยอัจฉริยะระบบงานธุรการและสารบรรณของ ${school.school_name || 'โรงเรียน'} (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
+        const systemPrompt = `คุณคือ "น้องชบา AI" ผู้ช่วยอัจฉริยะระบบงานธุรการและสารบรรณของ ${settings.school_name || 'โรงเรียน'} (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
 ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู" (ห้ามใช้หางเสียง "ครับ" หรือคำพูดเชิงผู้ชายเด็ดขาด)
 คล้ายกับบอท J.A.R.V.I.S. ในไอรอนแมน (ผู้ช่วยสมองกลอัจฉริยะ)
 
