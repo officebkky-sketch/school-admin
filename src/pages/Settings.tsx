@@ -46,6 +46,7 @@ export default function Settings() {
   const [selectedSignature, setSelectedSignature] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sigPreviewUrl, setSigPreviewUrl] = useState<string | null>(null);
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
 
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState('');
@@ -404,9 +405,18 @@ export default function Settings() {
             </div>
 
             <div className="col-span-full space-y-4 pt-4 border-t border-slate-50">
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                <Send size={16} className="text-brand-primary" /> การตั้งค่า Telegram Bot API
-              </h4>
+              <div className="flex justify-between items-center col-span-full">
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                  <Send size={16} className="text-[#229ED9]" /> การตั้งค่า Telegram Bot API
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowTelegramModal(true)}
+                  className="text-[10px] text-[#229ED9] font-black hover:underline uppercase tracking-widest flex items-center gap-1 cursor-pointer"
+                >
+                  📖 ดูคู่มือและขั้นตอนตั้งค่า Telegram Bot
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-widest text-brand-primary">Telegram Bot Token</label>
@@ -945,6 +955,109 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* Telegram Setup Guide Modal */}
+      {showTelegramModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 flex flex-col">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white/90 backdrop-blur-md z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#229ED9]/10 rounded-2xl flex items-center justify-center text-[#229ED9]">
+                  <Send size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800 text-base">📖 คู่มือการตั้งค่า Telegram Bot และ Group ID</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">สำหรับระบบแจ้งเตือนส่วนกลางและเสนอหนังสือ</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTelegramModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors font-bold text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6 text-slate-600 text-xs leading-relaxed">
+              {/* Section 1 */}
+              <div className="space-y-2 bg-blue-50/50 p-4 rounded-2xl border border-blue-100/50">
+                <h4 className="font-black text-slate-800 text-sm flex items-center gap-2 text-[#229ED9]">
+                  🤖 ส่วนที่ 1: วิธีสร้าง Telegram Bot และรับ Token
+                </h4>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 pl-2">
+                  <li>เปิดแอป Telegram พิมพ์ค้นหาผู้ใช้ชื่อ <strong className="text-slate-800">@BotFather</strong> (ที่มีเครื่องหมายติ๊กถูกสีฟ้า)</li>
+                  <li>กดปุ่ม <strong className="text-slate-800">Start</strong> หรือพิมพ์คำสั่ง <code className="bg-white px-2 py-0.5 rounded border border-slate-200 text-blue-600 font-mono text-[11px]">/newbot</code></li>
+                  <li>พิมพ์ตั้งชื่อแสดงของบอท เช่น <span className="text-slate-700 font-semibold">น้องชบาสารบรรณ โรงเรียน...</span></li>
+                  <li>พิมพ์ตั้ง Username ภาษาอังกฤษของบอท <span className="text-red-500 font-bold">*ต้องลงท้ายด้วยคำว่า bot เสมอ*</span> (เช่น <code className="bg-white px-2 py-0.5 rounded text-slate-700 font-mono">BanKuanChabaBot</code>)</li>
+                  <li>ระบบจะส่งข้อมูลความสำเร็จ ให้คัดลอก:
+                    <ul className="list-disc list-inside pl-4 mt-1 space-y-0.5 font-bold text-[11px] text-slate-700">
+                      <li><span className="text-blue-600">Telegram Bot Token</span> (เช่น 8927237989:AAHG8QIPFYN...) ไปวางในช่อง Bot Token</li>
+                      <li><span className="text-blue-600">Telegram Bot Username</span> (ไม่ต้องใส่ @) ไปวางในช่อง Username</li>
+                    </ul>
+                  </li>
+                </ol>
+              </div>
+
+              {/* Section 2 */}
+              <div className="space-y-2 bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100/50">
+                <h4 className="font-black text-slate-800 text-sm flex items-center gap-2 text-emerald-600">
+                  👥 ส่วนที่ 2: วิธีตั้งกลุ่ม Telegram Group และดึงบอทเข้ากลุ่ม
+                </h4>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 pl-2">
+                  <li>ในแอป Telegram ให้สร้างกลุ่มใหม่ (<strong className="text-slate-800">New Group</strong>) ตั้งชื่อ เช่น <span className="text-slate-700 font-semibold">สารบรรณกลาง - โรงเรียน...</span></li>
+                  <li>ดึงบอทของคุณครูที่เพิ่งสร้างเข้ากลุ่ม (<strong className="text-slate-800">Add Members</strong> &rarr; พิมพ์ค้นหา Username บอท)</li>
+                  <li><strong className="text-amber-600 uppercase tracking-wider">⚠️ สำคัญมาก: ตั้งบอทเป็น Admin ของกลุ่ม</strong>
+                    <ul className="list-disc list-inside pl-4 mt-1 space-y-0.5 text-[11px] font-bold text-slate-700">
+                      <li>ไปที่หน้าตั้งค่ากลุ่ม &rarr; เลือก <strong className="text-slate-800">Administrators</strong> &rarr; กด Add Admin เลือกบอท</li>
+                      <li>เปิดสิทธิ์ <strong className="text-emerald-600">"Send Messages" (ส่งข้อความ)</strong> และกดบันทึก</li>
+                    </ul>
+                  </li>
+                </ol>
+              </div>
+
+              {/* Section 3 */}
+              <div className="space-y-2 bg-purple-50/50 p-4 rounded-2xl border border-purple-100/50">
+                <h4 className="font-black text-slate-800 text-sm flex items-center gap-2 text-purple-600">
+                  🔍 ส่วนที่ 3: วิธีหารหัสกลุ่ม (Group Chat ID) ที่ขึ้นต้นด้วย -100
+                </h4>
+                <div className="space-y-2 text-slate-600">
+                  <p className="font-bold text-slate-700">วิธีที่ง่ายที่สุด (ใช้บอทช่วยหา):</p>
+                  <ol className="list-decimal list-inside space-y-1.5 pl-2">
+                    <li>ในกลุ่ม Telegram ของโรงเรียน ให้ดึงบอทช่วยหาไอดีชื่อ <code className="bg-white px-2 py-0.5 rounded border border-purple-200 text-purple-600 font-mono text-[11px]">@RawDataBot</code> เข้าร่วมกลุ่มชั่วคราว</li>
+                    <li>บอทจะส่งข้อความ JSON รหัสดิบมาในกลุ่ม ให้ดูบรรทัด <code className="bg-white px-1.5 py-0.5 rounded text-purple-700 font-mono text-[11px]">"chat": &#123; "id": -100xxxxxxxxx &#125;</code></li>
+                    <li>คัดลอกตัวเลขทั้งหมด <strong className="text-purple-700">*รวมเครื่องหมายลบ - ด้านหน้า*</strong> (เช่น <code className="bg-white px-2 py-0.5 rounded font-mono font-bold text-slate-800">-1002030405060</code>) ไปวางในช่อง Telegram Group ID</li>
+                    <li>เตะบอท <code className="bg-white px-1.5 py-0.5 rounded text-purple-600 font-mono">@RawDataBot</code> ออกจากกลุ่มได้ทันทีเมื่อได้รหัสแล้ว</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Section 4 */}
+              <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <h4 className="font-black text-slate-800 text-sm flex items-center gap-2 text-slate-700">
+                  ⚙️ ส่วนที่ 4: คำแนะนำเพิ่มเติมการแยกกลุ่ม
+                </h4>
+                <ul className="list-disc list-inside space-y-1 text-slate-600 pl-2">
+                  <li><strong>Telegram Group ID (ส่วนกลาง / PR):</strong> สำหรับรับข่าวสารและคำสั่งการทั่วไปสำหรับครูทั้งโรงเรียน</li>
+                  <li><strong>Telegram Proposal Group ID (กลุ่มเสนอเกษียณ):</strong> หากต้องการแยกกลุ่มสำหรับเสนอหนังสือให้ ผอ. พิจารณาเกษียณเป็นการเฉพาะ สามารถสร้างอีก 1 กลุ่มและวาง Group ID แยกต่างหากได้ครับ</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/50 rounded-b-[32px]">
+              <button
+                type="button"
+                onClick={() => setShowTelegramModal(false)}
+                className="bg-[#229ED9] hover:bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md shadow-blue-100 cursor-pointer"
+              >
+                เข้าใจแล้ว ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
