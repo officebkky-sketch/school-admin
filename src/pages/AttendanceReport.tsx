@@ -39,7 +39,7 @@ export default function AttendanceReport() {
   }, [viewMode, selectedDate, selectedMonth]);
 
   const fetchSettings = async () => {
-    const { data } = await supabase.from('settings').select('*').single();
+    const { data } = await supabase.from('settings').select('*').limit(1).maybeSingle();
     if (data) setSettings(data);
   };
 

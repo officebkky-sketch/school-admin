@@ -13,6 +13,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    show: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -33,8 +34,10 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
 
-  // เผื่อไว้ดีบักหน้าจอขาวในตัวติดตั้ง (ปิดไว้สำหรับเวอร์ชันเสถียร)
-  // mainWindow.webContents.openDevTools();
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 // --- Auto Updater Logic ---

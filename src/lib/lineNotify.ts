@@ -42,8 +42,14 @@ export async function sendLineNotification(message: string, specificToId?: strin
   try {
     const { data: settings } = await supabase
       .from('settings')
-      .select('line_channel_access_token, line_group_id')
-      .single();
+      .select('line_channel_access_token, line_group_id, is_line_enabled')
+      .limit(1)
+      .maybeSingle();
+
+    if (settings?.is_line_enabled === false) {
+      console.log('[LINE NOTIFY] LINE Bot is currently disabled in Settings. Skipping notification.');
+      return { success: false, disabled: true, message: 'LINE Bot is disabled' };
+    }
 
     const channelAccessToken = settings?.line_channel_access_token || undefined;
     const groupId = settings?.line_group_id;
@@ -173,8 +179,14 @@ export async function sendInteractiveFlexMessage(
   try {
     const { data: settings } = await supabase
       .from('settings')
-      .select('line_channel_access_token, line_group_id')
-      .single();
+      .select('line_channel_access_token, line_group_id, is_line_enabled')
+      .limit(1)
+      .maybeSingle();
+
+    if (settings?.is_line_enabled === false) {
+      console.log('[LINE NOTIFY] LINE Bot is currently disabled in Settings. Skipping notification.');
+      return { success: false, disabled: true, message: 'LINE Bot is disabled' };
+    }
 
     const channelAccessToken = settings?.line_channel_access_token || undefined;
     const groupId = settings?.line_group_id;
@@ -302,8 +314,14 @@ export async function sendBulkFlexCarousel(
   try {
     const { data: settings } = await supabase
       .from('settings')
-      .select('line_channel_access_token, line_group_id')
-      .single();
+      .select('line_channel_access_token, line_group_id, is_line_enabled')
+      .limit(1)
+      .maybeSingle();
+
+    if (settings?.is_line_enabled === false) {
+      console.log('[LINE NOTIFY] LINE Bot is currently disabled in Settings. Skipping notification.');
+      return { success: false, disabled: true, message: 'LINE Bot is disabled' };
+    }
 
     const channelAccessToken = settings?.line_channel_access_token || undefined;
     const groupId = settings?.line_group_id;

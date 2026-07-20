@@ -38,11 +38,12 @@ export function getSchoolProfiles(): SchoolProfile[] {
 export function checkAndCreateDefaultProfile() {
   try {
     const profilesJson = localStorage.getItem('school_profiles');
-    const profiles = profilesJson ? JSON.parse(profilesJson) : [];
+    let profiles: SchoolProfile[] = profilesJson ? JSON.parse(profilesJson) : [];
     
     // ตรวจสอบว่าใน .env มี config ที่ตั้งค่าไว้จริงและไม่ใช่ placeholder
     const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
     const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+    const envSchoolName = import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา';
     const isRealEnv = envUrl && 
                       envUrl !== 'https://your-project.supabase.co' && 
                       envUrl !== 'https://YOUR_SECOND_SCHOOL_SUPABASE_URL.supabase.co' &&
@@ -53,7 +54,7 @@ export function checkAndCreateDefaultProfile() {
     if (profiles.length === 0 && isRealEnv) {
       const defaultProfile: SchoolProfile = {
         id: 'school_default',
-        name: import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนหลัก (เชื่อมต่ออัตโนมัติ)',
+        name: envSchoolName,
         supabaseUrl: envUrl,
         supabaseAnonKey: envKey,
         vercelUrl: import.meta.env.VITE_VERCEL_URL || window.location.origin,
@@ -62,6 +63,25 @@ export function checkAndCreateDefaultProfile() {
       
       localStorage.setItem('school_profiles', JSON.stringify([defaultProfile]));
       localStorage.setItem('active_school_id', defaultProfile.id);
+    } else if (profiles.length > 0 && isRealEnv) {
+      let updated = false;
+      profiles = profiles.map(p => {
+        if (p.id === 'school_default') {
+          updated = true;
+          return {
+            ...p,
+            name: envSchoolName,
+            supabaseUrl: envUrl,
+            supabaseAnonKey: envKey,
+            gasUrl: import.meta.env.VITE_GAS_URL || p.gasUrl
+          };
+        }
+        return p;
+      });
+
+      if (updated) {
+        localStorage.setItem('school_profiles', JSON.stringify(profiles));
+      }
     }
   } catch (e) {
     console.error('Error checking/creating default profile:', e);

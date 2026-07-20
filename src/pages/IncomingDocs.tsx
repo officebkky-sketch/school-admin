@@ -154,7 +154,7 @@ export default function IncomingDocs() {
           if (!response.ok) throw new Error(`ไม่สามารถดาวน์โหลดไฟล์ได้ (Status: ${response.status})`);
           
           const pdfBuffer = await response.arrayBuffer();
-          const { data: setts } = await supabase.from('settings').select('school_name, director_name, director_signature_url').single();
+          const { data: setts } = await supabase.from('settings').select('school_name, director_name, director_signature_url').limit(1).maybeSingle();
  
           const schoolLabel = setts?.school_name 
             ? (setts.school_name.startsWith('โรงเรียน') ? setts.school_name : `โรงเรียน${setts.school_name}`)
@@ -622,7 +622,7 @@ export default function IncomingDocs() {
     if (!mainFile) { alert('กรุณาเลือกไฟล์หนังสือนำก่อน'); return; }
     setIsSaving(true);
     try {
-      const { data: sets } = await supabase.from('settings').select('gemini_api_key').single();
+      const { data: sets } = await supabase.from('settings').select('gemini_api_key').limit(1).maybeSingle();
       const apiKey = sets?.gemini_api_key;
       if (!apiKey) throw new Error('ยังไม่ได้ระบุ Gemini API Key');
       const buffer = await mainFile.arrayBuffer();

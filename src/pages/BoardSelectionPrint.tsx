@@ -106,7 +106,7 @@ export default function BoardSelectionPrint() {
 
   async function fetchSettings() {
     try {
-      const { data } = await supabase.from('settings').select('*').single();
+      const { data } = await supabase.from('settings').select('*').limit(1).maybeSingle();
       if (data) {
         setSchoolInfo(prev => ({
           ...prev,

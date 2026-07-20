@@ -213,6 +213,7 @@ CREATE TABLE settings (
   local_gov_name TEXT,
   line_channel_access_token TEXT,
   line_group_id TEXT,
+  is_line_enabled BOOLEAN DEFAULT true,
   gemini_api_key TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

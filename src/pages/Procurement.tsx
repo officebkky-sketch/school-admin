@@ -247,7 +247,7 @@ export default function Procurement() {
   async function handleAIFillProjects() {
     setIsExtracting(true);
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ก่อนใช้ฟีเจอร์ AI');
 
@@ -493,7 +493,7 @@ export default function Procurement() {
       }
 
       // ดึงข้อมูลการตั้งค่าโรงเรียน
-      const { data: settings } = await supabase.from('settings').select('*').single();
+      const { data: settings } = await supabase.from('settings').select('*').limit(1).maybeSingle();
       const schoolName = settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
       const directorName = settings?.director_name || '';
 
@@ -729,7 +729,7 @@ export default function Procurement() {
     if (!selectedProcurement) return;
     setIsExtracting(true);
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       const { generateAIDraft } = await import('../lib/aiService');
       
@@ -783,7 +783,7 @@ export default function Procurement() {
     try {
       const { generateProcurementDoc } = await import('../lib/ProcurementDocGenerator');
       
-      const { data: settings } = await supabase.from('settings').select('director_name').single();
+      const { data: settings } = await supabase.from('settings').select('director_name').limit(1).maybeSingle();
       
       const officer = teachers.find(t => t.id === selectedProcurement.officer_id);
       const officerName = officer ? `${officer.prefix}${officer.first_name} ${officer.last_name}` : '';
@@ -1203,7 +1203,7 @@ export default function Procurement() {
                       if (!newProcurement.project_name) return alert('กรุณาระบุชื่อรายการจัดซื้อก่อนครับ');
                       setIsExtracting(true);
                       try {
-                        const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+                        const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
                         const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
                         const { generateAIDraft } = await import('../lib/aiService');
                         const prompt = `เขียน "เหตุผลความจำเป็น" ในการจัดซื้อจัดจ้างสำหรับรายการ "${newProcurement.project_name}" เพื่อใช้ในโรงเรียนบ้านควนโคกยา ให้มีความยาวประมาณ 2-3 บรรทัด สำนวนราชการไทย`;

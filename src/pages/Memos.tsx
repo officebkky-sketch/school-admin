@@ -61,7 +61,7 @@ export default function Memos() {
   }, []);
 
   async function fetchSettings() {
-    const { data } = await supabase.from('settings').select('*').single();
+    const { data } = await supabase.from('settings').select('*').limit(1).maybeSingle();
     if (data) {
       setSettings(data);
       setFormData(prev => ({

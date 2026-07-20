@@ -72,7 +72,7 @@ const FreeEducation = () => {
 
   useEffect(() => {
     async function fetchSettings() {
-      const { data } = await supabase.from('settings').select('school_name, current_academic_year, director_name').single();
+      const { data } = await supabase.from('settings').select('school_name, current_academic_year, director_name').limit(1).maybeSingle();
       if (data?.school_name) setSchoolName(data.school_name);
       if (data?.current_academic_year) setAcademicYear(data.current_academic_year);
       if (data?.director_name) setDirectorName(data.director_name);

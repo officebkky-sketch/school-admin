@@ -102,7 +102,7 @@ export default function AICowork() {
     setIsChecking(true);
     setCheckingResults(null);
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, custom_sop').single();
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, custom_sop').limit(1).maybeSingle();
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       if (!apiKey) throw new Error('กรุณาตั้งค่า API Key ในหน้าตั้งค่าระบบก่อนค่ะ');
 
@@ -309,7 +309,7 @@ export default function AICowork() {
     setProcessingStatus({ current: 0, total: 0, fileName: file.name });
 
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key หรือ AI Cowork API Key ก่อนค่ะ');
 
@@ -383,7 +383,7 @@ export default function AICowork() {
 
       if (buffer && dbData?.id) {
         setUploadProgress('กำลังสกัดคำและคำนวณเวกเตอร์ความรู้สำหรับสืบค้น (RAG)...');
-        const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+        const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
         const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
         if (!apiKey) throw new Error('กรุณาตั้งค่า Gemini API Key หรือ AI Cowork API Key ก่อนสร้างความรู้คลังส่วนตัวนะคะ');
         
@@ -429,7 +429,7 @@ export default function AICowork() {
     setIsThinking(true);
 
     try {
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').single();
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, current_academic_year').limit(1).maybeSingle();
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       const currentYear = settings?.current_academic_year || '2569';
       

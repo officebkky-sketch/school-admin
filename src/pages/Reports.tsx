@@ -69,7 +69,7 @@ export default function Reports() {
       }
 
       // 2. Fetch current year from settings as default
-      const { data: settings } = await supabase.from('settings').select('current_academic_year').single();      
+      const { data: settings } = await supabase.from('settings').select('current_academic_year').limit(1).maybeSingle();      
       const currentYear = settings?.current_academic_year || '2568';
 
       if (!uniqueYears.includes(currentYear)) {

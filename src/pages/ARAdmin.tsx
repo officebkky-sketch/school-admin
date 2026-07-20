@@ -53,8 +53,7 @@ export default function ARAdmin({ onBack }: ARAdminProps) {
     try {
       const { data: settings } = await supabase
         .from('settings')
-        .select('gemini_api_key, ai_cowork_api_key')
-        .single();
+        .select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
         
       const apiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
       if (!apiKey) {

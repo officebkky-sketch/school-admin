@@ -57,7 +57,7 @@ export default function ServiceArea() {
       setActiveSchool(schoolId);
 
       // ดึงข้อมูลการตั้งค่าโรงเรียน
-      const { data: schoolSettings } = await supabase.from('settings').select('school_name').single();
+      const { data: schoolSettings } = await supabase.from('settings').select('school_name').limit(1).maybeSingle();
       if (schoolSettings?.school_name) {
         setSchoolName(schoolSettings.school_name);
       }

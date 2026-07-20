@@ -70,7 +70,7 @@ export default function OutgoingDocs() {
   }, []);
 
   async function fetchSettings() {
-    const { data } = await supabase.from('settings').select('*').single();
+    const { data } = await supabase.from('settings').select('*').limit(1).maybeSingle();
     if (data) {
       setSettings(data);
       setFormData(prev => ({
@@ -177,7 +177,7 @@ export default function OutgoingDocs() {
     
     setIsSaving(true);
     try {
-      const { data: sets } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').single();
+      const { data: sets } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').limit(1).maybeSingle();
       const apiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key;
 
       if (!apiKey) {

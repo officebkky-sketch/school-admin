@@ -158,7 +158,7 @@ function App() {
       }
 
       try {
-        const { data } = await supabase.from('settings').select('school_name, school_logo_url, local_gov_name').single();
+        const { data } = await supabase.from('settings').select('school_name, school_logo_url, local_gov_name').limit(1).maybeSingle();
         if (data?.school_name) setSchoolName(data.school_name);
         if (data?.school_logo_url) setSchoolLogo(data.school_logo_url);
         if (data?.local_gov_name) setLocalGovName(data.local_gov_name);

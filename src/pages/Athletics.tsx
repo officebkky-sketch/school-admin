@@ -453,8 +453,7 @@ export default function Athletics() {
       try {
         const { data: settingsData } = await supabase
           .from('settings')
-          .select('current_academic_year, school_name, director_name, phone_number')
-          .single();
+          .select('current_academic_year, school_name, director_name, phone_number').limit(1).maybeSingle();
         
         const defaultYear = settingsData?.current_academic_year || new Date().getFullYear() + 543 + '';
         

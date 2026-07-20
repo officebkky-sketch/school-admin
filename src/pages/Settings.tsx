@@ -30,6 +30,7 @@ export default function Settings() {
     line_channel_access_token: '',
     line_group_id: '',
     line_oa_link: '',
+    is_line_enabled: true,
     telegram_bot_token: '',
     telegram_bot_username: '',
     telegram_group_id: '',
@@ -60,13 +61,15 @@ export default function Settings() {
       const { data, error } = await supabase
         .from('settings')
         .select('*')
-        .single();
+        .limit(1)
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is 'no rows'
+      if (error) throw error;
       if (data) {
         const [centralId, proposalId] = (data.telegram_group_id || '').split('|');
         setSettings({
           ...data,
+          is_line_enabled: data.is_line_enabled ?? true,
           telegram_group_id_central: centralId || '',
           telegram_group_id_proposal: proposalId || '',
         });
@@ -333,7 +336,36 @@ export default function Settings() {
             </div>
 
             <div className="col-span-full space-y-4 pt-4 border-t border-slate-50">
-              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50 p-5 rounded-3xl border border-slate-100 shadow-2xs">
+                <div className="flex items-center gap-3.5">
+                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-colors shadow-sm ${settings.is_line_enabled ? 'bg-[#06C755]/10 text-[#06C755]' : 'bg-rose-50 text-rose-500'}`}>
+                    <Send size={22} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">สถานะการทำงาน LINE Bot</h4>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${settings.is_line_enabled ? 'bg-[#06C755]/10 text-[#06C755] border border-[#06C755]/20' : 'bg-rose-50 text-rose-500 border border-rose-200'}`}>
+                        {settings.is_line_enabled ? '🟢 เปิดใช้งาน (Active)' : '🔴 ปิดใช้งาน (Disabled)'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                      {settings.is_line_enabled ? 'ระบบจะรับส่งข้อมูลและส่งการแจ้งเตือนหนังสือสั่งการอัตโนมัติผ่าน LINE Bot' : 'ระบบจะระงับการส่งการแจ้งเตือนและการตอบกลับของ LINE Bot ชั่วคราว'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSettings(prev => ({ ...prev, is_line_enabled: !prev.is_line_enabled }))}
+                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${settings.is_line_enabled ? 'bg-[#06C755]' : 'bg-slate-300'}`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${settings.is_line_enabled ? 'translate-x-8' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
+
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 pt-2">
                 <Send size={16} className="text-brand-primary" /> การตั้งค่า LINE Messaging API
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

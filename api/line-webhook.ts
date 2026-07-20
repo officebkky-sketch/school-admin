@@ -21,7 +21,22 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'GET') return res.status(200).json({ message: 'Nong Chaba Online' });
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
 
-  // 0. รองรับการส่งแจ้งเตือนจาก Electron (Client-side push requests)
+  // 0. ตรวจสอบสถานะการเปิด/ปิดใช้งาน LINE Bot จากฐานข้อมูล
+  try {
+    const { data: systemSettings } = await supabaseAdmin
+      .from('settings')
+      .select('is_line_enabled')
+      .maybeSingle();
+
+    if (systemSettings && systemSettings.is_line_enabled === false) {
+      console.log('[LINE WEBHOOK] LINE Bot is currently disabled in system settings.');
+      return res.status(200).json({ success: false, message: 'LINE Bot is currently disabled' });
+    }
+  } catch (settingsErr) {
+    console.error('[LINE WEBHOOK SETTINGS CHECK ERROR]', settingsErr);
+  }
+
+  // 0.1 รองรับการส่งแจ้งเตือนจาก Electron (Client-side push requests)
   const { lineUserId, message, payload, token: clientToken } = req.body || {};
   if ((lineUserId && message) || payload) {
     const token = clientToken || process.env.LINE_CHANNEL_ACCESS_TOKEN;

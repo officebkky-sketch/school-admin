@@ -35,8 +35,7 @@ export default function Dashboard() {
         // 0. Fetch Settings
         const { data: settings } = await supabase
           .from('settings')
-          .select('current_academic_year')
-          .single();
+          .select('current_academic_year').limit(1).maybeSingle();
         
         const currentYear = settings?.current_academic_year || '2569';
 

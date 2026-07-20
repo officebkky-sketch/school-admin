@@ -41,7 +41,7 @@ export default function Login({ onManageSchools }: LoginProps) {
 
   async function fetchSchoolSettings() {
     try {
-      const { data, error } = await supabase.from('settings').select('school_name, school_logo_url').single();
+      const { data, error } = await supabase.from('settings').select('school_name, school_logo_url').limit(1).maybeSingle();
       if (error) throw error;
       if (data?.school_name) {
         setSchoolName(data.school_name);
