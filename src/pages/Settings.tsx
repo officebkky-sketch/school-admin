@@ -735,7 +735,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.13'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.15'}
               </span>
             </div>
           </div>
@@ -745,6 +745,20 @@ export default function Settings() {
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.15</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(22 ก.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มแบบรายงาน ป.1 รูปแบบใหม่ <strong>"รายงานเด็กเข้าเรียน ป.1 (แนบ 386)"</strong> ขนาด A4 แนวนอน พร้อมระบบแก้ไขข้อมูลแบบ Inline บนตารางพรีวิวก่อนสั่งพิมพ์</li>
+                  <li>เพิ่ม <strong>"ปุ่มบันทึกข้อมูลที่แก้ไข"</strong> บันทึกการแก้ไขทุกช่อง (ชั้นเรียน, บิดา, มารดา, ผู้ปกครอง, โรงเรียนปลายทาง) กลับลงฐานข้อมูล Supabase ทันที</li>
+                  <li>เพิ่ม 3 คอลัมน์ใหม่ในตารางฐานข้อมูลเพื่อรองรับการเก็บข้อมูลเพิ่มเติม: <code>school_enrolled</code>, <code>guardian_name</code> และ <code>enroll_class</code></li>
+                  <li>ปรับปรุงโครงสร้าง Sidebar และ Header รวมถึงกล่องแจ้งเตือน ให้ซ่อนตัวโดยอัตโนมัติเมื่อสั่งพิมพ์ เพื่อป้องกันปัญหาพิมพ์หน้าเปล่าและพิมพ์ติดเมนู</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.14</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 มิ.ย. 2569)</span>
