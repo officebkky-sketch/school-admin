@@ -249,7 +249,7 @@ function App() {
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col sticky top-0 h-screen overflow-y-auto scrollbar-hide shrink-0 shadow-sm">
+      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col sticky top-0 h-screen overflow-y-auto scrollbar-hide shrink-0 shadow-sm print:hidden">
         <div className="p-6 border-b border-slate-50 flex items-center gap-3 bg-white animate-in fade-in">
           <img src={schoolLogo || import.meta.env.VITE_SCHOOL_LOGO_PATH || "logo.png"} alt="School Logo" className="w-12 h-12 object-contain" />
           <div className="flex-1 min-w-0">
@@ -346,7 +346,7 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-xs">
+        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-xs print:hidden">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 uppercase tracking-tight">
             {activeTab === 'dashboard' && 'แดชบอร์ด'}
             {activeTab === 'profile' && 'ข้อมูลส่วนตัวและลายเซ็น'}
@@ -429,7 +429,7 @@ function App() {
 
         {/* Update Notification Overlay */}
         {updateStatus && (
-          <div className="fixed bottom-6 right-6 z-[9999] animate-in slide-in-from-bottom-10 duration-500">
+          <div className="fixed bottom-6 right-6 z-[9999] animate-in slide-in-from-bottom-10 duration-500 print:hidden">
             <div className="bg-white rounded-[32px] shadow-2xl border border-slate-100 p-6 w-[380px] overflow-hidden relative">
               <div className="flex items-start gap-4">
                 <div className={`p-3 rounded-2xl shrink-0 ${

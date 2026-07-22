@@ -41,3 +41,27 @@
     @apply font-kanit bg-slate-50 text-slate-900;
   }
 }
+
+/* Global Print Styles to fix PDF cuts and hidden elements in Electron */
+@media print {
+  aside, 
+  header, 
+  .print-hidden, 
+  .no-print {
+    display: none !important;
+  }
+
+  html, body, #root, main, .min-h-screen, .flex-1, .overflow-y-auto, .custom-scrollbar, .max-w-7xl {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    box-shadow: none !important;
+  }
+}

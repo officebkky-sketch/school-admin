@@ -906,6 +906,9 @@ CREATE TABLE IF NOT EXISTS public.service_area_students (
   mother_name TEXT,                         -- ชื่อ-นามสกุลมารดา
   mother_nationality TEXT DEFAULT 'ไทย',     -- สัญชาติมารดา
   move_in_date DATE,                        -- วันที่ย้ายเข้า (ถ้ามี)
+  school_enrolled TEXT,                      -- สถานศึกษาที่เข้าเรียน (สำหรับรายงาน ป.1/ทร.14)
+  guardian_name TEXT,                        -- ชื่อ-สกุล ผู้ปกครอง (สำหรับรายงาน ป.1/ทร.14)
+  enroll_class TEXT,                         -- ชั้นเรียนที่เข้าเรียน (สำหรับรายงาน ป.1/ทร.14)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
