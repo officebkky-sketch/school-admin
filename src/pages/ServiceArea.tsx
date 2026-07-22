@@ -28,6 +28,8 @@ interface Student {
   mother_nationality: string;
   move_in_date?: string;
   school_enrolled?: string; // สถานศึกษาที่เข้าเรียน
+  guardian_name?: string;    // ชื่อผู้ปกครอง
+  enroll_class?: string;     // ชั้นเรียนที่เข้าเรียน
 }
 
 export default function ServiceArea() {
