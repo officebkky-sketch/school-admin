@@ -873,16 +873,6 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // แยก telegram_group_id (รองรับการเก็บหลาย Group ID คั่นด้วย | หรือ ,)
-    // Fix: ถ้าเก็บ "-5366918972|-1003945011511" ต้องแยกและแปลงเป็น Number ก่อนส่งหา Telegram API
-    const rawGroupId = settings?.telegram_group_id || '';
-    let primaryGroupId: number | null = null;
-    if (rawGroupId) {
-      const firstGroupId = rawGroupId.split(/[|,]/)[0].trim();
-      const parsed = parseInt(firstGroupId, 10);
-      if (!isNaN(parsed)) primaryGroupId = parsed;
-    }
-
     // --- 3. แกะ payload ที่ Telegram ส่งมา ---
     const update = req.body;
     const message = update?.message;
