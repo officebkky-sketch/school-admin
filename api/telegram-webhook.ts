@@ -179,8 +179,15 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
         let query = supabase.from('incoming_docs').select('id, doc_number, subject, from_agency, doc_date, urgency, status, file_url, attachment_urls');
         if (schoolId) query = query;
         query = query.eq('status', 'pending');
-        const { data } = await query.order('doc_date', { ascending: false }).limit(20);
-        return `ข้อมูลหนังสือรับที่ยังค้างเสนอผู้อำนวยการเกษียณสั่งการ (สถานะ pending): ${JSON.stringify(data)}`;
+        const { data } = await query.order('doc_date', { ascending: false }).limit(5);
+        
+        // ดึงจำนวนทั้งหมดเพื่อนำไปโชว์ในคำตอบ
+        const { count } = await supabase
+          .from('incoming_docs')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending');
+          
+        return `ข้อมูลหนังสือรับที่ยังค้างเสนอผู้อำนวยการเกษียณสั่งการ (สถานะ pending) (แสดง 5 เล่มล่าสุด จากค้างทั้งหมด ${count || 0} เล่ม): ${JSON.stringify(data)}`;
       }
     },
     {
@@ -199,7 +206,8 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
           .select('*, incoming_docs(subject, doc_number)')
           .eq('assignee_id', teacher.id)
           .in('status', ['pending', 'acknowledged'])
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(5);
         return `รายการงานมอบหมายที่ยังค้างการรายงานผล/ครูยังทำไม่เสร็จ (สถานะ pending หรือ acknowledged) ของครูผู้สอบถาม: ${JSON.stringify(pendingAssigns)}`;
       }
     },
@@ -343,7 +351,7 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       fetch: async () => {
         let daQuery = supabase.from('doc_assignments').select('instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers(prefix, first_name, last_name)');
         if (schoolId) daQuery = daQuery;
-        const { data } = await daQuery.limit(15);
+        const { data } = await daQuery.order('created_at', { ascending: false }).limit(5);
         return `ข้อมูลการมอบหมายงาน: ${JSON.stringify(data)}`;
       }
     },
