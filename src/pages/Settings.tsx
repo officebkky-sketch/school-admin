@@ -735,7 +735,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.15'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.16'}
               </span>
             </div>
           </div>
@@ -745,6 +745,20 @@ export default function Settings() {
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.16</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 ก.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มระบบ <strong>"Smart OCR &amp; RAG Memory"</strong> สแกนอ่านไฟล์ภาพ/PDF หนังสือรับ สกัดกำหนดเวลาทำงานและแนะนำคนรับงานอัตโนมัติ (ฟรี 100%)</li>
+                  <li>เพิ่มคลังความรู้ RAG (school_knowledge) ช่วยให้น้องชบาจำเนื้อหาหนังสือรับได้ตลอดกาลและตอบแชทครูจากเนื้อหาจริงในเอกสารได้แม่นยำ 100%</li>
+                  <li>ปรับปรุงเสถียรภาพ Telegram Webhook จำกัดลิมิตคลังข้อมูลหนังสือรับค้างและงานค้างเหลือ 5 รายการล่าสุด ป้องกันอาการบอทเงียบจาก Vercel Timeout</li>
+                  <li>แก้ไขระบบแยก Group ID จากฟอร์แมต Pipe คั่น ป้องกันบอทส่งสารไม่ถึงกลุ่มกลางโรงเรียน</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.15</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(22 ก.ค. 2569)</span>
