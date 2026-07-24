@@ -4,6 +4,7 @@ import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import fs from 'fs';
 import path from 'path';
+import { waitUntil } from '@vercel/functions';
 
 // ============================================================
 // Telegram Bot Webhook API
@@ -762,11 +763,21 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  // --- 1. รับค่า school_id จาก URL query parameter ---
-  const schoolId = req.query?.school_id as string;
+  // ตอบกลับ 200 OK ทันที เพื่อป้องกัน Telegram timeout และการเกิด Retry ส่งข้อความซ้ำ
+  res.status(200).json({ ok: true });
 
-  try {
-    const supabase = getSupabase();
+  const mockRes: any = {
+    status: () => mockRes,
+    json: () => mockRes,
+    send: () => mockRes,
+    end: () => mockRes
+  };
+
+  waitUntil((async () => {
+    const res = mockRes;
+    const schoolId = req.query?.school_id as string;
+    try {
+      const supabase = getSupabase();
 
     // --- 2. ดึงข้อมูลทั้งหมดจากตาราง settings (ซึ่งมีเพียงแถวเดียวสำหรับโครงการโรงเรียนนี้) ---
     const { data: settings, error: settingsErr } = await supabase
@@ -1980,6 +1991,6 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ ok: true });
   } catch (err: any) {
     console.error('[TELEGRAM WEBHOOK CRITICAL ERROR]', err);
-    return res.status(500).json({ success: false, error: err.message });
   }
+  })());
 }
