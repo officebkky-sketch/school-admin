@@ -15,6 +15,39 @@ import { waitUntil } from '@vercel/functions';
 /** ส่งข้อความกลับหาผู้ใช้ทาง Telegram Bot API */
 async function sendTelegramMessage(botToken: string, chatId: number, text: string, replyMarkup?: any) {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  
+  // Telegram จำกัดข้อความสูงสุด 4096 ตัวอักษร หากยาวเกินให้ตัดแบ่งเป็นส่วนๆ เพื่อความปลอดภัย
+  if (text && text.length > 4000) {
+    const chunks: string[] = [];
+    let temp = text;
+    while (temp.length > 0) {
+      if (temp.length <= 4000) {
+        chunks.push(temp);
+        break;
+      }
+      let chunk = temp.substring(0, 4000);
+      const lastNewLine = chunk.lastIndexOf('\n');
+      if (lastNewLine > 3000) {
+        chunk = temp.substring(0, lastNewLine);
+      }
+      chunks.push(chunk);
+      temp = temp.substring(chunk.length);
+    }
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      const chunkText = chunks[i] + (isLast ? '' : '\n\n<b>(มีต่อ...)</b>');
+      await sendTelegramMessageSingle(botToken, chatId, chunkText, isLast ? replyMarkup : undefined);
+    }
+    return;
+  }
+
+  return sendTelegramMessageSingle(botToken, chatId, text, replyMarkup);
+}
+
+/** ฟังก์ชันสำหรับส่งข้อความเดี่ยวของ Telegram */
+async function sendTelegramMessageSingle(botToken: string, chatId: number, text: string, replyMarkup?: any) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -26,8 +59,23 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
     }),
   });
   if (!resp.ok) {
-    const err = await resp.json();
+    const err = await resp.json() as any;
     console.error('[TELEGRAM SEND MESSAGE ERROR]', err);
+    
+    // หากพังเพราะ HTML formatting ให้ถอยกลับไปส่งแบบข้อความทั่วไป (Plain Text)
+    if (err?.description && (err.description.includes('entities') || err.description.includes('HTML') || err.description.includes('bad request'))) {
+      console.warn('[TELEGRAM FALLBACK] Sending plain text message because HTML parsing failed');
+      const plainText = text.replace(/<\/?[^>]+(>|$)/g, ""); // ล้าง HTML Tags ออก
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: plainText,
+          reply_markup: replyMarkup
+        }),
+      });
+    }
   }
   return resp;
 }
@@ -795,6 +843,17 @@ export default async function handler(req: any, res: any) {
 
     const botToken = settings.telegram_bot_token;
     const currentYear = settings?.current_academic_year || '2569';
+    
+    // แยก telegram_group_id (รองรับการเก็บหลาย Group ID คั่นด้วย | หรือ ,)
+    // Fix: ถ้าเก็บ "-5366918972|-1003945011511" ต้องแยกและแปลงเป็น Number ก่อนส่งหา Telegram API
+    const rawGroupId = settings?.telegram_group_id || '';
+    let primaryGroupId: number | null = null;
+    if (rawGroupId) {
+      const firstGroupId = rawGroupId.split(/[|,]/)[0].trim();
+      const parsed = parseInt(firstGroupId, 10);
+      if (!isNaN(parsed)) primaryGroupId = parsed;
+    }
+
     const rawApiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
     let apiKey = '';
     if (rawApiKey) {
