@@ -782,7 +782,7 @@ export default async function handler(req: any, res: any) {
     // --- 2. ดึงข้อมูลทั้งหมดจากตาราง settings (ซึ่งมีเพียงแถวเดียวสำหรับโครงการโรงเรียนนี้) ---
     const { data: settings, error: settingsErr } = await supabase
       .from('settings')
-      .select('school_name, telegram_bot_token, telegram_bot_username, gemini_api_key, ai_cowork_api_key, current_academic_year')
+      .select('school_name, telegram_bot_token, telegram_bot_username, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year')
       .single();
 
     if (settingsErr || !settings?.telegram_bot_token) {
@@ -804,6 +804,16 @@ export default async function handler(req: any, res: any) {
       } else {
         apiKey = rawApiKey.trim();
       }
+    }
+
+    // แยก telegram_group_id (รองรับการเก็บหลาย Group ID คั่นด้วย | หรือ ,)
+    // Fix: ถ้าเก็บ "-5366918972|-1003945011511" ต้องแยกและแปลงเป็น Number ก่อนส่งหา Telegram API
+    const rawGroupId = settings?.telegram_group_id || '';
+    let primaryGroupId: number | null = null;
+    if (rawGroupId) {
+      const firstGroupId = rawGroupId.split(/[|,]/)[0].trim();
+      const parsed = parseInt(firstGroupId, 10);
+      if (!isNaN(parsed)) primaryGroupId = parsed;
     }
 
     // --- 3. แกะ payload ที่ Telegram ส่งมา ---
@@ -1056,17 +1066,12 @@ export default async function handler(req: any, res: any) {
           .single();
 
         if (assign) {
-          const { data: settings } = await supabase
-            .from('settings')
-            .select('telegram_group_id')
-            
-            .maybeSingle();
 
-          if (settings?.telegram_group_id) {
+          if (primaryGroupId) {
             const teacherName = `${assign.teachers?.prefix || ''}${assign.teachers?.first_name} ${assign.teachers?.last_name}`;
             const broadcastMsg = `📢 <b>ประชาสัมพันธ์ / แจ้งเพื่อทราบ</b>\n\n• <b>เรื่อง</b>: ${assign.incoming_docs?.subject}\n• <b>เลขที่หนังสือ</b>: ${assign.incoming_docs?.doc_number}\n• <b>ผู้รับมอบหมาย</b>: ${teacherName}\n• <b>คำสั่งการ/การดำเนินการ</b>: ${assign.instruction}\n\n📄 <a href="${assign.incoming_docs?.file_url}">เปิดดูเอกสารสั่งการที่ลงนามแล้ว</a>`;
 
-            await sendTelegramMessage(botToken, settings.telegram_group_id, broadcastMsg);
+            await sendTelegramMessage(botToken, primaryGroupId, broadcastMsg);
             await sendTelegramMessage(botToken, callbackChatId, '✅ ได้ทำการประชาสัมพันธ์ข่าวสารเรื่องนี้เข้ากลุ่มกลางเรียบร้อยแล้วค่ะ 📢');
           } else {
             await sendTelegramMessage(botToken, callbackChatId, '⚠️ ไม่พบข้อมูลกลุ่มกลางในตารางตั้งค่าค่ะ กรุณาตั้งค่ากลุ่มกลางก่อนนะคะ');
@@ -1130,17 +1135,12 @@ export default async function handler(req: any, res: any) {
 
         const sId = assign.incoming_docs?.school_id || schoolId;
 
-        // แจ้งเตือนในกลุ่มกลาง Telegram
-        const { data: settings } = await supabase
-          .from('settings')
-          .select('telegram_group_id')
-          
-          .maybeSingle();
+        // แจ้งเตือนในกลุ่มกลาง Telegram (ใช้ primaryGroupId ที่ parse ไว้ตั้งแต่ต้น)
 
-        if (settings?.telegram_group_id) {
+        if (primaryGroupId) {
           await sendTelegramMessage(
             botToken,
-            settings.telegram_group_id,
+            primaryGroupId,
             `👍 คุณครู <b>${teacherName}</b> กดรับทราบงานเรื่อง <b>"${docSubject}"</b> เรียบร้อยแล้วค่ะ 🌸`
           );
         }
