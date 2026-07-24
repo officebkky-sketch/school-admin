@@ -128,7 +128,7 @@ export default async function handler(req: any, res: any) {
               })
             });
             if (vRes.ok) {
-              const vData = await vRes.json();
+              const vData = await vRes.json() as any;
               extractedText = vData.responses?.[0]?.fullTextAnnotation?.text || '';
             }
           } catch (vErr) {
