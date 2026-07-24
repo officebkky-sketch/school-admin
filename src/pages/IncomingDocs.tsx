@@ -419,6 +419,15 @@ export default function IncomingDocs() {
       if (error) throw error;
       const insertedDoc = insertedDocs?.[0];
 
+      // สั่งประมวลผล OCR สกัดกำหนดการ & ความจำ RAG ในพื้นหลังทันที
+      if (insertedDoc?.id && file_url) {
+        fetch('/api/ocr-process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ docId: insertedDoc.id, fileUrl: file_url })
+        }).catch(err => console.error('[AUTO OCR TRIGGER ERROR]', err));
+      }
+
       let lineNotifyStatus = '';
       if (!isHolding) {
         const regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
@@ -758,6 +767,16 @@ export default function IncomingDocs() {
                           รอเสนอผู้บริหาร
                         </span>
                       )}
+                      {doc.action_deadline && (
+                        <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-sm border border-amber-200" title="กำหนดส่ง/หมดเขตดำเนินการ">
+                          ⏰ กำหนดส่ง: {new Date(doc.action_deadline).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                      {doc.extracted_text && (
+                        <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-sm border border-emerald-200" title="ชบาบันทึกเนื้อหาลง RAG เรียบร้อยแล้ว">
+                          🧠 ชบาจำเนื้อหาแล้ว
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
@@ -776,6 +795,23 @@ export default function IncomingDocs() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {doc.file_url && (
+                        <button onClick={async () => {
+                          alert('🤖 เริ่มต้นกระบวนการสแกนอ่านเอกสาร สกัดกำหนดการ และแนะผู้รับงานอัตโนมัติเรียบร้อยแล้วค่ะ! ชบาจะส่งแจ้งเตือนทาง Telegram เมื่อสแกนเสร็จสิ้นนะคะ 🌸');
+                          try {
+                            await fetch('/api/ocr-process', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ docId: doc.id, fileUrl: doc.file_url })
+                            });
+                            fetchDocs();
+                          } catch (e: any) {
+                            alert(`เกิดข้อผิดพลาด: ${e.message}`);
+                          }
+                        }} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors flex items-center gap-1 font-bold text-xs" title="สแกนอ่านเอกสาร & วิเคราะห์กำหนดการอัตโนมัติ">
+                          <Sparkles size={14} /> อ่านเนื้อหา
+                        </button>
+                      )}
                       {doc.status === 'pending' && isDirector && (
                         <button onClick={() => { 
                           setSelectedDoc(doc); 

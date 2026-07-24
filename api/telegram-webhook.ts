@@ -843,6 +843,33 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
+      if (action === 'smart_assign_confirm') {
+        const docId = params.get('doc_id') || '';
+        const teacherId = params.get('t_id') || '';
+
+        if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
+          await answerCallbackQuery(botToken, callbackQuery.id, '❌ ขออภัยค่ะ ปุ่มนี้สำหรับผู้อำนวยการ/ผู้รักษาการเท่านั้นค่ะ 🌸', true);
+          return res.status(200).json({ ok: true });
+        }
+
+        await answerCallbackQuery(botToken, callbackQuery.id);
+
+        const { data: doc } = await supabase.from('incoming_docs').select('action_deadline').eq('id', docId).single();
+        let instructionText = 'มอบดำเนินการตามภารกิจ';
+        if (doc?.action_deadline) {
+          const dlStr = new Date(doc.action_deadline).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+          instructionText = `มอบดำเนินการ (กำหนดส่งภายในวันที่ ${dlStr})`;
+        }
+
+        await executeDocAssignment(docId, teacherId, instructionText, botToken, callbackChatId, profileLinked, supabase);
+
+        const completedMarkup = {
+          inline_keyboard: [[{ text: '🔒 ดำเนินการมอบหมายงานเรียบร้อยแล้ว', callback_data: 'action=noop' }]]
+        };
+        await editTelegramMessageMarkup(botToken, callbackChatId, callbackQuery.message.message_id, completedMarkup);
+        return res.status(200).json({ ok: true });
+      }
+
       if (action === 'start_assign') {
         const docId = params.get('id');
         if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
