@@ -31,6 +31,7 @@ import ARAdmin from './pages/ARAdmin';
 import ServiceArea from './pages/ServiceArea';
 import Athletics from './pages/Athletics';
 import IdentityFooter from './components/IdentityFooter';
+import ResetPasswordModal from './components/ResetPasswordModal';
 
 import { 
   Loader2, 
@@ -76,6 +77,7 @@ function App() {
   const [schoolName, setSchoolName] = useState(import.meta.env.VITE_SCHOOL_NAME || 'โรงเรียนบ้านควนโคกยา');
   const [schoolLogo, setSchoolLogo] = useState('');
   const [localGovName, setLocalGovName] = useState('');
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
   
   const [showSchoolSetup, setShowSchoolSetup] = useState(() => {
     return sessionStorage.getItem('open_school_setup_after_reload') === 'true';
@@ -128,6 +130,17 @@ function App() {
     };
     window.addEventListener('change-tab', handleChangeTab);
     return () => window.removeEventListener('change-tab', handleChangeTab);
+  }, []);
+
+  // ===== ตรวจจับ Supabase PASSWORD_RECOVERY Event =====
+  // เป็น useEffect แยกไม่กระทบ โค้ดเดิม
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setShowPasswordReset(true);
+      }
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleRestart = () => {
@@ -487,6 +500,11 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* ===== Reset Password Modal (แสดงเมื่อคลิกลิงก์จากอีเมล) ===== */}
+      {showPasswordReset && (
+        <ResetPasswordModal onClose={() => setShowPasswordReset(false)} />
+      )}
     </div>
   );
 }

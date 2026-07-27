@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase, getSchoolProfiles, getActiveSchoolProfile, initSupabase, type SchoolProfile } from '../lib/supabase';
 import { LogIn, UserPlus, Loader2, ArrowLeft, Settings, School } from 'lucide-react';
+import ForgotPasswordView from '../components/ForgotPasswordView';
 
 interface LoginProps {
   onManageSchools: () => void;
@@ -8,6 +9,7 @@ interface LoginProps {
 
 export default function Login({ onManageSchools }: LoginProps) {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -126,6 +128,20 @@ export default function Login({ onManageSchools }: LoginProps) {
     }
   };
 
+  // ===== แสดงหน้าลืมรหัสผ่านแทน (ไม่กระทบ Logic เดิม) =====
+  if (isForgotPassword) {
+    return (
+      <ForgotPasswordView
+        onBack={() => setIsForgotPassword(false)}
+        profiles={profiles}
+        selectedSchoolId={selectedSchoolId}
+        schoolName={schoolName}
+        schoolLogo={schoolLogo}
+        onSchoolChange={handleSchoolChange}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-green-50 to-orange-50 p-4 font-sans">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-white/20">
@@ -227,6 +243,19 @@ export default function Login({ onManageSchools }: LoginProps) {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+
+            {/* ลืมรหัสผ่าน */}
+            {!isSignUp && (
+              <div className="flex justify-end -mt-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsForgotPassword(true); setError(null); setMessage(null); }}
+                  className="text-xs text-brand-primary font-bold hover:underline transition-colors"
+                >
+                  ลืมรหัสผ่าน?
+                </button>
+              </div>
+            )}
 
             <button
               type="submit"
