@@ -242,6 +242,15 @@ export default function UsersManagement() {
                           {user.official_info && (
                             <span className="px-1.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[8px] font-black uppercase border border-blue-100">Staff</span>
                           )}
+                          {user.telegram_chat_id ? (
+                            <span className="px-2 py-0.5 bg-sky-50 text-sky-600 rounded-full text-[9px] font-black border border-sky-100 flex items-center gap-1 shadow-2xs" title={`Telegram Chat ID: ${user.telegram_chat_id}`}>
+                              ✈️ ผูก Telegram แล้ว
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full text-[9px] font-black border border-slate-200">
+                              ⚪ ยังไม่ผูก Telegram
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
