@@ -276,6 +276,23 @@ ${extractedText.substring(0, 4000)}
 
     } catch (err: any) {
       console.error('[OCR PROCESS ERROR]', err);
+      try {
+        await supabase.from('incoming_docs').update({ ai_status: 'failed' }).eq('id', docId);
+        if (botToken) {
+          const { data: admins } = await supabase.from('profiles').select('telegram_chat_id').in('role', ['admin', 'director']);
+          if (admins) {
+            for (const adm of admins) {
+              if (adm.telegram_chat_id) {
+                const alertMsg = `⚠️ <b>แจ้งเตือนข้อผิดพลาด OCR</b>\n\nเกิดข้อผิดพลาดขณะวิเคราะห์เอกสาร ID: <code>${docId}</code>\n❌ <b>รายละเอียด:</b> ${err.message || 'Unknown error'}\n\n<i>ท่านสามารถกดปุ่มลองใหม่อีกครั้งบนหน้าเว็บระบบสารบรรณได้ค่ะ</i>`;
+                await sendTelegramMessage(botToken, parseInt(adm.telegram_chat_id), alertMsg);
+              }
+            }
+          }
+        }
+      } catch (alertErr) {
+        console.error('[OCR ALERT ERROR]', alertErr);
+      }
     }
   })());
 }
+

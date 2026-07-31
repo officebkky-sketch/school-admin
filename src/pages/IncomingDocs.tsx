@@ -80,6 +80,7 @@ export default function IncomingDocs() {
     sender_doc_number: '',
     sender_doc_date: '',
     urgency: 'ปกติ',
+    action_deadline: '',
     remark: '',
     stamp_page: 1
   });
@@ -412,6 +413,7 @@ export default function IncomingDocs() {
         subject: formData.subject,
         doc_date: formData.doc_date,
         urgency: formData.urgency,
+        action_deadline: formData.action_deadline ? new Date(formData.action_deadline).toISOString() : null,
         remark: JSON.stringify(extraData),
         file_url,
         attachment_urls: att_urls,
@@ -600,6 +602,7 @@ export default function IncomingDocs() {
       sender_doc_number: '',
       sender_doc_date: '',
       urgency: 'ปกติ', 
+      action_deadline: '',
       remark: '',
       stamp_page: 1
     });
@@ -918,6 +921,21 @@ export default function IncomingDocs() {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">วันที่ในหนังสือ</label>
                 <input type="date" className="w-full p-3 bg-white border rounded-xl font-medium" value={formData.sender_doc_date} onChange={e => setFormData({...formData, sender_doc_date: e.target.value})} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ความเร่งด่วน</label>
+                <select className="w-full p-3 bg-white border rounded-xl font-bold" value={formData.urgency} onChange={e => setFormData({...formData, urgency: e.target.value})}>
+                  <option value="ปกติ">ปกติ</option>
+                  <option value="ด่วน">ด่วน</option>
+                  <option value="ด่วนมาก">ด่วนมาก</option>
+                  <option value="ด่วนที่สุด">ด่วนที่สุด</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-amber-600 uppercase ml-1">⏰ กำหนดส่งงาน (Deadline)</label>
+                <input type="date" className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-amber-800" value={formData.action_deadline} onChange={e => setFormData({...formData, action_deadline: e.target.value})} />
               </div>
             </div>
             <div className="space-y-1.5">

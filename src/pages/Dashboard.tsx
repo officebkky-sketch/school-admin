@@ -100,13 +100,22 @@ export default function Dashboard() {
           .eq('status', 'completed')
           .gte('reported_at', `${today}T00:00:00Z`);
 
+        // 8. Upcoming Deadlines Count
+        const { count: deadlineCount } = await supabase
+          .from('incoming_docs')
+          .select('*', { count: 'exact', head: true })
+          .not('action_deadline', 'is', null)
+          .neq('status', 'completed')
+          .neq('status', 'closed');
+
         setStats({
           totalStudents: studentCount || 0,
           incomingToday: incomingCount || 0,
           presentToday: totalPresent,
           onDuty: currentDutyTeachers.length,
           pendingTasks: pendingTaskCount || 0,
-          completedTasksToday: completedTodayCount || 0
+          completedTasksToday: completedTodayCount || 0,
+          upcomingDeadlines: deadlineCount || 0
         });
         setRecentDocs(latestDocs || []);
         setDutyTeachers(currentDutyTeachers);
@@ -141,7 +150,7 @@ export default function Dashboard() {
         {/* Left: Tasks & Docs */}
         <div className="lg:col-span-2 space-y-8">
            {/* Task Overview */}
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4">
                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
                     <AlertCircle size={24} />
@@ -149,6 +158,15 @@ export default function Dashboard() {
                  <div>
                     <p className="text-[10px] font-black text-slate-400 uppercase">งานที่รอดำเนินการ</p>
                     <p className="text-2xl font-black text-slate-800">{stats.pendingTasks} รายการ</p>
+                 </div>
+              </div>
+              <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4">
+                 <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center">
+                    <Clock size={24} />
+                 </div>
+                 <div>
+                    <p className="text-[10px] font-black text-rose-400 uppercase">ใกล้ครบกำหนด (Deadline)</p>
+                    <p className="text-2xl font-black text-rose-800">{(stats as any).upcomingDeadlines || 0} รายการ</p>
                  </div>
               </div>
               <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4">

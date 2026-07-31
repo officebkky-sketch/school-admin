@@ -1616,6 +1616,32 @@ export default async function handler(req: any, res: any) {
           console.error('handleRejectDoc error:', err);
           await answerCallbackQuery(botToken, callbackQuery.id, `❌ ไม่สามารถทำรายการได้: ${err.message}`, true);
         }
+      } else if (action === 'doc_complete') {
+        const docId = params.get('id');
+        if (!docId) {
+          await answerCallbackQuery(botToken, callbackQuery.id, '❌ ไม่พบข้อมูลหนังสือค่ะ', true);
+          return res.status(200).json({ ok: true });
+        }
+        await supabase.from('incoming_docs').update({ status: 'completed' }).eq('id', docId);
+        await answerCallbackQuery(botToken, callbackQuery.id, '✅ บันทึกสถานะว่าดำเนินการเสร็จสิ้นเรียบร้อยแล้วค่ะ');
+        await editTelegramMessageMarkup(botToken, callbackChatId, callbackQuery.message.message_id, {
+          inline_keyboard: [[{ text: '✅ ดำเนินการเสร็จสิ้นแล้ว', callback_data: 'action=noop' }]]
+        });
+      } else if (action === 'doc_extend_3d') {
+        const docId = params.get('id');
+        if (!docId) {
+          await answerCallbackQuery(botToken, callbackQuery.id, '❌ ไม่พบข้อมูลหนังสือค่ะ', true);
+          return res.status(200).json({ ok: true });
+        }
+        const { data: doc } = await supabase.from('incoming_docs').select('action_deadline').eq('id', docId).single();
+        if (doc) {
+          const currentDL = doc.action_deadline ? new Date(doc.action_deadline) : new Date();
+          currentDL.setDate(currentDL.getDate() + 3);
+          await supabase.from('incoming_docs').update({ action_deadline: currentDL.toISOString() }).eq('id', docId);
+          const thDate = currentDL.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+          await answerCallbackQuery(botToken, callbackQuery.id, `⏰ เลื่อนกำหนดเป็น ${thDate} เรียบร้อยแล้วค่ะ`);
+          await sendTelegramMessage(botToken, callbackChatId, `⏰ <b>เลื่อนกำหนดส่งเรียบร้อย</b>\n\nกำหนดส่งใหม่: <u>${thDate}</u>`);
+        }
       }
 
       return res.status(200).json({ ok: true });

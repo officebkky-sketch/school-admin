@@ -2,7 +2,7 @@ declare const process: any;
 import { createClient } from '@supabase/supabase-js';
 
 // ── Helper: ส่งข้อความ Telegram ──────────────────────────────────────────────
-async function sendTelegram(token: string, chatId: number, text: string) {
+async function sendTelegram(token: string, chatId: number, text: string, replyMarkup?: any) {
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
@@ -10,7 +10,8 @@ async function sendTelegram(token: string, chatId: number, text: string) {
       body: JSON.stringify({
         chat_id: chatId,
         text,
-        parse_mode: 'HTML'
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup
       })
     });
   } catch (err) {
@@ -147,7 +148,16 @@ export default async function handler(req: Request): Promise<Response> {
           msg += `\n⚠️ <b>กรุณาดำเนินการให้ทันกำหนดครับ</b>`;
         }
 
-        await sendTelegram(botToken, groupIdNum, msg);
+        const inlineButtons = {
+          inline_keyboard: [
+            [
+              { text: '✅ ดำเนินการแล้ว', callback_data: `action=doc_complete&id=${doc.id}` },
+              { text: '⏰ เลื่อน 3 วัน', callback_data: `action=doc_extend_3d&id=${doc.id}` }
+            ]
+          ]
+        };
+
+        await sendTelegram(botToken, groupIdNum, msg, inlineButtons);
         totalSent++;
 
         // หน่วงเวลาเล็กน้อยกัน Telegram rate limit
