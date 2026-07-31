@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { toast, ToastItem } from '../lib/toast';
+import { toast } from '../lib/toast';
+import type { ToastItem } from '../lib/toast';
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 
 export default function ToastContainer() {
