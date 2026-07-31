@@ -78,8 +78,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let totalSent = 0;
 
     for (const setting of allSettings) {
-      const { school_id, telegram_bot_token: botToken, telegram_group_id: groupId } = setting;
-      if (!botToken || !groupId) continue;
+      const { school_id, telegram_bot_token: botToken, telegram_group_id: rawGroupId } = setting;
+      if (!botToken || !rawGroupId) continue;
+
+      // telegram_group_id เก็บรูปแบบ "centralId|proposalId"
+      // Deadline Reminder ใช้กลุ่มส่วนกลาง (ส่วนแรก)
+      const centralGroupId = rawGroupId.split('|')[0]?.trim();
+      if (!centralGroupId) continue;
+      const groupIdNum = parseInt(centralGroupId);
+      if (isNaN(groupIdNum)) continue;
+
 
       // ── 2. ดึงหนังสือที่ action_deadline ภายใน 3 วัน ──────────────────────
       const today = new Date();
@@ -140,7 +148,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           msg += `\n⚠️ <b>กรุณาดำเนินการให้ทันกำหนดครับ</b>`;
         }
 
-        await sendTelegram(botToken, parseInt(groupId), msg);
+        await sendTelegram(botToken, groupIdNum, msg);
         totalSent++;
 
         // หน่วงเวลาเล็กน้อยกัน Telegram rate limit
