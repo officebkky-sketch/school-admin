@@ -152,7 +152,7 @@ function extractDocSearchWord(message: string): string {
     'เอกสารรับ', 'เอกสารส่ง', 'ไฟล์แนบ', 'เอกสารแนบ', 'ไฟล์รับ', 'ไฟล์ส่ง',
     'ไฟล์คำสั่ง', 'ไฟล์บันทึก', 'คำสั่ง', 'ใบสั่ง', 'บันทึก', 'เมโม่', 'memo', 'โหลด',
     'แนวทางการดำเนินการตาม', 'แนวทางการดำเนินการ', 'แนวทาง',
-    'ของ', 'ที่', 'ฉบับ', 'เรื่อง', 'ขอ', 'มี', 'ส่ง', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่', 'รับ'
+    'ของ', 'ฉบับ', 'เรื่อง', 'ขอ', 'มี', 'ส่ง', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่', 'รับ'
   ];
   
   commonWords.forEach(w => {
@@ -178,7 +178,7 @@ function buildThaiDocOrFilter(searchWord: string, numberCol: string = 'doc_numbe
   const terms = new Set<string>();
   terms.add(searchWord);
 
-  const isNumeric = /^\d+$/.test(searchWord);
+  const isNumeric = /^\d+$/.test(searchWord.trim());
 
   if (searchWord.length > 8) {
     for (let i = 0; i <= searchWord.length - 4; i += 4) {
@@ -189,11 +189,14 @@ function buildThaiDocOrFilter(searchWord: string, numberCol: string = 'doc_numbe
 
   const termArr = Array.from(terms).slice(0, 6);
   const filters: string[] = [];
+
+  // เพิ่ม doc_sequence.eq ครั้งเดียว (ไม่ซ้ำซ้อนใน loop)
+  if (isNumeric) {
+    filters.push(`doc_sequence.eq.${searchWord.trim()}`);
+  }
+
   termArr.forEach(t => {
     filters.push(`subject.ilike.%${t}%`, `${numberCol}.ilike.%${t}%`);
-    if (isNumeric) {
-      filters.push(`doc_sequence.eq.${t}`);
-    }
   });
 
   return filters.join(',');

@@ -172,8 +172,8 @@ export const DEFAULT_SCHEMA_MAP: Record<string, { description: string; columns: 
     columns: ["id", "project_name", "academic_year", "method", "procurement_type", "total_amount", "status", "ref_doc_number", "contract_number", "committee_json", "vendor_info"]
   },
   incoming_docs: {
-    description: "ทะเบียนหนังสือราชการรับ (หนังสือเข้า) ที่เข้ามายังสถานศึกษา พร้อมลิงก์ไฟล์แนบ",
-    columns: ["id", "doc_number", "subject", "from_agency", "doc_date", "urgency", "remark", "file_url", "attachment_urls"]
+    description: "ทะเบียนหนังสือราชการรับ (หนังสือเข้า) ที่เข้ามายังสถานศึกษา พร้อมลิงก์ไฟล์แนบ doc_sequence คือเลขที่รับลำดับของโรงเรียน",
+    columns: ["id", "doc_number", "doc_sequence", "doc_year", "subject", "from_agency", "doc_date", "urgency", "remark", "file_url", "attachment_urls"]
   },
   outgoing_docs: {
     description: "ทะเบียนหนังสือราชการส่ง (หนังสือออก) ที่ส่งไปยังภายนอกสถานศึกษา",
@@ -410,7 +410,7 @@ ${historyForCondensation.map(m => `${m.role === 'user' ? 'คำถาม' : '�
     if (msgLower.includes('หนังสือรับ') || msgLower.includes('หนังสือเข้า') || msgLower.includes('แนบ') || msgLower.includes('เอกสารแนบ')) {
       queryPlan.queries.push({
         table: 'incoming_docs',
-        select: 'doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls',
+        select: 'doc_number, doc_sequence, doc_year, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls',
         filters: docFilters,
         limit: 10
       });
