@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+declare const process: any;
 import { createClient } from '@supabase/supabase-js';
 
 // ── Helper: ส่งข้อความ Telegram ──────────────────────────────────────────────
@@ -53,12 +53,12 @@ function daysEmoji(days: number): string {
 }
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: Request): Promise<Response> {
   // ✅ ตรวจสอบ Authorization Header (Vercel ส่ง CRON_SECRET มาให้ตรวจ)
-  const authHeader = req.headers['authorization'];
+  const authHeader = req.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
   try {
@@ -72,13 +72,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select('school_id, telegram_bot_token, telegram_group_id');
 
     if (!allSettings || allSettings.length === 0) {
-      return res.status(200).json({ message: 'No school settings found' });
+      return new Response(JSON.stringify({ message: 'No school settings found' }), { status: 200 });
     }
 
     let totalSent = 0;
 
     for (const setting of allSettings) {
-      const { school_id, telegram_bot_token: botToken, telegram_group_id: rawGroupId } = setting;
+      const { telegram_bot_token: botToken, telegram_group_id: rawGroupId } = setting;
       if (!botToken || !rawGroupId) continue;
 
       // telegram_group_id เก็บรูปแบบ "centralId|proposalId"
@@ -106,7 +106,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           suggested_assignee_id,
           teachers:suggested_assignee_id (prefix, first_name, last_name)
         `)
-        .eq('school_id', school_id)
         .not('action_deadline', 'is', null)
         .lte('action_deadline', in3Days.toISOString())
         .neq('status', 'completed')
@@ -157,14 +156,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     console.log(`[DEADLINE-REMINDER] ส่งแจ้งเตือนทั้งหมด ${totalSent} รายการ`);
-    return res.status(200).json({
+    return new Response(JSON.stringify({
       success: true,
       sent: totalSent,
       timestamp: new Date().toISOString()
-    });
+    }), { status: 200 });
 
   } catch (err: any) {
     console.error('[DEADLINE-REMINDER] Error:', err);
-    return res.status(500).json({ error: err.message });
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 }
