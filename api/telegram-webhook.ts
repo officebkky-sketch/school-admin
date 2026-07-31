@@ -129,41 +129,45 @@ function extractClassLevel(text: string): string | null {
   return null;
 }
 
-/** ดึงคำค้นหาจากข้อความเรื่องเอกสาร */
 function extractDocSearchWord(message: string): string {
   if (!message) return '';
-  const msg = message.toLowerCase();
-  const reangIdx = msg.indexOf('เรื่อง');
-  const numIdx = msg.indexOf('เลขที่');
-  let keyword = '';
-  if (reangIdx !== -1) { keyword = msg.substring(reangIdx + 6).trim(); }
-  else if (numIdx !== -1) { keyword = msg.substring(numIdx + 6).trim(); }
-  else {
-    keyword = msg;
-    const commonWords = [
-      'ชบา', 'น้องชบา', 'บอท',
-      'ขอดูหนังสือ', 'ขอรายละเอียดหนังสือเรื่อง', 'ขอรายละเอียดหนังสือ', 'ขอรายละเอียด', 'รายละเอียดหนังสือ', 'รายละเอียด', 'ข้อมูลหนังสือ', 'ข้อมูลเอกสาร',
-      'ใครรับผิดชอบ', 'ผู้รับผิดชอบ', 'รับผิดชอบ', 'มอบหมายให้ใคร', 'มอบหมายงาน', 'มอบหมาย', 'ส่งให้ใคร', 'ให้ใคร', 'ของใคร', 'ใคร', 'คนไหน', 'ท่านใด', 'ทำหน้าที่',
-      'ขอไฟล์แนบ', 'ขอเอกสารแนบ', 'ขอลิงก์', 'ขอลิงค์', 'ขอไฟล์', 'ดาวน์โหลด', 'ขอดู', 'ขออ่าน',
-      'หนังสือรับที่', 'หนังสือส่งที่', 'คำสั่งที่', 'บันทึกที่', 'จดหมายที่', 'ฉบับที่', 'เรื่องที่',
-      'หนังสือรับ', 'หนังสือส่ง', 'หนังสือเข้า', 'หนังสือออก', 'บันทึกข้อความ',
-      'เอกสารรับ', 'เอกสารส่ง', 'ไฟล์แนบ', 'เอกสารแนบ', 'ไฟล์รับ', 'ไฟล์ส่ง',
-      'ไฟล์คำสั่ง', 'ไฟล์บันทึก', 'คำสั่ง', 'ใบสั่ง', 'บันทึก', 'เมโม่', 'memo', 'โหลด',
-      'เลขที่', 'เลข',
-      'แนวทางการดำเนินการตาม', 'แนวทางการดำเนินการ', 'แนวทาง',
-      'ของ', 'ที่', 'ฉบับ', 'เรื่อง', 'ขอ', 'มี', 'ส่ง', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่'
-    ];
-    commonWords.forEach(w => { keyword = keyword.replace(new RegExp(w, 'g'), ''); });
-  }
+  let msg = message.toLowerCase();
+
+  // ลบคำนำหน้าเรื่องและเลขที่
+  const prefixWords = [
+    'ขอดูหนังสือ', 'ขอรายละเอียดหนังสือเรื่อง', 'ขอรายละเอียดหนังสือ', 'ขอรายละเอียด', 'รายละเอียดหนังสือ', 'รายละเอียด', 'ข้อมูลหนังสือ', 'ข้อมูลเอกสาร',
+    'หนังสือเลขที่รับ', 'เลขที่รับหนังสือ', 'เลขที่รับ', 'เลขรับที่', 'เลขรับ', 'หนังสือเลขที่', 'เลขที่', 'เลข', 'เรื่อง'
+  ];
+  
+  prefixWords.forEach(p => {
+    msg = msg.replace(new RegExp(p, 'g'), ' ');
+  });
+
+  const commonWords = [
+    'ชบา', 'น้องชบา', 'บอท',
+    'ใครรับผิดชอบ', 'ผู้รับผิดชอบ', 'รับผิดชอบ', 'มอบหมายให้ใคร', 'มอบหมายงาน', 'มอบหมาย', 'ส่งให้ใคร', 'ให้ใคร', 'ของใคร', 'ใคร', 'คนไหน', 'ท่านใด', 'ทำหน้าที่',
+    'ขอไฟล์แนบ', 'ขอเอกสารแนบ', 'ขอลิงก์', 'ขอลิงค์', 'ขอไฟล์', 'ดาวน์โหลด', 'ขอดู', 'ขออ่าน',
+    'หนังสือรับที่', 'หนังสือส่งที่', 'คำสั่งที่', 'บันทึกที่', 'จดหมายที่', 'ฉบับที่', 'เรื่องที่',
+    'หนังสือรับ', 'หนังสือส่ง', 'หนังสือเข้า', 'หนังสือออก', 'บันทึกข้อความ',
+    'เอกสารรับ', 'เอกสารส่ง', 'ไฟล์แนบ', 'เอกสารแนบ', 'ไฟล์รับ', 'ไฟล์ส่ง',
+    'ไฟล์คำสั่ง', 'ไฟล์บันทึก', 'คำสั่ง', 'ใบสั่ง', 'บันทึก', 'เมโม่', 'memo', 'โหลด',
+    'แนวทางการดำเนินการตาม', 'แนวทางการดำเนินการ', 'แนวทาง',
+    'ของ', 'ที่', 'ฉบับ', 'เรื่อง', 'ขอ', 'มี', 'ส่ง', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่', 'รับ'
+  ];
+  
+  commonWords.forEach(w => {
+    msg = msg.replace(new RegExp(w, 'g'), ' ');
+  });
+
   const suffixes = ['หน่อย', 'ครับ', 'ค่ะ', 'นะ', 'นะคะ', 'ด้วย', 'ที', 'หน่อยครับ', 'หน่อยค่ะ', 'หน่อยนะ', 'หน่อยนะคะ', 'ด้วยครับ', 'ด้วยค่ะ', 'ซิ', 'สิ', 'จ๊ะ', 'จ้า'];
   suffixes.forEach(s => {
-    keyword = keyword.replace(new RegExp(s + '$', 'g'), '');
-    keyword = keyword.replace(new RegExp('\\s+' + s, 'g'), '');
+    msg = msg.replace(new RegExp(s + '$', 'g'), '');
+    msg = msg.replace(new RegExp('\\s+' + s, 'g'), '');
   });
-  
-  const keywordResult = keyword.trim();
+
+  const keywordResult = msg.trim();
   const skipWords = ['วันนี้', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่', 'ชบา', 'น้องชบา', 'บอท', 'ขอ'];
-  if (skipWords.includes(keywordResult) || keywordResult.length <= 1) {
+  if (skipWords.includes(keywordResult) || keywordResult.length < 1) {
     return '';
   }
   return keywordResult;
@@ -173,6 +177,8 @@ function buildThaiDocOrFilter(searchWord: string, numberCol: string = 'doc_numbe
   if (!searchWord) return '';
   const terms = new Set<string>();
   terms.add(searchWord);
+
+  const isNumeric = /^\d+$/.test(searchWord);
 
   if (searchWord.length > 8) {
     for (let i = 0; i <= searchWord.length - 4; i += 4) {
@@ -185,6 +191,9 @@ function buildThaiDocOrFilter(searchWord: string, numberCol: string = 'doc_numbe
   const filters: string[] = [];
   termArr.forEach(t => {
     filters.push(`subject.ilike.%${t}%`, `${numberCol}.ilike.%${t}%`);
+    if (isNumeric) {
+      filters.push(`doc_sequence.eq.${t}`);
+    }
   });
 
   return filters.join(',');
