@@ -129,6 +129,25 @@ function extractClassLevel(text: string): string | null {
   return null;
 }
 
+// ── Helper: แปลง file_url + attachment_urls เป็นลิงก์สำหรับ AI context ────────
+function formatDocLinks(doc: any): string {
+  const links: string[] = [];
+  if (doc.file_url) {
+    links.push(`📄 <a href="${doc.file_url}">ดาวน์โหลดหนังสือนำส่งหลัก</a>`);
+  }
+  if (doc.attachment_urls) {
+    try {
+      const atts: string[] = typeof doc.attachment_urls === 'string'
+        ? JSON.parse(doc.attachment_urls)
+        : (Array.isArray(doc.attachment_urls) ? doc.attachment_urls : []);
+      atts.forEach((url: string, i: number) => {
+        if (url) links.push(`📎 <a href="${url}">ไฟล์แนบ ${i + 1}</a>`);
+      });
+    } catch { /* ignore */ }
+  }
+  return links.length > 0 ? `[ลิงก์เอกสาร: ${links.join(' | ')}]` : '';
+}
+
 function extractDocSearchWord(message: string): string {
   if (!message) return '';
   let msg = message.toLowerCase();
@@ -310,7 +329,8 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
           if (fbData && fbData.length > 0) data = fbData;
         }
 
-        return `ข้อมูลหนังสือรับล่าสุด (รวมข้อมูลการมอบหมายงานด้วย): ${JSON.stringify(data || [])}`;
+        const docsWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
+        return `ข้อมูลหนังสือรับล่าสุด (รวมข้อมูลการมอบหมายงานด้วย): ${JSON.stringify(docsWithLinks)}`;
       }
     },
     {
@@ -321,7 +341,8 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
         if (schoolId) query = query;
         if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,doc_number.ilike.%${searchWord}%`);
         const { data } = await query.order('doc_date', { ascending: false }).limit(5);
-        return `ข้อมูลหนังสือส่งล่าสุด: ${JSON.stringify(data)}`;
+        const outWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
+        return `ข้อมูลหนังสือส่งล่าสุด: ${JSON.stringify(outWithLinks)}`;
       }
     },
     {
@@ -332,7 +353,8 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
         if (schoolId) query = query;
         if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,order_number.ilike.%${searchWord}%`);
         const { data } = await query.order('order_date', { ascending: false }).limit(5);
-        return `ข้อมูลคำสั่งล่าสุด: ${JSON.stringify(data)}`;
+        const ordWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
+        return `ข้อมูลคำสั่งล่าสุด: ${JSON.stringify(ordWithLinks)}`;
       }
     },
     {
@@ -343,7 +365,8 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
         if (schoolId) query = query;
         if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,memo_number.ilike.%${searchWord}%`);
         const { data } = await query.order('memo_date', { ascending: false }).limit(5);
-        return `ข้อมูลบันทึกข้อความล่าสุด: ${JSON.stringify(data)}`;
+        const memoWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
+        return `ข้อมูลบันทึกข้อความล่าสุด: ${JSON.stringify(memoWithLinks)}`;
       }
     },
     {
