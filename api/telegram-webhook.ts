@@ -169,6 +169,27 @@ function extractDocSearchWord(message: string): string {
   return keywordResult;
 }
 
+function buildThaiDocOrFilter(searchWord: string, numberCol: string = 'doc_number'): string {
+  if (!searchWord) return '';
+  const terms = new Set<string>();
+  terms.add(searchWord);
+
+  if (searchWord.length > 8) {
+    for (let i = 0; i <= searchWord.length - 4; i += 4) {
+      const sub = searchWord.substring(i, i + 6);
+      if (sub.length >= 4) terms.add(sub);
+    }
+  }
+
+  const termArr = Array.from(terms).slice(0, 6);
+  const filters: string[] = [];
+  termArr.forEach(t => {
+    filters.push(`subject.ilike.%${t}%`, `${numberCol}.ilike.%${t}%`);
+  });
+
+  return filters.join(',');
+}
+
 /** Smart Data Fetch — ดึงข้อมูลจริงจากฐานข้อมูลตามหมวดคำถาม (เทียบเท่า LINE Bot) */
 async function smartFetchContext(message: string, currentYear: string, supabase: any, schoolId: string, profileLinked?: any): Promise<string> {
   const msg = message.toLowerCase();
@@ -196,25 +217,21 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       keys: ['งานค้าง', 'งานค้างของฉัน', 'งานของฉัน', 'งานที่ยังไม่ได้ส่ง', 'ยังไม่ได้รายงาน', 'งานที่มอบหมายค้าง', 'งานมอบหมายค้าง', 'รายงานผล', 'ส่งรายงาน', 'ส่งงาน'],
       fetch: async () => {
         if (!profileLinked || !profileLinked.email) return 'ไม่มีข้อมูลโปรไฟล์ผู้ใช้สำหรับสืบค้นงานค้างส่วนบุคคล';
-        const { data: teacher } = await supabase
-          .from('teachers')
-          .select('id')
-          .eq('email', profileLinked.email)
-          .maybeSingle();
-        if (!teacher) return `ไม่พบข้อมูลคุณครูในตารางระบบโรงเรียนสำหรับอีเมล: ${profileLinked.email}`;
-        
+        const { data: teacher } = await supabase.from('teachers').select('id').eq('email', profileLinked.email).maybeSingle();
+        if (!teacher) return 'ไม่พบข้อมูลครูที่เชื่อมโยงกับบัญชี Telegram นี้';
+
         const { data: pendingAssigns } = await supabase
           .from('doc_assignments')
-          .select('*, incoming_docs(subject, doc_number)')
+          .select('id, instruction, status, created_at, incoming_docs(doc_number, subject, file_url, attachment_urls)')
           .eq('assignee_id', teacher.id)
           .in('status', ['pending', 'acknowledged'])
-          .order('created_at', { ascending: false })
-          .limit(5);
+          .order('created_at', { ascending: false });
+
         return `รายการงานมอบหมายที่ยังค้างการรายงานผล/ครูยังทำไม่เสร็จ (สถานะ pending หรือ acknowledged) ของครูผู้สอบถาม: ${JSON.stringify(pendingAssigns)}`;
       }
     },
     {
-      keys: ['ครู', 'คุณครู', 'บุคลากร', 'ผู้สอน', 'เวร', 'เวรยาม', 'อีเมล', 'อีเมล์', 'เบอร์โทร', 'เบอร์ติดต่อ', 'มีใครบ้าง', 'ใครบ้าง'],
+      keys: ['รายชื่อครู', 'บุคลากร', 'เบอร์โทรครู', 'ข้อมูลครู', 'ครูทั้งหมด', 'ครูเวร', 'เวรยาม'],
       fetch: async () => {
         let teachersQuery = supabase.from('teachers').select('id, prefix, first_name, last_name, position, department, phone, email, status');
         if (schoolId) teachersQuery = teachersQuery;
@@ -231,12 +248,12 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
             }));
           }
         }
-        const { data: duties } = await supabase.from('teacher_duties').select('duty_day, duty_type, teacher_id, teachers(prefix, first_name, last_name)');
-        return `รายชื่อครูและบุคลากร: ${JSON.stringify(teachers)}\nตารางเวรประจำวันครู: ${JSON.stringify(duties)}`;
+        const { data: duties } = await supabase.from('teacher_duties').select('duty_day, duty_type, teacher_id');
+        return `รายชื่อครูและบุคลากร: ${JSON.stringify(teachers)}\nข้อมูลเวรประจำวัน: ${JSON.stringify(duties)}`;
       }
     },
     {
-      keys: ['เขตพื้นที่บริการ', 'พื้นที่บริการ', 'ทร.14', 'ทร14', 'พฐ.03', 'พฐ03', 'เด็กเข้าเกณฑ์', 'เด็กในเขต'],
+      keys: ['เด็กในเขต', 'เขตบริการ', 'พฐ.03', 'ทร.14', 'ทะเบียนเด็ก'],
       fetch: async () => {
         let sasQuery = supabase.from('service_area_students').select('prefix, first_name, last_name, gender, birth_date, moo, sub_district');
         if (schoolId) sasQuery = sasQuery;
@@ -266,9 +283,22 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
         const searchWord = extractDocSearchWord(message);
         let query = supabase.from('incoming_docs').select('id, status, doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls, doc_assignments(instruction, status, teachers(prefix, first_name, last_name))');
         if (schoolId) query = query;
-        if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,doc_number.ilike.%${searchWord}%`);
-        const { data } = await query.order('doc_date', { ascending: false }).limit(5);
-        return `ข้อมูลหนังสือรับล่าสุด (รวมข้อมูลการมอบหมายงานด้วย): ${JSON.stringify(data)}`;
+
+        const filterStr = buildThaiDocOrFilter(searchWord, 'doc_number');
+        if (filterStr) query = query.or(filterStr);
+        let { data } = await query.order('doc_date', { ascending: false }).limit(5);
+
+        // Fallback: ถ้าไม่พบผลลัพธ์ด้วยคำค้นยาว ให้ทดลองค้นแบบคำย่อย 6 อักขระแรก
+        if ((!data || data.length === 0) && searchWord.length > 5) {
+          const subKw = searchWord.substring(0, 6);
+          let fbQuery = supabase.from('incoming_docs').select('id, status, doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls, doc_assignments(instruction, status, teachers(prefix, first_name, last_name))')
+            .or(`subject.ilike.%${subKw}%,doc_number.ilike.%${subKw}%`);
+          if (schoolId) fbQuery = fbQuery;
+          const { data: fbData } = await fbQuery.order('doc_date', { ascending: false }).limit(5);
+          if (fbData && fbData.length > 0) data = fbData;
+        }
+
+        return `ข้อมูลหนังสือรับล่าสุด (รวมข้อมูลการมอบหมายงานด้วย): ${JSON.stringify(data || [])}`;
       }
     },
     {
