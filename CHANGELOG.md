@@ -2,15 +2,40 @@
 
 ประวัติการปรับปรุงระบบบริหารจัดการข้อมูลโรงเรียน (School Admin System)
 
-## [1.1.17] - 2026-07-27
+## [1.1.17] - 2026-07-31
 ### Added
+- เพิ่มระบบ **กำหนดส่งงาน / หมดเขตดำเนินการ (Action Deadline & Smart Reminders)**:
+  - สกัด `action_deadline` (วันครบกำหนดส่งงาน) จาก Gemini OCR ลงฐานข้อมูล `incoming_docs` โดยอัตโนมัติ
+  - เพิ่ม Vercel Cron Job แจ้งเตือนหนังสือใกล้ครบกำหนด (`/api/deadline-reminder`) ทำงานทุกเช้า 07:00 น. ผ่าน Telegram กลุ่มส่วนกลาง
+  - เพิ่มปุ่มกด Interactive Action Buttons ใน Telegram (`[✅ ดำเนินการแล้ว]` และ `[⏰ เลื่อน 3 วัน]`) ช่วยให้ครูและผู้บริหารตอบสนองอัปเดตสถานะได้ทันทีจากช่องแชท
+  - เพิ่มช่องป้อนกำหนดส่งงาน (`Deadline`) บนฟอร์มลงรับหนังสือใหม่ในหน้า `IncomingDocs.tsx`
+  - เพิ่มการ์ดแสดงสถิติ Real-time **"ใกล้ครบกำหนด (Deadline)"** บนหน้า `Dashboard.tsx`
+- เพิ่มระบบ **สำรองข้อมูลอัตโนมัติประจำสัปดาห์ (Weekly Database Backup)**:
+  - ดึงข้อมูลฐานข้อมูล 10 ตารางหลัก บีบอัดเป็นไฟล์ Gzip `.json.gz` ขนาดเล็ก
+  - จัดส่งเข้า Telegram Private Chat ของผู้ดูแลระบบและผู้อำนวยการอัตโนมัติทุกเช้าวันอาทิตย์ 07:00 น. (`/api/weekly-backup`)
+- เพิ่มระบบ **Global Toast Notification & Glassmorphic Modal UI**:
+  - อัปเกรด `Modal.tsx` เป็น Modern Glassmorphic 3D Design (Backdrop blur, Top gradient accent, Micro-animations)
+  - เพิ่มระบบ `ToastContainer.tsx` และ `toast.ts` แสดงแจ้งเตือนผลการทำงาน (Success, Error, Warning, Info) ที่มุมขวาล่างของหน้าจอ
+  - เพิ่มป้ายกำกับสถานะการผูก Telegram (`✈️ ผูก Telegram แล้ว` / `⚪ ยังไม่ผูก Telegram`) บนตารางจัดการผู้ใช้ `Users.tsx`
 - เพิ่มระบบ **ลืมรหัสผ่าน (Forgot Password)** สำหรับผู้ใช้งาน:
-  - หน้า `ForgotPasswordView`: กรอกอีเมลเพื่อรับลิงก์รีเซ็ตรหัสผ่าน รองรับระบบ Multi-school (เลือกโรงเรียนได้)
+  - หน้า `ForgotPasswordView`: กรอกอีเมลเพื่อรับลิงก์รีเซ็ตรหัสผ่าน รองรับระบบ Multi-school
   - หน้า `ResetPasswordModal`: ตั้งรหัสผ่านใหม่พร้อม Password Strength Indicator, Requirements Checklist, และ Confirm Validation
   - ปุ่ม **"ลืมรหัสผ่าน?"** ในหน้า Login ใต้ช่องรหัสผ่าน
-  - ตรวจจับ Supabase `PASSWORD_RECOVERY` event อัตโนมัติเมื่อผู้ใช้คลิกลิงก์จากอีเมล
-  - ระบบ Countdown auto-close หลังเปลี่ยนรหัสผ่านสำเร็จ (5 วินาที)
-  - ระบบ Resend cooldown ป้องกันการส่งอีเมลซ้ำถี่เกินไป (60 วินาที)
+
+### Updated & Improved
+- ปรับปรุงระบบค้นหาหนังสือบน Telegram Bot (`extractDocSearchWord` & `buildThaiDocOrFilter`):
+  - สกัดคีย์เวิร์ดรองรับคำเกริ่นนำสารบรรณภาษาไทยทุกรูปแบบ เช่น *"หนังสือเลขที่รับ 415"*, *"ขอรายละเอียดหนังสือเรื่อง..."*
+  - รองรับการค้นหาจากลำดับเลขที่รับของโรงเรียน (`doc_sequence`) แบบ Numeric Match Direct 100%
+  - แสดงผลเลขที่รับเป็นตัวเลขอารบิก และแสดงเลขที่หนังสือต้นทางจากหน่วยงานผู้ส่งใต้เลขที่รับอย่างสวยงาม
+- ปรับปรุงการส่งลิงก์แนบเอกสารบน Telegram: แทรกลิงก์ `file_url` (หนังสือนำส่ง) และ `attachment_urls` (สิ่งที่ส่งมาด้วย) กลับในคำตอบ Telegram สวยงามเป็น HTML Link `<a href="...">`
+- เพิ่มระบบ **Error Alerting**: ส่งข้อความแจ้งเตือนข้อผิดพลาด OCR เข้า Telegram ของ Admin ทันทีเมื่อเกิดข้อผิดพลาดในการประมวลผลไฟล์
+
+### Fixed
+- แก้ไขปัญหา OCR เขียนทับเลขที่รับของโรงเรียน (`doc_number`) โดยย้ายเลขที่หนังสือต้นทางไปจัดเก็บใน `remark.sender_doc_number`
+- แก้ไขปัญหา TypeScript Build errors บน Vercel:
+  - ปรับการนำเข้า `ToastItem` ใน `ToastContainer.tsx` ให้เป็น Type-only import สอดคล้องกับ `verbatimModuleSyntax`
+  - ปรับขอบเขตตัวแปร `supabase` และ `botToken` ใน `ocr-process.ts` ให้เข้าถึงได้จาก `catch` block
+  - ปรับ `Uint8Array` ห่อหุ้ม `Buffer` สำหรับการสร้าง `Blob` ไฟล์ `.json.gz` ใน `weekly-backup.ts`
 
 ## [1.1.15] - 2026-07-22
 ### Added
