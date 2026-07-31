@@ -23,6 +23,11 @@ import {
   Shield
 } from 'lucide-react';
 
+const toArabic = (str: string) => {
+  if (!str) return '';
+  return str.replace(/[๐-๙]/g, d => '๐๑๒๓๔๕๖๗๘๙'.indexOf(d).toString());
+};
+
 export default function IncomingDocs() {
   const { user, profile } = useAuth();
   const [docs, setDocs] = useState<any[]>([]);
@@ -727,7 +732,20 @@ export default function IncomingDocs() {
             ) : docs.length === 0 ? (
               <tr><td colSpan={hasAccess ? 5 : 4} className="py-20 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</td></tr>
             ) : (
-              docs.filter(d => d.subject?.includes(searchTerm)).map(doc => (
+              docs.filter(d => {
+                const term = toArabic(searchTerm.toLowerCase());
+                const subj = toArabic(d.subject || '').toLowerCase();
+                const docNo = toArabic(d.doc_number || '').toLowerCase();
+                const agency = toArabic(d.from_agency || '').toLowerCase();
+                let senderNum = '';
+                if (d.remark) {
+                  try {
+                    const parsed = typeof d.remark === 'string' && d.remark.startsWith('{') ? JSON.parse(d.remark) : null;
+                    senderNum = toArabic(parsed?.sender_doc_number || '').toLowerCase();
+                  } catch (e) {}
+                }
+                return subj.includes(term) || docNo.includes(term) || agency.includes(term) || senderNum.includes(term);
+              }).map(doc => (
                 <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
                   {hasAccess && (
                     <td className="px-4 py-4 text-center">
@@ -767,10 +785,10 @@ export default function IncomingDocs() {
 
                       return (
                         <>
-                          <div className="font-bold text-slate-800 text-sm">{displayReceiveNo}</div>
+                          <div className="font-bold text-slate-800 text-sm">{toArabic(displayReceiveNo)}</div>
                           {senderNum && (
                             <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 mt-0.5" title="เลขที่หนังสือต้นทาง">
-                              <span className="text-[10px] text-slate-400 font-normal">ที่:</span> {senderNum}
+                              <span className="text-[10px] text-slate-400 font-normal">ที่:</span> {toArabic(senderNum)}
                             </div>
                           )}
                         </>
