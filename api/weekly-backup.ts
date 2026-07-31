@@ -10,7 +10,7 @@ async function sendTelegramDocument(token: string, chatId: number, fileBuffer: B
     formData.append('caption', caption);
     formData.append('parse_mode', 'HTML');
 
-    const blob = new Blob([fileBuffer], { type: 'application/gzip' });
+    const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'application/gzip' });
     formData.append('document', blob, filename);
 
     const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {

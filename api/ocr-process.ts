@@ -81,8 +81,11 @@ export default async function handler(req: any, res: any) {
     const { docId, fileUrl } = req.body || {};
     if (!docId || !fileUrl) return;
 
+    let supabase: any = null;
+    let botToken: string | undefined = undefined;
+
     try {
-      const supabase = getSupabase();
+      supabase = getSupabase();
 
       // 1. ดึงข้อมูล Settings & Teachers
       const { data: settings } = await supabase
@@ -93,7 +96,7 @@ export default async function handler(req: any, res: any) {
       if (!settings) return;
       const rawApiKey = settings.ai_cowork_api_key || settings.gemini_api_key || '';
       const apiKey = rawApiKey.split(',')[0].trim();
-      const botToken = settings.telegram_bot_token;
+      botToken = settings.telegram_bot_token;
 
       // ดึงรายชื่อครูทั้งหมดไว้สำหรับแมตช์ผู้รับมอบหมาย
       const { data: teachers } = await supabase

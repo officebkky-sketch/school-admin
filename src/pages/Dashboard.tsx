@@ -18,7 +18,8 @@ export default function Dashboard() {
     presentToday: 0,
     onDuty: 0,
     pendingTasks: 0,
-    completedTasksToday: 0
+    completedTasksToday: 0,
+    upcomingDeadlines: 0
   });
   const [recentDocs, setRecentDocs] = useState<any[]>([]);
   const [dutyTeachers, setDutyTeachers] = useState<any[]>([]);
