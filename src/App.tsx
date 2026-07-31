@@ -32,6 +32,7 @@ import ServiceArea from './pages/ServiceArea';
 import Athletics from './pages/Athletics';
 import IdentityFooter from './components/IdentityFooter';
 import ResetPasswordModal from './components/ResetPasswordModal';
+import ToastContainer from './components/ToastContainer';
 
 import { 
   Loader2, 
@@ -505,6 +506,9 @@ function App() {
       {showPasswordReset && (
         <ResetPasswordModal onClose={() => setShowPasswordReset(false)} />
       )}
+
+      {/* ===== Toast Notification Container ===== */}
+      <ToastContainer />
     </div>
   );
 }

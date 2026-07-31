@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { toast } from '../lib/toast';
 import { 
   BookOpen, 
   Plus, 
@@ -88,13 +89,13 @@ export default function Academic() {
         : await supabase.from('subjects').insert([payload]);
 
       if (error) throw error;
-      alert(editingId ? 'แก้ไขวิชาเรียบร้อย' : 'เพิ่มวิชาเรียบร้อย');
+      toast.success(editingId ? 'แก้ไขวิชาเรียบร้อยแล้วค่ะ' : 'เพิ่มรายวิชาใหม่เรียบร้อยแล้วค่ะ');
       setIsModalOpen(false);
       setEditingId(null);
       resetForm();
       fetchSubjects();
     } catch (err: any) {
-      alert('เกิดข้อผิดพลาด: ' + err.message + '\n(หมายเหตุ: โปรดตรวจสอบว่ามีตาราง subjects ในฐานข้อมูลแล้ว)');
+      toast.error('เกิดข้อผิดพลาดในการบันทึกวิชา', err.message);
     } finally {
       setIsSaving(false);
     }
