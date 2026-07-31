@@ -181,18 +181,33 @@ ${extractedText.substring(0, 4000)}
         console.error('[OCR PROCESS] JSON parse error:', e);
       }
 
-      // 4. อัปเดตข้อมูลลง incoming_docs
+      // 4. ดึงข้อมูลเดิมของ incoming_docs เพื่ออัปเดต remark โดยไม่ทับเลขที่รับของโรงเรียน (doc_number)
+      const { data: currentDoc } = await supabase.from('incoming_docs').select('remark').eq('id', docId).single();
+      let existingRemarkObj: any = {};
+      if (currentDoc?.remark) {
+        try {
+          existingRemarkObj = typeof currentDoc.remark === 'string' && currentDoc.remark.startsWith('{') 
+            ? JSON.parse(currentDoc.remark) 
+            : { summary_text: currentDoc.remark };
+        } catch (e) {
+          existingRemarkObj = { summary_text: currentDoc.remark };
+        }
+      }
+
+      if (parsedInfo.doc_number) existingRemarkObj.sender_doc_number = parsedInfo.doc_number;
+      if (parsedInfo.summary) existingRemarkObj.proposal_summary = parsedInfo.summary;
+
       const updatePayload: any = {
         extracted_text: extractedText,
-        auto_processed_at: new Date().toISOString()
+        auto_processed_at: new Date().toISOString(),
+        remark: JSON.stringify(existingRemarkObj)
       };
 
-      if (parsedInfo.doc_number) updatePayload.doc_number = parsedInfo.doc_number;
+      // หมายเหตุ: ไม่ทับ doc_number (เลขที่รับของโรงเรียน) ด้วย parsedInfo.doc_number
       if (parsedInfo.subject) updatePayload.subject = parsedInfo.subject;
       if (parsedInfo.from_agency) updatePayload.from_agency = parsedInfo.from_agency;
       if (parsedInfo.doc_date) updatePayload.doc_date = parsedInfo.doc_date;
       if (parsedInfo.urgency) updatePayload.urgency = parsedInfo.urgency;
-      if (parsedInfo.summary) updatePayload.remark = parsedInfo.summary;
       if (parsedInfo.action_deadline) updatePayload.action_deadline = parsedInfo.action_deadline;
       if (parsedInfo.suggested_assignee_id) updatePayload.suggested_assignee_id = parsedInfo.suggested_assignee_id;
 

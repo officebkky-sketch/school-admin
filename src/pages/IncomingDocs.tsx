@@ -748,8 +748,35 @@ export default function IncomingDocs() {
                     </td>
                   )}
                   <td className="px-6 py-4">
-                    <div className="font-bold text-slate-800 text-sm">{doc.doc_number}</div>
-                    <div className="text-[10px] text-slate-400">{doc.doc_date}</div>
+                    {(() => {
+                      let displayReceiveNo = doc.doc_number;
+                      let senderNum = '';
+
+                      if (doc.remark) {
+                        try {
+                          const parsed = typeof doc.remark === 'string' && doc.remark.startsWith('{') ? JSON.parse(doc.remark) : null;
+                          senderNum = parsed?.sender_doc_number || '';
+                        } catch (e) {}
+                      }
+
+                      // รองรับข้อมูลเก่าที่เคยถูก OCR ทับ doc_number ด้วยเลข ศธ
+                      if (doc.doc_number?.includes('ศธ') || (doc.doc_number?.includes('/') && !senderNum)) {
+                        if (!senderNum) senderNum = doc.doc_number;
+                        if (doc.doc_sequence) displayReceiveNo = String(doc.doc_sequence);
+                      }
+
+                      return (
+                        <>
+                          <div className="font-bold text-slate-800 text-sm">{displayReceiveNo}</div>
+                          {senderNum && (
+                            <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 mt-0.5" title="เลขที่หนังสือต้นทาง">
+                              <span className="text-[10px] text-slate-400 font-normal">ที่:</span> {senderNum}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    <div className="text-[10px] text-slate-400 mt-0.5">{doc.doc_date}</div>
                   </td>
                   <td className="px-6 py-4">
                     <p className="text-sm font-medium text-slate-700">{doc.subject}</p>
