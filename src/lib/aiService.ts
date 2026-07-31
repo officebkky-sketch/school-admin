@@ -752,20 +752,42 @@ export async function processDocumentToKnowledge(
   return successCount;
 }
 
+export function extractThaiKeywords(text: string): string[] {
+  if (!text) return [];
+  // ลบคำเชื่อม คำฟุ่มเฟือย ภาษาพูด
+  let cleaned = text.replace(/(ขอดู|ขออ่าน|ขอรายละเอียด|ขอไฟล์|ขอหนังสือ|ขอเอกสาร|ขอข้อมูล|ขอ|ดู|หนังสือ|เรื่อง|รายละเอียด|แนวทาง|เกี่ยวกับการ|เกี่ยวกับ|การดำเนินการ|ตาม|ของ|ใน|ล่าสุด|ประจำปี|ครับ|ค่ะ|ด้วย|หน่อย)/g, ' ').trim();
+  
+  const keywords = new Set<string>();
+  const parts = cleaned.split(/[\s,，.、?？!！]+/g).filter(w => w.length >= 2);
+  
+  parts.forEach(part => {
+    keywords.add(part);
+    // สำหรับประโยคภาษาไทยยาวๆ ที่ไม่มีเว้นวรรค แตกท่อนคำสำคัญ 4-8 อักขระ
+    if (part.length > 10) {
+      for (let i = 0; i <= part.length - 5; i += 4) {
+        const chunk = part.substring(i, i + 6);
+        if (chunk.length >= 4) keywords.add(chunk);
+      }
+    }
+  });
+
+  return Array.from(keywords).filter(w => w.length >= 3);
+}
+
 export async function searchKnowledge(query: string, apiKey: string, limit: number = 10) {
   try {
     // 1. ค้นหาแบบ Vector (Semantic Search)
     const queryEmbedding = await generateEmbedding(query, apiKey);
     const { data: vectorMatches } = await supabase.rpc('match_knowledge', {
       query_embedding: queryEmbedding,
-      match_threshold: 0.15,
+      match_threshold: 0.10, // ปรับ threshold ผ่อนคลายลงให้ค้นหาได้กว้างขึ้น
       match_count: limit
     });
 
-    // 2. ค้นหาแบบ Keyword (ปรับปรุงให้รองรับ slashes/underscores)
-    // แปลง "159/20" เป็น ["159/20", "159", "20", "159_20"] เพื่อครอบคลุมทุกโอกาส
+    // 2. ค้นหาแบบ Keyword (สกัดคำสำคัญภาษาไทย)
+    const extractedKw = extractThaiKeywords(query);
     const rawKeywords = query.split(/[\s,，.、?？!！]+/g).filter(w => w.length >= 2);
-    const keywords = new Set<string>(rawKeywords);
+    const keywords = new Set<string>([...extractedKw, ...rawKeywords]);
     
     rawKeywords.forEach(kw => {
       if (kw.includes('/')) {
@@ -779,13 +801,13 @@ export async function searchKnowledge(query: string, apiKey: string, limit: numb
 
     let textMatches: any[] = [];
     if (keywords.size > 0) {
-      const kwArray = Array.from(keywords);
+      const kwArray = Array.from(keywords).slice(0, 15);
       const orFilters = kwArray.map(kw => `chunk_text.ilike.%${kw}%,document_name.ilike.%${kw}%`).join(',');
       const { data } = await supabase
         .from('school_knowledge')
         .select('id, document_name, page_number, chunk_text')
         .or(orFilters)
-        .limit(limit);
+        .limit(limit * 2);
       textMatches = data || [];
     }
 

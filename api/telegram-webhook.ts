@@ -142,13 +142,15 @@ function extractDocSearchWord(message: string): string {
     keyword = msg;
     const commonWords = [
       'ชบา', 'น้องชบา', 'บอท',
+      'ขอดูหนังสือ', 'ขอรายละเอียดหนังสือเรื่อง', 'ขอรายละเอียดหนังสือ', 'ขอรายละเอียด', 'รายละเอียดหนังสือ', 'รายละเอียด', 'ข้อมูลหนังสือ', 'ข้อมูลเอกสาร',
       'ใครรับผิดชอบ', 'ผู้รับผิดชอบ', 'รับผิดชอบ', 'มอบหมายให้ใคร', 'มอบหมายงาน', 'มอบหมาย', 'ส่งให้ใคร', 'ให้ใคร', 'ของใคร', 'ใคร', 'คนไหน', 'ท่านใด', 'ทำหน้าที่',
-      'ขอไฟล์แนบ', 'ขอเอกสารแนบ', 'ขอลิงก์', 'ขอลิงค์', 'ขอไฟล์', 'ดาวน์โหลด', 'ขอดู',
+      'ขอไฟล์แนบ', 'ขอเอกสารแนบ', 'ขอลิงก์', 'ขอลิงค์', 'ขอไฟล์', 'ดาวน์โหลด', 'ขอดู', 'ขออ่าน',
       'หนังสือรับที่', 'หนังสือส่งที่', 'คำสั่งที่', 'บันทึกที่', 'จดหมายที่', 'ฉบับที่', 'เรื่องที่',
       'หนังสือรับ', 'หนังสือส่ง', 'หนังสือเข้า', 'หนังสือออก', 'บันทึกข้อความ',
       'เอกสารรับ', 'เอกสารส่ง', 'ไฟล์แนบ', 'เอกสารแนบ', 'ไฟล์รับ', 'ไฟล์ส่ง',
       'ไฟล์คำสั่ง', 'ไฟล์บันทึก', 'คำสั่ง', 'ใบสั่ง', 'บันทึก', 'เมโม่', 'memo', 'โหลด',
       'เลขที่', 'เลข',
+      'แนวทางการดำเนินการตาม', 'แนวทางการดำเนินการ', 'แนวทาง',
       'ของ', 'ที่', 'ฉบับ', 'เรื่อง', 'ขอ', 'มี', 'ส่ง', 'ล่าสุด', 'ใหม่ล่าสุด', 'ย้อนหลัง', 'เก่า', 'ใหม่'
     ];
     commonWords.forEach(w => { keyword = keyword.replace(new RegExp(w, 'g'), ''); });
@@ -430,9 +432,24 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
 
   // Fallback: ค้นหาใน school_knowledge (RAG)
   try {
-    let skQuery = supabase.from('school_knowledge').select('document_name, chunk_text').or(`chunk_text.ilike.%${message}%,document_name.ilike.%${message}%`);
+    const cleanWord = extractDocSearchWord(message);
+    const searchTarget = cleanWord || message;
+
+    // สร้างคำสำคัญย่อย (Sub-keywords) 3-8 ตัวอักษร สำหรับประโยคภาษาไทยยาว
+    const subTerms: string[] = [searchTarget];
+    if (searchTarget.length > 8) {
+      for (let i = 0; i <= searchTarget.length - 4; i += 4) {
+        const sub = searchTarget.substring(i, i + 6);
+        if (sub.length >= 4) subTerms.push(sub);
+      }
+    }
+
+    const uniqueTerms = Array.from(new Set(subTerms)).slice(0, 6);
+    const orFilters = uniqueTerms.map(t => `chunk_text.ilike.%${t}%,document_name.ilike.%${t}%`).join(',');
+
+    let skQuery = supabase.from('school_knowledge').select('document_name, chunk_text').or(orFilters);
     if (schoolId) skQuery = skQuery;
-    const { data: knowledge } = await skQuery.limit(3);
+    const { data: knowledge } = await skQuery.limit(5);
     if (knowledge && knowledge.length > 0) {
       return "ข้อมูลจากคลังความรู้โรงเรียน:\n" + knowledge.map((k: any) => `[ไฟล์: ${k.document_name}] ${k.chunk_text}`).join('\n');
     }
