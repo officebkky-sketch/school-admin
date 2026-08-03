@@ -688,7 +688,7 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
     {
       keys: ['มอบหมาย', 'งานมอบหมาย', 'ติดตามงาน', 'สั่งงาน', 'มอบหมายงาน'],
       fetch: async () => {
-        const { data } = await supabase.from('doc_assignments').select('instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers(prefix, first_name, last_name)').limit(15);
+        const { data } = await supabase.from('doc_assignments').select('instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers:assignee_id(prefix, first_name, last_name)').limit(15);
         return `ข้อมูลการมอบหมายหนังสือราชการให้คุณครูผู้รับผิดชอบเชิงลึก: ${JSON.stringify(data)}`;
       }
     },
@@ -1291,8 +1291,8 @@ async function executeDocAssignment(docId: string, teacherId: string, instructio
           // ดำเนินการอัปโหลดขึ้น Google Drive ผ่าน Google Apps Script (GAS)
           const gasUrl = process.env.VITE_GAS_URL || 'https://script.google.com/macros/s/AKfycbw52uo8upPX6SiZ_W4dD9MUrocA3DkZm3XnE-eU4uE3vvOtOAK4VhXcLIf71PGVsvxj/exec';
           const base64 = Buffer.from(stampedBytes).toString('base64');
-          const sanitizedSubject = doc.subject.replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 50);
-          const finalFileName = `${doc.doc_number}_เรื่อง_${sanitizedSubject}.pdf`;
+          const sanitizedSubject = (doc.subject || '').replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 50);
+          const finalFileName = `${doc.doc_number || 'doc'}_เรื่อง_${sanitizedSubject || 'untitled'}.pdf`;
 
           console.log(`[LINE WEBHOOK] Uploading stamped PDF to Google Drive via GAS: ${gasUrl}`);
           try {
@@ -1719,6 +1719,7 @@ async function handleAcknowledge(event: any, params: URLSearchParams, profile: a
     }
 
     // ตรวจสอบว่าครูผู้กดตรงกับผู้รับงานหรือไม่
+    // ใช้ profiles.id เป็นตัวเชื่อมเพราะตาราง teachers.profile_id หรือ teachers.line_user_id อาจไม่ทันซิงค์เสมอ
     const { data: teacher } = await supabaseAdmin
       .from('teachers')
       .select('id')
@@ -1742,15 +1743,19 @@ async function handleAcknowledge(event: any, params: URLSearchParams, profile: a
     // แจ้งเตือนในกลุ่มไลน์โรงเรียน
     await pushToLine(undefined, `👍 คุณครู ${profile.display_name} กดรับทราบงานเรื่อง "${docSubject}" เรียบร้อยแล้วค่ะ 🌸`);
 
-    // แจ้งเตือน ผอ.
-    const { data: director } = await supabaseAdmin
+    // แจ้งเตือน ผอ. (รองรับกรณีมีผู้อำนวยการหลายคน ใช้ .limit(1) เพื่อป้องกัน PGRST116)
+    const { data: directors } = await supabaseAdmin
       .from('profiles')
       .select('line_user_id')
       .eq('role', 'director')
-      .maybeSingle();
+      .limit(5);
 
-    if (director?.line_user_id) {
-      await pushToLine(director.line_user_id, `👍 คุณครู ${profile.display_name} กดรับทราบงานเรื่อง "${docSubject}" แล้วค่ะ`);
+    if (directors && directors.length > 0) {
+      for (const dir of directors) {
+        if (dir.line_user_id) {
+          await pushToLine(dir.line_user_id, `👍 คุณครู ${profile.display_name} กดรับทราบงานเรื่อง "${docSubject}" แล้วค่ะ`);
+        }
+      }
     }
   } catch (err: any) {
     console.error('handleAcknowledge error:', err);
@@ -2106,12 +2111,12 @@ async function handlePendingAction(event: any, pendingState: any, profile: any, 
 
       await replyToLine(replyToken, `✅ บันทึกคำรายงานผลและส่งมอบงานเรื่อง "${assign.incoming_docs?.subject}" เสนอผู้อำนวยการเรียบร้อยแล้วค่ะ ขอบคุณมากนะคะคุณครู 🌸`);
 
-      // ค้นหาไลน์ ผอ. เพื่อส่งรายงานไปแจ้งเตือนโต้กลับ
-      const { data: director } = await supabaseAdmin
+      // ค้นหาไลน์ ผอ. เพื่อส่งรายงานไปแจ้งเตือนโต้กลับ (รองรับ director หลายคน ป้องกัน PGRST116)
+      const { data: directorsList } = await supabaseAdmin
         .from('profiles')
         .select('line_user_id')
         .eq('role', 'director')
-        .maybeSingle();
+        .limit(5);
 
       const docSubject = assign.incoming_docs?.subject || 'งานที่มอบหมาย';
       const dirMessage = `📊 คุณครู ${profile.display_name} ได้รายงานผลงาน\nเรื่อง: ${docSubject}\n\nผลงาน: "${userMsg}"`;
@@ -2121,8 +2126,9 @@ async function handlePendingAction(event: any, pendingState: any, profile: any, 
         { label: '💬 สั่งเพิ่มเติม', type: 'postback' as const, data: `action=feedback&id=${assignment_id}`, color: '#007AFF' }
       ];
 
+      const firstDirectorLineId = directorsList?.find(d => d.line_user_id)?.line_user_id || undefined;
       await pushToLineFlex(
-        director?.line_user_id || undefined, // ผอ. หรือ กลุ่ม
+        firstDirectorLineId, // ผอ. หรือ กลุ่ม
         '📊 สรุปรายงานการดำเนินงาน',
         {
           type: "bubble",
