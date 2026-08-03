@@ -1306,8 +1306,6 @@ export default async function handler(req: any, res: any) {
           `✅ บันทึกการรับทราบงานเรื่อง "${docSubject}" เรียบร้อยแล้วค่ะ\nคุณครูสามารถกดรายงานผลการปฏิบัติงานจากปุ่มด้านบนได้เลยนะคะเมื่อดำเนินงานเสร็จ 🌸✨`
         );
 
-        const sId = assign.incoming_docs?.school_id || schoolId;
-
         // แจ้งเตือนในกลุ่มกลาง Telegram (ใช้ primaryGroupId ที่ parse ไว้ตั้งแต่ต้น)
 
         if (primaryGroupId) {
@@ -1812,8 +1810,6 @@ export default async function handler(req: any, res: any) {
           return res.status(200).json({ ok: true });
         }
 
-        const sId = assign.incoming_docs?.school_id || schoolId;
-
         // อัปเดตสถานะเป็น completed และบันทึกรายงานผล
         await supabase
           .from('doc_assignments')
@@ -1878,8 +1874,6 @@ export default async function handler(req: any, res: any) {
           await sendTelegramMessage(botToken, chatId, '❌ ไม่พบข้อมูลการมอบหมายงานนี้ในระบบค่ะ');
           return res.status(200).json({ ok: true });
         }
-
-        const sId = assign.incoming_docs?.school_id || schoolId;
 
         // อัปเดต feedback ผอ. และถอยสถานะกลับไปเป็น acknowledged
         await supabase
@@ -2154,40 +2148,34 @@ export default async function handler(req: any, res: any) {
                 }
               }
               
-              // 2. ค้นหา ID ของการมอบหมายงาน (doc_assignments) ใน contextData เพื่อสร้างปุ่มรายงานผล (เฉพาะงานของครูท่านนั้น)
-              const assignMatches = contextData.match(/"id":"([a-f0-9-]{36})".*?"status":"(acknowledged|pending)"/g);
-              if (assignMatches) {
-                const inlineKeyboard: any[] = replyMarkup?.inline_keyboard || [];
-                const addedAssignIds = new Set<string>();
-                
-                for (const match of assignMatches) {
-                  const idMatch = match.match(/"id":"([a-f0-9-]{36})"/);
-                  if (idMatch && idMatch[1] && !addedAssignIds.has(idMatch[1])) {
-                    const assignId = idMatch[1];
-                    addedAssignIds.add(assignId);
-                    
-                    const assignBlockMatch = contextData.match(new RegExp(`\\{[^\\{]*?"id":"${assignId}".*?\\}`));
-                    if (assignBlockMatch && assignBlockMatch[0]) {
-                      let docNum = '';
-                      const docBlockMatch = assignBlockMatch[0].match(/"incoming_docs":\{.*?\}/);
-                      if (docBlockMatch && docBlockMatch[0]) {
-                        const numMatch = docBlockMatch[0].match(/"doc_number":"(.*?)"/);
-                        if (numMatch && numMatch[1]) docNum = numMatch[1];
-                      }
-                      if (!docNum) {
-                        const numDirectMatch = assignBlockMatch[0].match(/"doc_number":"(.*?)"/);
-                        if (numDirectMatch && numDirectMatch[1]) docNum = numDirectMatch[1];
-                      }
-                      
-                      inlineKeyboard.push([
-                        { text: `📝 รายงานผลงาน เลขที่ ${docNum || ''}`, callback_data: `action=report&id=${assignId}` }
-                      ]);
-                    }
+              // 2. ค้นหา ID ของการมอบหมายงาน (doc_assignments) ใน contextData เพื่อสร้างปุ่มรายงานผล
+              // แยกเฉพาะ section ข้อมูลการมอบหมายงาน เพื่อป้องกัน regex จับ ID ของ incoming_docs มาด้วย
+              const assignSectionMatch = contextData.match(/ข้อมูลการมอบหมายงาน:\s*(\[.*\])/s);
+              const assignSectionText = assignSectionMatch ? assignSectionMatch[1] : '';
+
+              if (assignSectionText) {
+                try {
+                  const assignments: any[] = JSON.parse(assignSectionText);
+                  const inlineKeyboard: any[] = replyMarkup?.inline_keyboard || [];
+                  const addedAssignIds = new Set<string>();
+
+                  for (const assign of assignments) {
+                    if (!assign?.id || addedAssignIds.has(assign.id)) continue;
+                    if (assign.status !== 'acknowledged' && assign.status !== 'pending') continue;
+
+                    addedAssignIds.add(assign.id);
+                    const docNum = assign.incoming_docs?.doc_number || '';
+
+                    inlineKeyboard.push([
+                      { text: `📝 รายงานผลงาน ${docNum ? `เลขที่ ${docNum}` : ''}`.trim(), callback_data: `action=report&id=${assign.id}` }
+                    ]);
                   }
-                }
-                
-                if (inlineKeyboard.length > 0) {
-                  replyMarkup = { inline_keyboard: inlineKeyboard };
+
+                  if (inlineKeyboard.length > 0) {
+                    replyMarkup = { inline_keyboard: inlineKeyboard };
+                  }
+                } catch (parseErr) {
+                  console.error('[TELEGRAM BOT] Failed to parse assignment section:', parseErr);
                 }
               }
               
