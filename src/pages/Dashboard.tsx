@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
   Loader2, 
@@ -12,8 +11,11 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-export default function Dashboard() {
-  const navigate = useNavigate();
+interface DashboardProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export default function Dashboard({ onNavigate }: DashboardProps) {
   const [stats, setStats] = useState({
     totalStudents: 0,
     incomingToday: 0,
@@ -164,7 +166,7 @@ export default function Dashboard() {
                  </div>
               </div>
               <div 
-                  onClick={() => navigate('/incoming')}
+                  onClick={() => onNavigate?.('incoming')}
                   className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group"
                >
                   <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">

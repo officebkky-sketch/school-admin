@@ -409,7 +409,7 @@ function App() {
 
         <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50 custom-scrollbar">
           <div className="max-w-7xl mx-auto">
-            {activeTab === 'dashboard' && <Dashboard />}
+            {activeTab === 'dashboard' && <Dashboard onNavigate={(tab) => setActiveTab(tab as Tab)} />}
             {activeTab === 'profile' && <ProfilePage />}
             {activeTab === 'reports' && <Reports />}
             {activeTab === 'incoming' && <IncomingDocs />}
