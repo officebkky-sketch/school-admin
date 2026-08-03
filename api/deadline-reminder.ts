@@ -70,7 +70,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     const { data: allSettings } = await supabase
       .from('settings')
-      .select('school_id, telegram_bot_token, telegram_group_id');
+      .select('telegram_bot_token, telegram_group_id');
 
     if (!allSettings || allSettings.length === 0) {
       return new Response(JSON.stringify({ message: 'No school settings found' }), { status: 200 });

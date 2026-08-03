@@ -36,6 +36,7 @@ export default function IncomingDocs() {
   const [selectedYear, setSelectedYear] = useState<number | null>(currentYearBE);
   const [latestNumber, setLatestNumber] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'pending' | 'deadline'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -694,6 +695,41 @@ export default function IncomingDocs() {
         )}
       </div>
 
+      {/* Quick Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-100/80 p-1.5 rounded-2xl w-fit">
+        <button
+          onClick={() => setFilterType('all')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            filterType === 'all' 
+              ? 'bg-white text-slate-800 shadow-xs' 
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          ทั้งหมด ({docs.length})
+        </button>
+        <button
+          onClick={() => setFilterType('pending')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            filterType === 'pending' 
+              ? 'bg-red-500 text-white shadow-xs' 
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse"></span>
+          รอ ผอ. เกษียณ ({docs.filter(d => d.status === 'pending').length})
+        </button>
+        <button
+          onClick={() => setFilterType('deadline')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            filterType === 'deadline' 
+              ? 'bg-amber-500 text-white shadow-xs' 
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          ⏰ ใกล้ครบกำหนด ({docs.filter(d => d.action_deadline && d.status !== 'completed' && d.status !== 'closed').length})
+        </button>
+      </div>
+
       {selectedHoldingIds.length > 0 && (
         <div className="mb-4 p-4 bg-purple-50 border border-purple-100 rounded-[24px] flex items-center justify-between animate-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-2">
@@ -736,6 +772,9 @@ export default function IncomingDocs() {
               <tr><td colSpan={hasAccess ? 5 : 4} className="py-20 text-center text-slate-400 italic">ไม่พบข้อมูลหนังสือรับ</td></tr>
             ) : (
               docs.filter(d => {
+                if (filterType === 'pending' && d.status !== 'pending') return false;
+                if (filterType === 'deadline' && (!d.action_deadline || d.status === 'completed' || d.status === 'closed')) return false;
+
                 const term = toArabic(searchTerm.toLowerCase());
                 const subj = toArabic(d.subject || '').toLowerCase();
                 const docNo = toArabic(d.doc_number || '').toLowerCase();

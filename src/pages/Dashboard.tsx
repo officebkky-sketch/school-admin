@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { 
   Loader2, 
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalStudents: 0,
     incomingToday: 0,
@@ -161,15 +163,18 @@ export default function Dashboard() {
                     <p className="text-2xl font-black text-slate-800">{stats.pendingTasks} รายการ</p>
                  </div>
               </div>
-              <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4">
-                 <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center">
-                    <Clock size={24} />
-                 </div>
-                 <div>
-                    <p className="text-[10px] font-black text-rose-400 uppercase">ใกล้ครบกำหนด (Deadline)</p>
-                    <p className="text-2xl font-black text-rose-800">{(stats as any).upcomingDeadlines || 0} รายการ</p>
-                 </div>
-              </div>
+              <div 
+                  onClick={() => navigate('/incoming')}
+                  className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group"
+               >
+                  <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                     <Clock size={24} />
+                  </div>
+                  <div>
+                     <p className="text-[10px] font-black text-rose-400 uppercase">ใกล้ครบกำหนด (Deadline)</p>
+                     <p className="text-2xl font-black text-rose-800">{(stats as any).upcomingDeadlines || 0} รายการ</p>
+                  </div>
+               </div>
               <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4">
                  <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center">
                     <CheckCircle2 size={24} />
