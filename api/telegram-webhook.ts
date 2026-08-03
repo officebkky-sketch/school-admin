@@ -414,11 +414,11 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       }
     },
     {
-      keys: ['มอบหมาย', 'งานมอบหมาย', 'ติดตามงาน', 'สั่งงาน', 'มอบหมายงาน'],
+      keys: ['มอบหมาย', 'งานมอบหมาย', 'ติดตามงาน', 'สั่งงาน', 'มอบหมายงาน', 'งานของฉัน', 'งานค้าง', 'รายงานผล', 'ส่งงาน', 'ภารกิจ', 'เช็คงาน', 'งาน'],
       fetch: async () => {
-        let daQuery = supabase.from('doc_assignments').select('instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers:assignee_id(prefix, first_name, last_name)');
+        let daQuery = supabase.from('doc_assignments').select('id, instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers:assignee_id(prefix, first_name, last_name)');
         if (schoolId) daQuery = daQuery;
-        const { data } = await daQuery.order('created_at', { ascending: false }).limit(5);
+        const { data } = await daQuery.order('created_at', { ascending: false }).limit(10);
         return `ข้อมูลการมอบหมายงาน: ${JSON.stringify(data)}`;
       }
     },
@@ -2029,6 +2029,66 @@ export default async function handler(req: any, res: any) {
 
     // จัดการข้อความ (ล้าง mention ออกเพื่อให้ AI ตอบได้ดีขึ้น)
     const cleanedText = rawText.replace(new RegExp(botMention, 'g'), '').trim();
+
+    // เช็คว่าเป็นคำสั่งด่วนค้นหางานค้าง/รายงานผลของครูหรือไม่
+    const isTaskQuery = ['งานของฉัน', 'งานค้าง', 'รายงานผล', 'ส่งงาน', 'เช็คงาน', 'ภารกิจ', 'งานมอบหมาย'].some(k => cleanedText.includes(k));
+    if (isTaskQuery) {
+      let teacherId = '';
+      if (profileLinked.email) {
+        const { data: tData } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('email', profileLinked.email.toLowerCase().trim())
+          .maybeSingle();
+        if (tData) teacherId = tData.id;
+      }
+
+      let assignQuery = supabase
+        .from('doc_assignments')
+        .select('id, instruction, status, incoming_docs(subject, doc_number, file_url)')
+        .in('status', ['pending', 'acknowledged'])
+        .order('created_at', { ascending: false });
+
+      if (teacherId) {
+        assignQuery = assignQuery.eq('assignee_id', teacherId);
+      }
+
+      const { data: myAssigns } = await assignQuery.limit(10);
+
+      if (!myAssigns || myAssigns.length === 0) {
+        await sendTelegramMessage(
+          botToken,
+          chatId,
+          `🎉 ยินดีด้วยค่ะคุณครู <b>${profileLinked.display_name || ''}</b>! ขณะนี้ไม่มีงานราชการที่อยู่ระหว่างรอรายงานผลค้างอยู่เลยค่ะ 🌸`
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      let taskListMsg = `📊 <b>รายการงานราชการที่ได้รับมอบหมาย (${myAssigns.length} รายการ)</b>\n\n`;
+      const inlineKeyboard: any[] = [];
+
+      myAssigns.forEach((item: any, idx: number) => {
+        const docSubject = item.incoming_docs?.subject || 'งานที่ได้รับมอบหมาย';
+        const docNum = item.incoming_docs?.doc_number || '-';
+        const statusLabel = item.status === 'pending' ? '⏳ รอรับทราบ' : '📌 อยู่ระหว่างดำเนินงาน';
+
+        taskListMsg += `<b>${idx + 1}. ${docSubject}</b>\n`;
+        taskListMsg += `• <b>เลขที่หนังสือ</b>: ${docNum}\n`;
+        taskListMsg += `• <b>คำสั่งการ</b>: ${item.instruction || 'มอบดำเนินการ'}\n`;
+        taskListMsg += `• <b>สถานะ</b>: ${statusLabel}\n\n`;
+
+        const shortLabel = docNum !== '-' ? docNum : docSubject.substring(0, 15);
+        inlineKeyboard.push([
+          { text: `📝 รายงานผล: ${shortLabel}`, callback_data: `action=report&id=${item.id}` }
+        ]);
+        inlineKeyboard.push([
+          { text: `📢 ประชาสัมพันธ์ลงกลุ่มกลาง`, callback_data: `action=bc_grp&id=${item.id}` }
+        ]);
+      });
+
+      await sendTelegramMessage(botToken, chatId, taskListMsg, { inline_keyboard: inlineKeyboard });
+      return res.status(200).json({ ok: true });
+    }
 
     try {
       // 1. Smart Data Fetch — ดึงข้อมูลจริงจากฐานข้อมูลตามหมวดคำถาม

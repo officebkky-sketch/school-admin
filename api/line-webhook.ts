@@ -109,7 +109,7 @@ export default async function handler(req: any, res: any) {
             await handlePendingAction(event, pendingState, profile, userMsg);
           } else {
             // เช็คว่าเป็นคำสั่งเรียกดูงานค้างของครูหรือไม่
-            if (userMsg === 'รายงานผล' || userMsg === 'ส่งงาน' || userMsg.includes('งานค้าง')) {
+            if (['รายงานผล', 'ส่งงาน', 'งานค้าง', 'งานของฉัน', 'เช็คงาน', 'งานมอบหมาย', 'ภารกิจ'].some(k => userMsg.includes(k))) {
               await handleListPending(event, new URLSearchParams(''), profile);
             } else if ((profile.role === 'director' || profile.role === 'admin') && (userMsg.includes('รอสั่งการ') || userMsg.includes('รอเกษียณ'))) {
               await handleListPendingDocs(event, profile);
@@ -1779,12 +1779,12 @@ async function handleListPending(event: any, params: URLSearchParams, profile: a
       return;
     }
 
-    // ค้นหางานค้าง (status = acknowledged) ของครูคนนี้
+    // ค้นหางานค้าง (status = pending หรือ acknowledged) ของครูคนนี้
     const { data: pendingAssigns } = await supabaseAdmin
       .from('doc_assignments')
       .select('*, incoming_docs(subject, doc_number)')
       .eq('assignee_id', teacher.id)
-      .eq('status', 'acknowledged')
+      .in('status', ['pending', 'acknowledged'])
       .order('created_at', { ascending: false });
 
     if (!pendingAssigns || pendingAssigns.length === 0) {
