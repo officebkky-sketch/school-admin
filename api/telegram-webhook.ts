@@ -1235,7 +1235,6 @@ export default async function handler(req: any, res: any) {
         }
 
         if (targetGroupId) {
-          console.log(`[BC_GRP DEBUG] rawGroupId="${rawGroupId}" → targetGroupId=${targetGroupId}`);
           let broadcastMsg = `📢 <b>ประชาสัมพันธ์ / แจ้งเพื่อทราบ</b>\n\n`;
           broadcastMsg += `• <b>เรื่อง</b>: ${assign.incoming_docs?.subject || '-'}\n`;
           broadcastMsg += `• <b>เลขที่หนังสือ</b>: ${assign.incoming_docs?.doc_number || '-'}\n`;
