@@ -1200,7 +1200,7 @@ export default async function handler(req: any, res: any) {
         const assignId = params.get('id');
         const { data: assign, error: assignErr } = await supabase
           .from('doc_assignments')
-          .select('*, incoming_docs(subject, doc_number, file_url), teachers:assignee_id(prefix, first_name, last_name)')
+          .select('*, incoming_docs(subject, doc_number, file_url, attachment_urls), teachers:assignee_id(prefix, first_name, last_name)')
           .eq('id', assignId)
           .maybeSingle();
 
@@ -1241,8 +1241,25 @@ export default async function handler(req: any, res: any) {
           broadcastMsg += `• <b>ผู้รับมอบหมาย</b>: ${teacherName}\n`;
           broadcastMsg += `• <b>คำสั่งการ/การดำเนินการ</b>: ${assign.instruction || 'มอบดำเนินการ'}\n`;
 
+          // ส่งลิงก์ไฟล์หนังสือหลัก
           if (assign.incoming_docs?.file_url) {
             broadcastMsg += `\n📄 <a href="${assign.incoming_docs.file_url}">เปิดดูเอกสารสั่งการที่ลงนามแล้ว</a>`;
+          }
+
+          // ส่งลิงก์ไฟล์แนบทุกไฟล์ (attachment_urls)
+          const rawAttachments = assign.incoming_docs?.attachment_urls;
+          let attachmentUrls: string[] = [];
+          if (Array.isArray(rawAttachments)) {
+            attachmentUrls = rawAttachments.filter(Boolean);
+          } else if (typeof rawAttachments === 'string') {
+            try { attachmentUrls = JSON.parse(rawAttachments).filter(Boolean); } catch { /* ignore */ }
+          }
+
+          if (attachmentUrls.length > 0) {
+            broadcastMsg += `\n\n📎 <b>สิ่งที่ส่งมาด้วย</b>:`;
+            attachmentUrls.forEach((url: string, idx: number) => {
+              broadcastMsg += `\n  ${idx + 1}. <a href="${url}">ไฟล์แนบ ${idx + 1}</a>`;
+            });
           }
 
           await sendTelegramMessage(botToken, targetGroupId, broadcastMsg);
