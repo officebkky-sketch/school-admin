@@ -1235,6 +1235,7 @@ export default async function handler(req: any, res: any) {
         }
 
         if (targetGroupId) {
+          console.log(`[BC_GRP DEBUG] rawGroupId="${rawGroupId}" → targetGroupId=${targetGroupId}`);
           let broadcastMsg = `📢 <b>ประชาสัมพันธ์ / แจ้งเพื่อทราบ</b>\n\n`;
           broadcastMsg += `• <b>เรื่อง</b>: ${assign.incoming_docs?.subject || '-'}\n`;
           broadcastMsg += `• <b>เลขที่หนังสือ</b>: ${assign.incoming_docs?.doc_number || '-'}\n`;
@@ -1262,8 +1263,16 @@ export default async function handler(req: any, res: any) {
             });
           }
 
-          await sendTelegramMessage(botToken, targetGroupId, broadcastMsg);
-          await sendTelegramMessage(botToken, callbackChatId, '✅ ได้ทำการประชาสัมพันธ์ข่าวสารเรื่องนี้เข้ากลุ่มกลางเรียบร้อยแล้วค่ะ 📢');
+          try {
+            await sendTelegramMessage(botToken, targetGroupId, broadcastMsg);
+            await sendTelegramMessage(botToken, callbackChatId, '✅ ได้ทำการประชาสัมพันธ์ข่าวสารเรื่องนี้เข้ากลุ่มกลางเรียบร้อยแล้วค่ะ 📢');
+          } catch (sendErr: any) {
+            console.error('[BC_GRP] sendTelegramMessage to group failed:', sendErr);
+            await sendTelegramMessage(
+              botToken, callbackChatId,
+              `⚠️ ส่งเข้ากลุ่มกลางไม่สำเร็จค่ะ\n🆔 Group ID ที่ใช้: <code>${targetGroupId}</code>\n❌ ข้อผิดพลาด: ${sendErr?.message || 'unknown'}\n\n💡 กรุณาตรวจสอบ:\n1. Bot ถูกเพิ่มเข้ากลุ่มกลางแล้วหรือยัง\n2. Group ID ในหน้าตั้งค่าถูกต้องหรือไม่ (พิมพ์ /id ในกลุ่มเพื่อตรวจสอบ)`
+            );
+          }
         } else {
           await sendTelegramMessage(botToken, callbackChatId, '⚠️ ไม่พบข้อมูลกลุ่มกลางในตารางตั้งค่าค่ะ กรุณาตั้งค่ากลุ่มกลางก่อนนะคะ');
         }
