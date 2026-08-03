@@ -2,6 +2,21 @@
 
 ประวัติการปรับปรุงระบบบริหารจัดการข้อมูลโรงเรียน (School Admin System)
 
+## [1.1.17-patch] - 2026-08-03
+### Fixed
+- **แก้ปุ่มและระบบประชาสัมพันธ์เข้ากลุ่มกลาง (Telegram / LINE)**:
+  - แก้ไขปัญหาปุ่ม *"📢 ประชาสัมพันธ์ลงกลุ่มกลาง"* (`action=bc_grp`) กดแล้วไม่ส่งข้อความเข้ากลุ่มกลางจากคีย์ Foreign Key ไม่ตรง และเพิ่มระบบ Fallback ดึงชื่อครูและ re-parse `telegram_group_id`
+  - แนบลิงก์เอกสารสั่งการหลัก (`file_url`) และไฟล์แนบ/สิ่งที่ส่งมาด้วยทั้งหมด (`attachment_urls`) เข้าไปในข้อความประชาสัมพันธ์ลงกลุ่มกลางโดยอัตโนมัติ
+  - แก้ไขปัญหา PostgREST Query Syntax ผิดรูปแบบ (`teachers:assignee_id`) ใน Telegram Webhook และ LINE Webhook
+- **แก้ปุ่มรายงานผลงานและกระบวนการรับทราบ**:
+  - เพิ่มปุ่ม *"📝 รายงานผลงาน"* ให้ครูผู้รับมอบหมายสามารถกดรายงานผลการปฏิบัติงานได้ทันที แม้จะลืมกดรับทราบงานก่อนหน้า (ทั้งบนเว็บไซต์ `TaskManagement.tsx`, Telegram Bot และ LINE Bot)
+  - เพิ่มระบบ Fast-Path บน Telegram/LINE เมื่อพิมพ์คำว่า *"งานของฉัน"*, *"รายงานผล"*, *"งานค้าง"*, *"ส่งงาน"* ให้ค้นหางานของครูผู้ถามทันที (รวมสถานะ `pending` และ `acknowledged`) พร้อมส่งปุ่มกดรายงานผลทันใจ
+- **แก้ปัญหาความเสถียร (Stability & Bug Fixes)**:
+  - แก้ไข Error `PGRST116` (JSON object requested, multiple rows returned) จากคำสั่ง `.maybeSingle()` ในกรณีที่มีผู้อำนวยการหลายคนในตาราง `profiles`
+  - แก้ไขปัญหา Null Crash บน `doc.subject.replace(...)` เมื่อหัวข้อหนังสือรับเป็นค่าว่าง
+  - ลบ Dead code `school_id` จากคิวรี `incoming_docs` ใน Webhook ทั้งหมดสอดคล้องตามสถาปัตยกรรม Multi-School (Rule C)
+  - แก้ไขปัญหา `useNavigate()` Runtime Error บน Dashboard Card โดยใช้ `onNavigate` Prop
+
 ## [1.1.17] - 2026-07-31
 ### Added
 - เพิ่มระบบ **กำหนดส่งงาน / หมดเขตดำเนินการ (Action Deadline & Smart Reminders)**:
