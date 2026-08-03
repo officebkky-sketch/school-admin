@@ -416,7 +416,7 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
     {
       keys: ['มอบหมาย', 'งานมอบหมาย', 'ติดตามงาน', 'สั่งงาน', 'มอบหมายงาน'],
       fetch: async () => {
-        let daQuery = supabase.from('doc_assignments').select('instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers(prefix, first_name, last_name)');
+        let daQuery = supabase.from('doc_assignments').select('instruction, status, reported_at, staff_report, incoming_docs(doc_number, subject), teachers:assignee_id(prefix, first_name, last_name)');
         if (schoolId) daQuery = daQuery;
         const { data } = await daQuery.order('created_at', { ascending: false }).limit(5);
         return `ข้อมูลการมอบหมายงาน: ${JSON.stringify(data)}`;
@@ -1198,23 +1198,57 @@ export default async function handler(req: any, res: any) {
       } else if (action === 'bc_grp') {
         await answerCallbackQuery(botToken, callbackQuery.id);
         const assignId = params.get('id');
-        const { data: assign } = await supabase
+        const { data: assign, error: assignErr } = await supabase
           .from('doc_assignments')
-          .select('*, incoming_docs(subject, doc_number, file_url), teachers(prefix, first_name, last_name)')
+          .select('*, incoming_docs(subject, doc_number, file_url), teachers:assignee_id(prefix, first_name, last_name)')
           .eq('id', assignId)
-          .single();
+          .maybeSingle();
 
-        if (assign) {
+        if (assignErr || !assign) {
+          console.error('[BC_GRP ERROR] Fetch assign error:', assignErr);
+          await sendTelegramMessage(botToken, callbackChatId, '❌ ไม่พบข้อมูลการรับมอบงานในระบบค่ะ');
+          return res.status(200).json({ ok: true });
+        }
 
-          if (primaryGroupId) {
-            const teacherName = `${assign.teachers?.prefix || ''}${assign.teachers?.first_name} ${assign.teachers?.last_name}`;
-            const broadcastMsg = `📢 <b>ประชาสัมพันธ์ / แจ้งเพื่อทราบ</b>\n\n• <b>เรื่อง</b>: ${assign.incoming_docs?.subject}\n• <b>เลขที่หนังสือ</b>: ${assign.incoming_docs?.doc_number}\n• <b>ผู้รับมอบหมาย</b>: ${teacherName}\n• <b>คำสั่งการ/การดำเนินการ</b>: ${assign.instruction}\n\n📄 <a href="${assign.incoming_docs?.file_url}">เปิดดูเอกสารสั่งการที่ลงนามแล้ว</a>`;
-
-            await sendTelegramMessage(botToken, primaryGroupId, broadcastMsg);
-            await sendTelegramMessage(botToken, callbackChatId, '✅ ได้ทำการประชาสัมพันธ์ข่าวสารเรื่องนี้เข้ากลุ่มกลางเรียบร้อยแล้วค่ะ 📢');
-          } else {
-            await sendTelegramMessage(botToken, callbackChatId, '⚠️ ไม่พบข้อมูลกลุ่มกลางในตารางตั้งค่าค่ะ กรุณาตั้งค่ากลุ่มกลางก่อนนะคะ');
+        let teacherName = 'ครูผู้รับมอบหมาย';
+        const t = (assign as any)?.teachers;
+        if (t && t.first_name) {
+          teacherName = `${t.prefix || ''}${t.first_name} ${t.last_name}`;
+        } else if (assign.assignee_id) {
+          const { data: tData } = await supabase
+            .from('teachers')
+            .select('prefix, first_name, last_name')
+            .eq('id', assign.assignee_id)
+            .maybeSingle();
+          if (tData) {
+            teacherName = `${tData.prefix || ''}${tData.first_name} ${tData.last_name}`;
           }
+        }
+
+        let targetGroupId = primaryGroupId;
+        if (!targetGroupId && settings?.telegram_group_id) {
+          const centralStr = settings.telegram_group_id.split(/[|,]/)[0]?.trim();
+          if (centralStr) {
+            const parsed = parseInt(centralStr, 10);
+            if (!isNaN(parsed)) targetGroupId = parsed;
+          }
+        }
+
+        if (targetGroupId) {
+          let broadcastMsg = `📢 <b>ประชาสัมพันธ์ / แจ้งเพื่อทราบ</b>\n\n`;
+          broadcastMsg += `• <b>เรื่อง</b>: ${assign.incoming_docs?.subject || '-'}\n`;
+          broadcastMsg += `• <b>เลขที่หนังสือ</b>: ${assign.incoming_docs?.doc_number || '-'}\n`;
+          broadcastMsg += `• <b>ผู้รับมอบหมาย</b>: ${teacherName}\n`;
+          broadcastMsg += `• <b>คำสั่งการ/การดำเนินการ</b>: ${assign.instruction || 'มอบดำเนินการ'}\n`;
+
+          if (assign.incoming_docs?.file_url) {
+            broadcastMsg += `\n📄 <a href="${assign.incoming_docs.file_url}">เปิดดูเอกสารสั่งการที่ลงนามแล้ว</a>`;
+          }
+
+          await sendTelegramMessage(botToken, targetGroupId, broadcastMsg);
+          await sendTelegramMessage(botToken, callbackChatId, '✅ ได้ทำการประชาสัมพันธ์ข่าวสารเรื่องนี้เข้ากลุ่มกลางเรียบร้อยแล้วค่ะ 📢');
+        } else {
+          await sendTelegramMessage(botToken, callbackChatId, '⚠️ ไม่พบข้อมูลกลุ่มกลางในตารางตั้งค่าค่ะ กรุณาตั้งค่ากลุ่มกลางก่อนนะคะ');
         }
       } else if (action === 'acknowledge') {
         const assignId = params.get('id');
