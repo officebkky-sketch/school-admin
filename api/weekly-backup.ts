@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import zlib from 'zlib';
 
 // ── Helper: ส่งไฟล์เอกสารเข้า Telegram (sendDocument) ─────────────────────────
-async function sendTelegramDocument(token: string, chatId: number, fileBuffer: Buffer, filename: string, caption: string) {
+async function sendTelegramDocument(token: string, chatId: number, fileBuffer: Buffer, filename: string, caption: string): Promise<any> {
   try {
     const formData = new FormData();
     formData.append('chat_id', chatId.toString());
