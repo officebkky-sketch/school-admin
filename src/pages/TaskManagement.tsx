@@ -362,32 +362,32 @@ export default function TaskManagement() {
                            <button 
                             onClick={() => {
                               const msg = `\n📥 รับทราบการมอบหมายงาน\nเรื่อง: ${task.incoming_docs.subject}\nผู้ปฏิบัติ: ${task.teachers.prefix}${task.teachers.first_name}\n\nขณะนี้กำลังเริ่มดำเนินการครับ`;
-                              updateStatus(task.id, 'acknowledged', msg); // ไม่ส่ง lineUserId เพื่อให้ส่งเข้ากลุ่มไลน์หลัก (แจ้ง ผอ. และครูท่านอื่น)
+                              updateStatus(task.id, 'acknowledged', msg);
                             }}
-                            className="w-full py-4 bg-brand-primary text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-green-700 transition-all active:scale-95"
-                           >
-                             รับทราบงาน
-                           </button>
-                         )}
-                         
-                         {task.status === 'acknowledged' && (
-                           <button 
-                            onClick={() => { setSelectedTask(task); setIsReportModalOpen(true); }}
-                            className="w-full py-4 bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
-                           >
-                             <Send size={16} /> รายงานผลงาน
-                           </button>
-                         )}
+                             className="w-full py-4 bg-brand-primary text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-green-700 transition-all active:scale-95 mb-2"
+                            >
+                              รับทราบงาน
+                            </button>
+                          )}
+                          
+                          {(task.status === 'pending' || task.status === 'acknowledged') && (
+                            <button 
+                             onClick={() => { setSelectedTask(task); setIsReportModalOpen(true); }}
+                             className="w-full py-4 bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
+                            >
+                              <Send size={16} /> รายงานผลงาน
+                            </button>
+                          )}
 
-                         {task.status === 'completed' && (
-                           <button 
-                            onClick={() => { setSelectedTask(task); setIsFeedbackModalOpen(true); }}
-                            className={`w-full py-4 bg-slate-800 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-slate-200 hover:bg-slate-900 transition-all flex items-center justify-center gap-2 ${!isDirector ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            disabled={!isDirector}
-                           >
-                             <CheckCircle2 size={16} /> {isDirector ? 'ผอ. ตรวจรับงาน' : 'รอ ผอ. ตรวจรับ'}
-                           </button>
-                         )}
+                          {task.status === 'completed' && (
+                            <button 
+                             onClick={() => { setSelectedTask(task); setIsFeedbackModalOpen(true); }}
+                             className={`w-full py-4 bg-slate-800 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-slate-200 hover:bg-slate-900 transition-all flex items-center justify-center gap-2 ${!isDirector ? 'opacity-50 cursor-not-allowed' : ''}`}
+                             disabled={!isDirector}
+                            >
+                              <CheckCircle2 size={16} /> {isDirector ? 'ผอ. ตรวจรับงาน' : 'รอ ผอ. ตรวจรับ'}
+                            </button>
+                          )}
 
                          {task.status === 'closed' && (
                            <div className="space-y-2">
