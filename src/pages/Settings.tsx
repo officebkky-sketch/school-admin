@@ -735,7 +735,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.16'}
+                {import.meta.env.VITE_APP_VERSION || '1.1.17'}
               </span>
             </div>
           </div>
@@ -745,6 +745,46 @@ export default function Settings() {
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.17-patch2</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(6 ส.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มระบบ <strong>"แนบไฟล์รูปภาพ/เอกสารหลักฐาน"</strong> ในการรายงานผลงานสูงสุด 5 ไฟล์ (ทั้งบนเว็บและ Telegram Bot)</li>
+                  <li>Telegram Bot อัปโหลดไฟล์รูปภาพและเอกสารหลักฐานส่งไปจัดเก็บใน Google Drive ผ่าน Google Apps Script อัตโนมัติ (พร้อมสำรอง Supabase Storage)</li>
+                  <li>แจ้งเตือนผู้อำนวยการทาง Telegram พร้อมรายการลิงก์กดเปิดดูรูปภาพ/เอกสารแนบแต่ละไฟล์ได้ทันที</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.17-patch</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(3 ส.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>แก้ไขปุ่ม <strong>"📢 ประชาสัมพันธ์ลงกลุ่มกลาง"</strong> บน Telegram / LINE แนบลิงก์เอกสารสั่งการหลักและไฟล์แนบทั้งหมดโดยอัตโนมัติ</li>
+                  <li>เพิ่มปุ่ม <strong>"📝 รายงานผลงาน"</strong> ให้ครูรายงานผลการปฏิบัติงานได้ทันที แม้ลืมกดรับทราบงาน พร้อมระบบ Fast-Path พิมพ์ "งานของฉัน", "ส่งงาน"</li>
+                  <li>แก้ไขปัญหาความเสถียร (PGRST116, Null Crash หัวข้อหนังสือ) และปรับคิวรี Webhook สอดคล้องตามสถาปัตยกรรม Multi-School</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.1.17</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(31 ก.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li>เพิ่มระบบ <strong>"กำหนดส่งงาน / หมดเขตดำเนินการ (Action Deadline)"</strong> สกัดกำหนดส่งงานจาก Gemini OCR พร้อม Vercel Cron Reminders ทุกเช้า 07:00 น.</li>
+                  <li>เพิ่มระบบ <strong>"สำรองข้อมูลอัตโนมัติประจำสัปดาห์ (Weekly Database Backup)"</strong> บีบอัด Gzip ส่งเข้า Telegram ผอ./ผู้ดูแลระบบ ทุกเช้าวันอาทิตย์</li>
+                  <li>อัปเกรด UI แบบ Modern Glassmorphic Modal, เพิ่มระบบ Global Toast Notification และป้ายสถานะผูก Telegram</li>
+                  <li>เพิ่มระบบ <strong>"ลืมรหัสผ่าน (Forgot Password)"</strong> สำหรับผู้ใช้งานพร้อม Password Strength Indicator รองรับระบบ Multi-school</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.16</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(24 ก.ค. 2569)</span>
