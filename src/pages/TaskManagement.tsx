@@ -475,8 +475,8 @@ export default function TaskManagement() {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-1 flex justify-between">
-              <span>แนบไฟล์หลักฐาน / เอกสารประกอบ (สูงสุด 4 ไฟล์)</span>
-              <span className="text-brand-primary">{reportFiles.length}/4</span>
+              <span>แนบไฟล์หลักฐาน / เอกสารประกอบ (สูงสุด 5 ไฟล์)</span>
+              <span className="text-brand-primary">{reportFiles.length}/5</span>
             </label>
             <div className="grid grid-cols-1 gap-3">
               {reportFiles.map((file, idx) => (
@@ -495,7 +495,7 @@ export default function TaskManagement() {
                 </div>
               ))}
               
-              {reportFiles.length < 4 && (
+              {reportFiles.length < 5 && (
                 <label className="block w-full p-4 border-2 border-dashed border-slate-200 rounded-2xl text-center cursor-pointer hover:border-brand-primary hover:bg-slate-50 transition-all group">
                   <input 
                     type="file" 
@@ -503,8 +503,8 @@ export default function TaskManagement() {
                     multiple 
                     onChange={e => {
                       const selected = Array.from(e.target.files || []);
-                      if (reportFiles.length + selected.length > 4) {
-                        alert('จำกัดไฟล์แนบสูงสุด 4 ไฟล์');
+                      if (reportFiles.length + selected.length > 5) {
+                        alert('จำกัดไฟล์แนบสูงสุด 5 ไฟล์');
                         return;
                       }
                       setReportFiles([...reportFiles, ...selected]);
@@ -512,7 +512,7 @@ export default function TaskManagement() {
                   />
                   <div className="flex items-center justify-center gap-2">
                     <Upload size={18} className="text-slate-300 group-hover:text-brand-primary" />
-                    <span className="text-slate-400 text-[10px] font-bold uppercase">คลิกเพื่อเพิ่มไฟล์หลักฐาน</span>
+                    <span className="text-slate-400 text-[10px] font-bold uppercase">คลิกเพื่อเพิ่มไฟล์หลักฐาน (สูงสุด 5 ไฟล์)</span>
                   </div>
                 </label>
               )}

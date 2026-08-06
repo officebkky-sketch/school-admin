@@ -80,6 +80,68 @@ async function sendTelegramMessageSingle(botToken: string, chatId: number, text:
   return resp;
 }
 
+/** อัปโหลดไฟล์จาก Telegram (Photo/Document) ไปยัง Google Drive (และ Supabase Storage เป็นส่วนสำรอง) */
+async function uploadTelegramFileToSupabase(botToken: string, fileId: string, customExt?: string, supabase?: any, settings?: any): Promise<string> {
+  try {
+    const resFile = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`);
+    const dataFile = await resFile.json() as any;
+    if (!dataFile?.ok || !dataFile?.result?.file_path) return '';
+
+    const filePath = dataFile.result.file_path;
+    const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+
+    const fileRes = await fetch(downloadUrl);
+    if (!fileRes.ok) return downloadUrl;
+    const arrayBuffer = await fileRes.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const ext = customExt || filePath.split('.').pop() || 'jpg';
+    const filename = `รายงาน_Telegram_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`;
+    const contentType = fileRes.headers.get('content-type') || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+
+    // 1. พยายามอัปโหลดไป Google Drive ผ่าน Google Apps Script (GAS) ก่อน
+    const gasUrl = settings?.gas_url || process.env.VITE_GAS_URL || 'https://script.google.com/macros/s/AKfycbw52uo8upPX6SiZ_W4dD9MUrocA3DkZm3XnE-eU4uE3vvOtOAK4VhXcLIf71PGVsvxj/exec';
+    if (gasUrl) {
+      try {
+        const gasRes = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            folder: 'reports',
+            filename: filename,
+            mimeType: contentType,
+            base64: buffer.toString('base64')
+          })
+        });
+        const gasResult = await gasRes.json() as any;
+        if (gasResult?.status === 'success' && gasResult?.url) {
+          return gasResult.url;
+        }
+      } catch (gasErr) {
+        console.warn('[TELEGRAM GAS UPLOAD FALLBACK]', gasErr);
+      }
+    }
+
+    // 2. หาก Google Drive อัปโหลดไม่ผ่าน ให้สำรองไปที่ Supabase Storage
+    if (supabase) {
+      const storagePath = `report_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+      const { data, error } = await supabase.storage
+        .from('reports')
+        .upload(storagePath, buffer, { contentType, upsert: true });
+
+      if (!error && data) {
+        const { data: pubData } = supabase.storage.from('reports').getPublicUrl(data.path);
+        return pubData.publicUrl;
+      }
+    }
+
+    return downloadUrl;
+  } catch (err) {
+    console.error('[TELEGRAM FILE UPLOAD ERROR]', err);
+    return '';
+  }
+}
+
 /** เรียกใช้งานโมเดล Gemini API สำหรับโต้ตอบบทสนทนา */
 async function callGemini(system: string, user: string, apiKey: string): Promise<string> {
   const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
@@ -1399,7 +1461,7 @@ export default async function handler(req: any, res: any) {
         await sendTelegramMessage(
           botToken,
           callbackChatId,
-          `✍️ กรุณาพิมพ์รายงานสรุปผลการดำเนินงานสำหรับเรื่อง <b>"${assign.incoming_docs?.subject}"</b> ส่งเข้ามาในห้องแชทนี้ได้เลยค่ะ ชบาจะนำไปบันทึกรายงานเสนอ ผอ. ทันที 🌸`
+          `✍️ กรุณาพิมพ์รายงานสรุปผลการดำเนินงาน หรือส่งรูปภาพ/ไฟล์เอกสารหลักฐาน (แนบได้สูงสุด 5 ไฟล์) สำหรับเรื่อง <b>"${assign.incoming_docs?.subject}"</b> ส่งเข้ามาในห้องแชทนี้ได้เลยค่ะ ชบาจะนำไปบันทึกรายงานเสนอ ผอ. ทันที 🌸`
         );
 
       } else if (action === 'close') {
@@ -1704,13 +1766,13 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true });
     }
 
-    // หากไม่มีข้อความหรือแชทไอดี ไม่ประมวลผลต่อ
-    if (!message?.text || !message?.chat?.id) {
+    // หากไม่มีข้อความ รูปภาพ หรือเอกสาร หรือไม่มีแชทไอดี ไม่ประมวลผลต่อ
+    if ((!message?.text && !message?.photo && !message?.document) || !message?.chat?.id) {
       return res.status(200).json({ ok: true });
     }
 
     const chatId = message.chat.id;
-    const rawText = message.text.trim();
+    const rawText = (message.text || message.caption || '').trim();
     const userTelegramId = message.from?.id;
 
     // ดักรับคำสั่งหา Chat ID / Group ID ทันทีเพื่อความสะดวกของคุณครู
@@ -1822,7 +1884,6 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       } else if (activeState.action === 'awaiting_report_text') {
         const { assignment_id } = activeState.context || {};
-        await supabase.from('line_action_states').delete().eq('id', activeState.id);
 
         const { data: assign, error: assignErr } = await supabase
           .from('doc_assignments')
@@ -1831,36 +1892,79 @@ export default async function handler(req: any, res: any) {
           .single();
 
         if (assignErr || !assign) {
+          await supabase.from('line_action_states').delete().eq('id', activeState.id);
           await sendTelegramMessage(botToken, chatId, '❌ ไม่พบข้อมูลการมอบหมายงานนี้ในระบบค่ะ');
           return res.status(200).json({ ok: true });
         }
 
-        // อัปเดตสถานะเป็น completed และบันทึกรายงานผล
+        // ดึงรายการไฟล์ที่มีอยู่เดิม
+        let reportFileUrls: string[] = [];
+        if (Array.isArray(assign.report_file_urls)) {
+          reportFileUrls = [...assign.report_file_urls];
+        } else if (typeof assign.report_file_urls === 'string') {
+          try { reportFileUrls = JSON.parse(assign.report_file_urls); } catch {}
+        }
+
+        // ตรวจสอบว่ามีการแนบรูปภาพหรือเอกสารมาในข้อความหรือไม่
+        let newFileUrl = '';
+        if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
+          const largestPhoto = message.photo[message.photo.length - 1];
+          newFileUrl = await uploadTelegramFileToSupabase(botToken, largestPhoto.file_id, 'jpg', supabase);
+        } else if (message.document) {
+          const fileExt = message.document.file_name?.split('.').pop() || 'file';
+          newFileUrl = await uploadTelegramFileToSupabase(botToken, message.document.file_id, fileExt, supabase);
+        }
+
+        if (newFileUrl) {
+          if (reportFileUrls.length >= 5) {
+            await sendTelegramMessage(botToken, chatId, '⚠️ งานนี้บันทึกไฟล์แนบครบ 5 ไฟล์แล้วค่ะ ไม่สามารถเพิ่มไฟล์อีกได้');
+          } else {
+            reportFileUrls.push(newFileUrl);
+          }
+        }
+
+        let finalReportText = rawText;
+        if (!finalReportText) {
+          finalReportText = assign.staff_report || 'แนบไฟล์หลักฐานผลการปฏิบัติงาน';
+        }
+
+        // อัปเดตสถานะเป็น completed และบันทึกรายงานผลพร้อม URL ไฟล์แนบ
         await supabase
           .from('doc_assignments')
           .update({
             status: 'completed',
-            staff_report: rawText,
+            staff_report: finalReportText,
+            report_file_urls: reportFileUrls,
             reported_at: new Date().toISOString()
           })
           .eq('id', assignment_id);
 
+        // ลบ active state เมื่อทำรายการสำเร็จ
+        await supabase.from('line_action_states').delete().eq('id', activeState.id);
+
+        const attachInfo = reportFileUrls.length > 0 ? `\n📁 แนบไฟล์หลักฐานรวม ${reportFileUrls.length}/5 ไฟล์` : '';
         await sendTelegramMessage(
           botToken,
           chatId,
-          `✅ บันทึกคำรายงานผลและส่งมอบงานเรื่อง <b>"${assign.incoming_docs?.subject}"</b> เสนอผู้อำนวยการเรียบร้อยแล้วค่ะ ขอบคุณมากนะคะคุณครู 🌸`
+          `✅ บันทึกคำรายงานผลและส่งมอบงานเรื่อง <b>"${assign.incoming_docs?.subject}"</b> เสนอผู้อำนวยการเรียบร้อยแล้วค่ะ${attachInfo} ขอบคุณมากนะคะคุณครู 🌸`
         );
 
         // ค้นหา ผอ. โรงเรียนเพื่อส่งรายงาน
         const { data: directors } = await supabase
           .from('profiles')
           .select('telegram_chat_id')
-          .eq('role', 'director')
-          ;
+          .eq('role', 'director');
 
         const docSubject = assign.incoming_docs?.subject || 'งานที่มอบหมาย';
         const teacherName = profileLinked.display_name || 'คุณครู';
-        const dirMessage = `📊 คุณครู <b>${teacherName}</b> ได้รายงานผลงาน\n<b>เรื่อง</b>: ${docSubject}\n\n<b>ผลงาน</b>: "${rawText}"`;
+
+        let fileLinksText = '';
+        if (reportFileUrls.length > 0) {
+          fileLinksText = '\n\n📁 <b>ไฟล์แนบประกอบรายงาน (' + reportFileUrls.length + ' ไฟล์):</b>\n' +
+            reportFileUrls.map((url: string, i: number) => `  • <a href="${url}">หลักฐาน ${i + 1}</a>`).join('\n');
+        }
+
+        const dirMessage = `📊 คุณครู <b>${teacherName}</b> ได้รายงานผลงาน\n<b>เรื่อง</b>: ${docSubject}\n\n<b>ผลงาน</b>: "${finalReportText}"${fileLinksText}`;
 
         const dirReplyMarkup = {
           inline_keyboard: [
