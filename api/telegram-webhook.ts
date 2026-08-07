@@ -178,6 +178,9 @@ async function callGemini(system: string, user: string, apiKey: string): Promise
       console.error(`[TELEGRAM WEBHOOK] Gemini error with model ${model}:`, e);
     }
   }
+  return "";
+}
+
 /** คำนวณหาเลขลำดับถัดไปอย่างแม่นยำสำหรับ Telegram Webhook */
 async function getAccurateNextSeqInWebhook(
   supabase: any,
