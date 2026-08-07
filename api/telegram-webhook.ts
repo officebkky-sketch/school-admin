@@ -1820,6 +1820,10 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true });
     }
 
+    if (!message || !message.chat) {
+      return res.status(200).json({ ok: true });
+    }
+
     const chatId = message.chat.id;
     const rawText = (message.text || message.caption || '').trim();
     const userTelegramId = message.from?.id;
@@ -1926,11 +1930,13 @@ export default async function handler(req: any, res: any) {
       .maybeSingle();
 
     if (activeState) {
-      if (activeState.action === 'awaiting_assign_instruction') {
+      if (activeState.action === 'awaiting_assign_instruction' || activeState.action === 'tg_assign_flow') {
         const { doc_id, teacher_id } = activeState.context || {};
-        await supabase.from('line_action_states').delete().eq('id', activeState.id);
-        await executeDocAssignment(doc_id, teacher_id, rawText, botToken, chatId, profileLinked, supabase);
-        return res.status(200).json({ ok: true });
+        if (doc_id && teacher_id) {
+          await supabase.from('line_action_states').delete().eq('id', activeState.id);
+          await executeDocAssignment(doc_id, teacher_id, rawText, botToken, chatId, profileLinked, supabase);
+          return res.status(200).json({ ok: true });
+        }
       } else if (activeState.action === 'awaiting_report_text') {
         const { assignment_id } = activeState.context || {};
 
