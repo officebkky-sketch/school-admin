@@ -181,6 +181,55 @@ async function callGemini(system: string, user: string, apiKey: string): Promise
   return "";
 }
 
+/** คำนวณหาเลขลำดับถัดไปอย่างแม่นยำสำหรับ Telegram Webhook */
+async function getAccurateNextSeqInWebhook(
+  supabase: any,
+  tableName: 'incoming_docs' | 'outgoing_docs' | 'memos' | 'orders',
+  docYear: number,
+  startingSeq: number = 1
+): Promise<number> {
+  try {
+    let numberColumn = 'doc_number';
+    if (tableName === 'memos') numberColumn = 'memo_number';
+    if (tableName === 'orders') numberColumn = 'order_number';
+
+    const { data: docs } = await supabase
+      .from(tableName)
+      .select(`doc_sequence, ${numberColumn}`)
+      .eq('doc_year', docYear);
+
+    let maxNum = 0;
+
+    if (docs && docs.length > 0) {
+      docs.forEach((item: any) => {
+        if (item.doc_sequence !== null && item.doc_sequence !== undefined) {
+          const seqVal = Number(item.doc_sequence);
+          if (!isNaN(seqVal) && seqVal > maxNum) maxNum = seqVal;
+        }
+
+        const strVal = item[numberColumn];
+        if (strVal && typeof strVal === 'string') {
+          const matches = strVal.match(/(\d+)/g);
+          if (matches && matches.length > 0) {
+            matches.forEach((numStr: string) => {
+              const parsed = parseInt(numStr, 10);
+              if (!isNaN(parsed) && parsed !== docYear && parsed < 2000) {
+                if (parsed > maxNum) maxNum = parsed;
+              }
+            });
+          }
+        }
+      });
+    }
+
+    const nextSeq = maxNum + 1;
+    return Math.max(nextSeq, startingSeq > 0 ? startingSeq : 1);
+  } catch (err) {
+    console.error('[docSequence Webhook] Error:', err);
+    return startingSeq > 0 ? startingSeq : 1;
+  }
+}
+
 /** แยกชั้นเรียนจากข้อความ เช่น ป.1, อ.2 */
 function extractClassLevel(text: string): string | null {
   const cleaned = text.replace(/\s+/g, '');
@@ -982,7 +1031,7 @@ export default async function handler(req: any, res: any) {
     // --- 2. ดึงข้อมูลทั้งหมดจากตาราง settings (ซึ่งมีเพียงแถวเดียวสำหรับโครงการโรงเรียนนี้) ---
     const { data: settings, error: settingsErr } = await supabase
       .from('settings')
-      .select('school_name, telegram_bot_token, telegram_bot_username, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year')
+      .select('school_name, telegram_bot_token, telegram_bot_username, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year, school_doc_prefix, start_incoming_seq, start_outgoing_seq, start_memo_seq, start_order_seq')
       .single();
 
     if (settingsErr || !settings?.telegram_bot_token) {
@@ -2117,6 +2166,237 @@ export default async function handler(req: any, res: any) {
             );
           }
         }
+        return res.status(200).json({ ok: true });
+      }
+    }
+
+    // ── 6. คำสั่งการขอเลขหนังสือ และการรับหนังสือผ่าน Telegram ──
+    const docYearNum = parseInt(currentYear, 10) || (new Date().getFullYear() + 543);
+    const textTrimmed = (rawText || '').trim();
+
+    if (textTrimmed.startsWith('/ขอเลข') || textTrimmed.startsWith('/เช็คเลขจอง') || textTrimmed.startsWith('/แนบเอกสาร')) {
+      if (textTrimmed.startsWith('/เช็คเลขจอง')) {
+        const [memoRes, outRes, ordRes, incRes] = await Promise.all([
+          supabase.from('memos').select('memo_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true),
+          supabase.from('outgoing_docs').select('doc_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true),
+          supabase.from('orders').select('order_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true),
+          supabase.from('incoming_docs').select('doc_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true)
+        ]);
+
+        const list: string[] = [];
+        (memoRes.data || []).forEach(m => list.push(`• <b>บันทึกข้อความ</b>: <code>${m.memo_number}</code> - ${m.subject}`));
+        (outRes.data || []).forEach(o => list.push(`• <b>หนังสือส่ง</b>: <code>${o.doc_number}</code> - ${o.subject}`));
+        (ordRes.data || []).forEach(r => list.push(`• <b>คำสั่งโรงเรียน</b>: <code>${r.order_number}</code> - ${r.subject}`));
+        (incRes.data || []).forEach(i => list.push(`• <b>หนังสือรับ</b>: <code>${i.doc_number}</code> - ${i.subject}`));
+
+        if (list.length === 0) {
+          await sendTelegramMessage(botToken, chatId, `🎉 คุณครู <b>${profileLinked.display_name || ''}</b> ไม่มีรายการเลขหนังสือที่จองค้างไว้เลยค่ะ 🌸`);
+        } else {
+          const msgText = `📑 <b>รายการเลขหนังสือที่จองไว้ (รอแนบไฟล์เอกสาร) รวม ${list.length} รายการ:</b>\n\n${list.join('\n')}\n\n💡 <i>หากต้องการแนบไฟล์ ให้ส่งไฟล์ PDF/รูปภาพ มาในแชทนี้แล้วพิมพ์ <code>/แนบเอกสาร [เลขที่]</code> ได้เลยค่ะ</i>`;
+          await sendTelegramMessage(botToken, chatId, msgText);
+        }
+        return res.status(200).json({ ok: true });
+      }
+
+      if (textTrimmed.startsWith('/ขอเลขบันทึก') || textTrimmed === '/ขอเลข' || textTrimmed.startsWith('/ขอเลข ')) {
+        let subject = textTrimmed.replace(/^\/(ขอเลขบันทึก|ขอเลข)\s*/, '').trim();
+        if (!subject) subject = 'ขอจองเลขบันทึกข้อความฉุกเฉิน';
+
+        const startingSeq = settings.start_memo_seq || 1;
+        const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'memos', docYearNum, startingSeq);
+        const fullNumber = `ศธ 04153/ว ${nextSeq}`;
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const { error } = await supabase.from('memos').insert([{
+          memo_number: fullNumber,
+          subject: subject,
+          requester: profileLinked.display_name,
+          memo_date: todayStr,
+          doc_year: docYearNum,
+          doc_sequence: nextSeq,
+          status: 'reserved',
+          is_reserved: true,
+          reserved_by_telegram_id: String(userTelegramId),
+          reserved_by_name: profileLinked.display_name
+        }]);
+
+        if (error) {
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขบันทึกข้อความได้: ${error.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const msg = `✅ <b>ขอเลขบันทึกข้อความสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่บันทึกข้อความ:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n👤 <b>ผู้ขอ:</b> ${profileLinked.display_name}\n📅 <b>วันที่:</b> ${new Date().toLocaleDateString('th-TH')}\n\n💡 <i>คุณครูสามารถนำเลขนี้ไปพิมพ์ใส่เอกสารได้ทันที เมื่อเอกสารเสร็จแล้ว สามารถส่งไฟล์ PDF มาในแชทนี้แล้วพิมพ์ <code>/แนบเอกสาร ${nextSeq}</code> หรือแนบผ่านหน้าเว็บโรงเรียนได้ตลอดเวลาค่ะ 🌸</i>`;
+        await sendTelegramMessage(botToken, chatId, msg);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (textTrimmed.startsWith('/ขอเลขส่ง')) {
+        let payloadText = textTrimmed.replace(/^\/ขอเลขส่ง\s*/, '').trim();
+        let subject = payloadText;
+        let toAgency = 'ไม่ระบุ';
+
+        if (payloadText.includes(' ถึง ')) {
+          const parts = payloadText.split(' ถึง ');
+          subject = parts[0].trim();
+          toAgency = parts[1].trim();
+        }
+
+        if (!subject) subject = 'ขอจองเลขหนังสือส่งออกฉุกเฉิน';
+
+        const startingSeq = settings.start_outgoing_seq || 1;
+        const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'outgoing_docs', docYearNum, startingSeq);
+        const prefix = settings.school_doc_prefix || 'ศธ 04225.016/';
+        const fullNumber = `${prefix}${nextSeq}`;
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const { error } = await supabase.from('outgoing_docs').insert([{
+          doc_number: fullNumber,
+          subject: subject,
+          to_agency: toAgency,
+          from_agency: settings.school_name || 'โรงเรียน',
+          doc_date: todayStr,
+          sender_name: profileLinked.display_name,
+          doc_year: docYearNum,
+          doc_sequence: nextSeq,
+          status: 'reserved',
+          is_reserved: true,
+          reserved_by_telegram_id: String(userTelegramId),
+          reserved_by_name: profileLinked.display_name
+        }]);
+
+        if (error) {
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขหนังสือส่งได้: ${error.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const msg = `✅ <b>ขอเลขหนังสือส่งสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่หนังสือส่ง:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n🏢 <b>ส่งถึง:</b> ${toAgency}\n👤 <b>ผู้ขอ:</b> ${profileLinked.display_name}\n\n💡 <i>นำเลขไปใช้พิมพ์เอกสารได้ทันที เมื่อพิมพ์เสร็จ สามารถแนบไฟล์ย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+        await sendTelegramMessage(botToken, chatId, msg);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (textTrimmed.startsWith('/ขอเลขคำสั่ง')) {
+        let subject = textTrimmed.replace(/^\/ขอเลขคำสั่ง\s*/, '').trim();
+        if (!subject) subject = 'ขอจองเลขคำสั่งโรงเรียนฉุกเฉิน';
+
+        const startingSeq = settings.start_order_seq || 1;
+        const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'orders', docYearNum, startingSeq);
+        const fullNumber = `${nextSeq}/${docYearNum}`;
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const { error } = await supabase.from('orders').insert([{
+          order_number: fullNumber,
+          subject: subject,
+          issuer: settings.school_name || 'โรงเรียน',
+          order_date: todayStr,
+          doc_year: docYearNum,
+          doc_sequence: nextSeq,
+          status: 'reserved',
+          is_reserved: true,
+          reserved_by_telegram_id: String(userTelegramId),
+          reserved_by_name: profileLinked.display_name
+        }]);
+
+        if (error) {
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขคำสั่งได้: ${error.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const msg = `✅ <b>ขอเลขคำสั่งโรงเรียนสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>คำสั่งโรงเรียนที่:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n👤 <b>ผู้ขอ:</b> ${profileLinked.display_name}\n\n💡 <i>นำเลขไปใช้พิมพ์เอกสารคำสั่งได้ทันทีค่ะ 🌸</i>`;
+        await sendTelegramMessage(botToken, chatId, msg);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (textTrimmed.startsWith('/ขอเลขรับ')) {
+        let payloadText = textTrimmed.replace(/^\/ขอเลขรับ\s*/, '').trim();
+        let subject = payloadText;
+        let fromAgency = 'ไม่ระบุ';
+
+        if (payloadText.includes(' จาก ')) {
+          const parts = payloadText.split(' จาก ');
+          subject = parts[0].trim();
+          fromAgency = parts[1].trim();
+        }
+
+        if (!subject) subject = 'ขอจองเลขลงรับเอกสารฉุกเฉิน';
+
+        const startingSeq = settings.start_incoming_seq || 1;
+        const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'incoming_docs', docYearNum, startingSeq);
+        const fullNumber = nextSeq.toString();
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const { error } = await supabase.from('incoming_docs').insert([{
+          doc_number: fullNumber,
+          subject: subject,
+          from_agency: fromAgency,
+          doc_date: todayStr,
+          doc_year: docYearNum,
+          doc_sequence: nextSeq,
+          status: 'reserved',
+          is_reserved: true,
+          reserved_by_telegram_id: String(userTelegramId),
+          reserved_by_name: profileLinked.display_name
+        }]);
+
+        if (error) {
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขรับได้: ${error.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const msg = `✅ <b>ขอเลขลงรับเอกสารสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขรับที่:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n🏢 <b>จาก:</b> ${fromAgency}\n👤 <b>ผู้ลงรับ:</b> ${profileLinked.display_name}\n\n💡 <i>เลขรับถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+        await sendTelegramMessage(botToken, chatId, msg);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (textTrimmed.startsWith('/แนบเอกสาร')) {
+        const targetSeqStr = textTrimmed.replace(/^\/แนบเอกสาร\s*/, '').trim();
+        const targetSeq = parseInt(targetSeqStr, 10);
+
+        let uploadedUrl = '';
+        if (message.document) {
+          const ext = message.document.file_name?.split('.').pop() || 'pdf';
+          uploadedUrl = await uploadTelegramFileToSupabase(botToken, message.document.file_id, ext, supabase, settings);
+        } else if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
+          const largest = message.photo[message.photo.length - 1];
+          uploadedUrl = await uploadTelegramFileToSupabase(botToken, largest.file_id, 'jpg', supabase, settings);
+        }
+
+        if (!uploadedUrl) {
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาส่งไฟล์ PDF หรือรูปภาพเอกสารมาพร้อมกับพิมพ์ <code>/แนบเอกสาร [เลขที่]</code> ด้วยนะคะ 🌸`);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (isNaN(targetSeq)) {
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุตัวเลขลำดับที่ต้องการแนบ เช่น <code>/แนบเอกสาร 154</code> ค่ะ`);
+          return res.status(200).json({ ok: true });
+        }
+
+        let matchedTable = '';
+        let matchedId = '';
+
+        const [memos, outg, ords, incs] = await Promise.all([
+          supabase.from('memos').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle(),
+          supabase.from('outgoing_docs').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle(),
+          supabase.from('orders').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle(),
+          supabase.from('incoming_docs').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle()
+        ]);
+
+        if (memos.data) { matchedTable = 'memos'; matchedId = memos.data.id; }
+        else if (outg.data) { matchedTable = 'outgoing_docs'; matchedId = outg.data.id; }
+        else if (ords.data) { matchedTable = 'orders'; matchedId = ords.data.id; }
+        else if (incs.data) { matchedTable = 'incoming_docs'; matchedId = incs.data.id; }
+
+        if (!matchedTable || !matchedId) {
+          await sendTelegramMessage(botToken, chatId, `❌ ไม่พบรายการจองเลขลำดับที่ <b>${targetSeq}</b> ในระบบค่ะ กรุณาเช็คจาก <code>/เช็คเลขจอง</code> อีกครั้งค่ะ`);
+          return res.status(200).json({ ok: true });
+        }
+
+        await supabase.from(matchedTable).update({
+          file_url: uploadedUrl,
+          is_reserved: false,
+          status: 'pending'
+        }).eq('id', matchedId);
+
+        await sendTelegramMessage(botToken, chatId, `🎉 <b>แนบไฟล์เอกสารย้อนหลังสำเร็จ!</b>\n\nอัปเดตไฟล์แนบใส่เรคคอร์ดเลขลำดับ <b>${targetSeq}</b> และเปลี่ยนสถานะเป็นสมบูรณ์เรียบร้อยแล้วค่ะ 🌸✨`);
         return res.status(200).json({ ok: true });
       }
     }

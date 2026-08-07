@@ -166,7 +166,9 @@ export default function OutgoingDocs() {
       }
     });
     
-    return `${prefix}${maxNum + 1}`;
+    const startSeq = settings?.start_outgoing_seq || 1;
+    const finalNext = Math.max(maxNum + 1, startSeq);
+    return `${prefix}${finalNext}`;
   };
 
   const handleAiDraft = async (incoming: any = null) => {
@@ -925,12 +927,14 @@ ${userDetail}
                   <td className="px-6 py-4 text-sm text-slate-600">{doc.to_agency}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                      doc.status === 'reserved' || doc.is_reserved ? 'bg-amber-100 text-amber-800 border border-amber-300' :
                       doc.status === 'approved' ? 'bg-green-100 text-green-700' :
                       doc.status === 'rejected' ? 'bg-red-100 text-red-700' :
                       doc.status === 'sent' ? 'bg-blue-100 text-blue-700' :
                       'bg-amber-100 text-amber-700'
                     }`}>
-                      {doc.status === 'approved' ? 'ลงนามแล้ว' :
+                      {doc.status === 'reserved' || doc.is_reserved ? '🟡 จองเลขแล้ว (รอไฟล์)' :
+                       doc.status === 'approved' ? 'ลงนามแล้ว' :
                        doc.status === 'rejected' ? 'ส่งกลับแก้ไข' :
                        doc.status === 'sent' ? 'ส่งแล้ว' :
                        'รอลงนาม'}

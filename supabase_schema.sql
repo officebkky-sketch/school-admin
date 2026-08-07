@@ -77,6 +77,9 @@ CREATE TABLE incoming_docs (
   ai_score TEXT,
   doc_year INTEGER,
   doc_sequence INTEGER,
+  is_reserved BOOLEAN DEFAULT false,
+  reserved_by_telegram_id TEXT,
+  reserved_by_name TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -97,6 +100,9 @@ CREATE TABLE outgoing_docs (
   status TEXT DEFAULT 'pending',
   doc_year INTEGER,
   doc_sequence INTEGER,
+  is_reserved BOOLEAN DEFAULT false,
+  reserved_by_telegram_id TEXT,
+  reserved_by_name TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -114,6 +120,9 @@ CREATE TABLE orders (
   status TEXT DEFAULT 'pending',
   doc_year INTEGER,
   doc_sequence INTEGER,
+  is_reserved BOOLEAN DEFAULT false,
+  reserved_by_telegram_id TEXT,
+  reserved_by_name TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -133,6 +142,9 @@ CREATE TABLE memos (
   status TEXT DEFAULT 'pending',
   doc_year INTEGER,
   doc_sequence INTEGER,
+  is_reserved BOOLEAN DEFAULT false,
+  reserved_by_telegram_id TEXT,
+  reserved_by_name TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users
 );
@@ -215,6 +227,10 @@ CREATE TABLE settings (
   line_group_id TEXT,
   is_line_enabled BOOLEAN DEFAULT true,
   gemini_api_key TEXT,
+  start_incoming_seq INTEGER DEFAULT 1,
+  start_outgoing_seq INTEGER DEFAULT 1,
+  start_memo_seq INTEGER DEFAULT 1,
+  start_order_seq INTEGER DEFAULT 1,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

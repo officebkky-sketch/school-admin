@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { getAccurateNextSequence } from '../lib/docSequence';
 import { uploadFileToDrive, deleteFileFromDrive, uploadToSupabase, deleteFromSupabase } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage, sendBulkFlexCarousel } from '../lib/lineNotify';
@@ -47,14 +48,10 @@ export default function IncomingDocs() {
     setIsModalOpen(true);
     const currentYear = new Date().getFullYear() + 543;
     try {
-      const { data: seqData } = await supabase
-        .from('incoming_docs')
-        .select('doc_sequence')
-        .eq('doc_year', currentYear)
-        .order('doc_sequence', { ascending: false })
-        .limit(1);
-      
-      const nextSeq = (seqData && seqData.length > 0) ? (Number(seqData[0].doc_sequence) + 1) : 1;
+      const { data: setRes } = await supabase.from('settings').select('start_incoming_seq').limit(1).maybeSingle();
+      const startSeq = setRes?.start_incoming_seq || 1;
+      const nextSeq = await getAccurateNextSequence(supabase, 'incoming_docs', currentYear, startSeq);
+
       setFormData(prev => ({
         ...prev,
         doc_number: nextSeq.toString(),
@@ -95,6 +92,10 @@ export default function IncomingDocs() {
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isHolding, setIsHolding] = useState(false);
   const [selectedHoldingIds, setSelectedHoldingIds] = useState<string[]>([]);
+  const [isReserveMode, setIsReserveMode] = useState(false);
+  const [isAttachModalOpen, setIsAttachModalOpen] = useState(false);
+  const [selectedDocToAttach, setSelectedDocToAttach] = useState<any>(null);
+  const [attachFile, setAttachFile] = useState<File | null>(null);
 
   useEffect(() => { 
     fetchDocs(); 
@@ -334,9 +335,40 @@ export default function IncomingDocs() {
       if (error) throw error;
       fetchDocs();
     } catch (err: any) {
-      alert('ลบไม่สำเร็จ: ' + err.message);
     }
   }
+
+  const handleAttachFileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDocToAttach || !attachFile) {
+      alert('กรุณาเลือกไฟล์เอกสารที่ต้องการแนบ');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const ext = attachFile.name.split('.').pop() || 'pdf';
+      const pathStr = `doc_attached_${Date.now()}.${ext}`;
+      const file_url = await uploadToSupabase(attachFile, 'incoming', pathStr);
+
+      const { error } = await supabase.from('incoming_docs').update({
+        file_url: file_url,
+        is_reserved: false,
+        status: 'pending'
+      }).eq('id', selectedDocToAttach.id);
+
+      if (error) throw error;
+
+      alert('แนบไฟล์เอกสารย้อนหลังเรียบร้อยแล้ว');
+      setIsAttachModalOpen(false);
+      setSelectedDocToAttach(null);
+      setAttachFile(null);
+      fetchDocs();
+    } catch (err: any) {
+      alert('แนบไฟล์ไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -842,7 +874,12 @@ export default function IncomingDocs() {
                     <p className="text-sm font-medium text-slate-700">{doc.subject}</p>
                     <div className="flex items-center gap-2">
                       <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">{doc.from_agency}</p>
-                      {doc.status === 'pending' && (
+                      {(doc.status === 'reserved' || doc.is_reserved) && (
+                        <span className="flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200" title="ขอจองเลขไว้ผ่าน Telegram (ยังไม่มีไฟล์เอกสาร)">
+                          🟡 จองเลขแล้ว (รอไฟล์)
+                        </span>
+                      )}
+                      {doc.status === 'pending' && !doc.is_reserved && (
                         <span className="flex items-center gap-1 text-[9px] font-medium text-red-500 bg-red-50/50 px-1.5 py-0.5 rounded-sm">
                           <div className="w-1 h-1 bg-red-400 rounded-full"></div>
                           รอ ผอ. เกษียณ
@@ -917,6 +954,11 @@ export default function IncomingDocs() {
                           <UserCheck size={14} /> มอบหมายงาน
                         </button>
                       )}
+                      {(doc.is_reserved || doc.status === 'reserved') && (
+                        <button onClick={() => { setSelectedDocToAttach(doc); setIsAttachModalOpen(true); }} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl transition-all font-bold text-xs flex items-center gap-1 shadow-xs" title="แนบไฟล์เอกสารย้อนหลัง">
+                          <Paperclip size={14} /> แนบไฟล์
+                        </button>
+                      )}
                       {isAdmin && (
                         <button onClick={() => handleDelete(doc.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors" title="ลบข้อมูล">
                           <Trash2 size={18} />
@@ -934,6 +976,21 @@ export default function IncomingDocs() {
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="ลงรับหนังสือใหม่">
         <form onSubmit={handleSave} className="space-y-6">
+          <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={isReserveMode} 
+                onChange={e => setIsReserveMode(e.target.checked)} 
+                className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500"
+              />
+              <div>
+                <span className="text-xs font-bold text-amber-900 block">🟡 จองเลขไว้ก่อน (ยังไม่มีไฟล์เอกสาร)</span>
+                <span className="text-[10px] font-medium text-amber-700 block">เลือกหากต้องการขอเลขไว้ล่วงหน้าเพื่อนำไปพิมพ์เอกสาร สามารถแนบไฟล์ทีหลังได้</span>
+              </div>
+            </label>
+          </div>
+
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5 col-span-1">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เลขที่รับ</label>
@@ -1074,6 +1131,43 @@ export default function IncomingDocs() {
             {isSaving ? <Loader2 className="animate-spin" /> : <Send />} ยืนยันเกษียณและส่งเข้า Google Drive
           </button>
           <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest">ระบบจะนำไฟล์จากที่พักไฟล์มาประทับตราและส่งเข้า Drive อัตโนมัติ</p>
+        </form>
+      </Modal>
+
+      <Modal isOpen={isAttachModalOpen} onClose={() => setIsAttachModalOpen(false)} title="แนบไฟล์เอกสารย้อนหลัง">
+        <form onSubmit={handleAttachFileSubmit} className="space-y-4 text-slate-700">
+          <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 space-y-2">
+            <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">รายละเอียดการจองเลข</h4>
+            <p className="text-sm font-bold text-slate-800">เลขที่รับ: {selectedDocToAttach?.doc_number}</p>
+            <p className="text-xs text-slate-600">เรื่อง: {selectedDocToAttach?.subject}</p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-600">เลือกไฟล์เอกสาร (PDF หรือรูปภาพ)</label>
+            <input 
+              type="file" 
+              accept=".pdf,image/*"
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl"
+              required
+              onChange={e => setAttachFile(e.target.files?.[0] || null)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button 
+              type="button" 
+              onClick={() => setIsAttachModalOpen(false)} 
+              className="px-4 py-2 bg-slate-100 font-bold text-slate-600 rounded-xl hover:bg-slate-200"
+            >
+              ยกเลิก
+            </button>
+            <button 
+              type="submit" 
+              disabled={isSaving}
+              className="px-5 py-2 bg-brand-primary text-white font-bold rounded-xl hover:bg-brand-primary/90 flex items-center gap-2"
+            >
+              {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+              บันทึกไฟล์แนบ
+            </button>
+          </div>
         </form>
       </Modal>
     </div>

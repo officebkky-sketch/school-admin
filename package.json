@@ -1,7 +1,7 @@
 {
   "name": "school-admin-v2",
   "private": true,
-  "version": "1.1.17",
+  "version": "1.1.18",
   "description": "ระบบบริหารจัดการข้อมูลโรงเรียน",
   "author": "Phairot มากแก้ว",
   "repository": {

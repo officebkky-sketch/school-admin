@@ -132,7 +132,9 @@ export default function Memos() {
         }
       }
     });
-    return `${maxNum + 1}/${targetYear}`;
+    const startSeq = settings?.start_memo_seq || 1;
+    const finalNext = Math.max(maxNum + 1, startSeq);
+    return `${finalNext}/${targetYear}`;
   };
 
   async function handleStatusUpdate(id: string, newStatus: string) {
@@ -684,7 +686,9 @@ export default function Memos() {
                     <div className="text-[10px] text-slate-400 uppercase font-bold">โดย: {doc.requester}</div>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    {doc.status === 'approved' ? (
+                    {doc.status === 'reserved' || doc.is_reserved ? (
+                      <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1">🟡 จองเลขแล้ว (รอไฟล์)</span>
+                    ) : doc.status === 'approved' ? (
                       <span className="px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><CheckCircle size={12} /> อนุมัติแล้ว</span>
                     ) : doc.status === 'rejected' ? (
                       <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><XCircle size={12} /> ไม่อนุมัติ</span>

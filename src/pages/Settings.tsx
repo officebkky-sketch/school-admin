@@ -39,6 +39,10 @@ export default function Settings() {
     telegram_group_id_proposal: '',
     gemini_api_key: '',
     ai_cowork_api_key: '',
+    start_incoming_seq: 1,
+    start_outgoing_seq: 1,
+    start_memo_seq: 1,
+    start_order_seq: 1,
     custom_sop: ''
   });
 
@@ -334,6 +338,57 @@ export default function Settings() {
                 onChange={e => setSettings({...settings, local_gov_name: e.target.value})}
                 placeholder="สพป.พัทลุง เขต 2 / ทต..."
               />
+            </div>
+
+            <div className="col-span-full space-y-3 pt-4 border-t border-slate-50">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                <CalendarDays size={16} className="text-brand-primary" /> การตั้งค่าเลขหนังสือเริ่มต้นประจำปี (Starting Sequence)
+              </h4>
+              <p className="text-[10px] text-slate-400 font-bold ml-1">
+                กำหนดเลขลำดับเริ่มต้นกรณีเริ่มใช้งานระบบกลางปี หรือต้องการรันเลขต่อจากสมุดสารบรรณเล่มเดิม (หากไม่ระบุจะเริ่มที่ 1)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขรับเริ่มต้น</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    value={settings.start_incoming_seq || 1}
+                    onChange={e => setSettings({...settings, start_incoming_seq: parseInt(e.target.value) || 1})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขส่งเริ่มต้น</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    value={settings.start_outgoing_seq || 1}
+                    onChange={e => setSettings({...settings, start_outgoing_seq: parseInt(e.target.value) || 1})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขบันทึกข้อความเริ่มต้น</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    value={settings.start_memo_seq || 1}
+                    onChange={e => setSettings({...settings, start_memo_seq: parseInt(e.target.value) || 1})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขคำสั่งเริ่มต้น</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    value={settings.start_order_seq || 1}
+                    onChange={e => setSettings({...settings, start_order_seq: parseInt(e.target.value) || 1})}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="col-span-full space-y-4 pt-4 border-t border-slate-50">
