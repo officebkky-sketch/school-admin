@@ -41,6 +41,7 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
     }
     return;
   }
+}
 
 function escapeHtml(str: string): string {
   if (!str) return '';
