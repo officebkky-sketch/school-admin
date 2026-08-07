@@ -1097,8 +1097,8 @@ export default function IncomingDocs() {
             </label>
           </div>
 
-          <button type="submit" disabled={isSaving || !mainFile} className="w-full bg-brand-primary text-white py-4.5 rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50">
-            {isSaving ? <Loader2 className="animate-spin" /> : <Save />} {isHolding ? 'บันทึกและพักรอเสนอ' : 'บันทึกและเสนอ ผอ. ทันที'}
+          <button type="submit" disabled={isSaving || (!isReserveMode && !mainFile)} className="w-full bg-brand-primary text-white py-4.5 rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all disabled:opacity-50">
+            {isSaving ? <Loader2 className="animate-spin" /> : <Save />} {isReserveMode ? 'บันทึกจองเลขหนังสือ' : (isHolding ? 'บันทึกและพักรอเสนอ' : 'บันทึกและเสนอ ผอ. ทันที')}
           </button>
         </form>
 
