@@ -1037,7 +1037,7 @@ export default async function handler(req: any, res: any) {
     // --- 2. ดึงข้อมูลทั้งหมดจากตาราง settings (ซึ่งมีเพียงแถวเดียวสำหรับโครงการโรงเรียนนี้) ---
     const { data: settings, error: settingsErr } = await supabase
       .from('settings')
-      .select('school_name, telegram_bot_token, telegram_bot_username, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year, school_doc_prefix, start_incoming_seq, start_outgoing_seq, start_memo_seq, start_order_seq')
+      .select('*')
       .single();
 
     if (settingsErr || !settings?.telegram_bot_token) {
