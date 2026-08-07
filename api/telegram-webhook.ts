@@ -350,10 +350,11 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
     {
       keys: ['ค้างเกษียณ', 'รอเกษียณ', 'ยังไม่ได้เกษียณ', 'ยังไม่เกษียณ', 'ผอ. ยังไม่ได้ทำ', 'ผอ. ยังไม่สั่ง', 'ค้างผอ', 'หนังสือค้าง', 'รอสั่งการ', 'ค้างสั่งการ'],
       fetch: async () => {
-        let query = supabase.from('incoming_docs').select('id, doc_number, subject, from_agency, doc_date, urgency, status, file_url, attachment_urls');
+        let query = supabase.from('incoming_docs').select('id, doc_sequence, doc_number, subject, from_agency, doc_date, urgency, status, file_url, attachment_urls');
         if (schoolId) query = query;
         query = query.eq('status', 'pending');
-        const { data } = await query.order('doc_date', { ascending: false }).limit(5);
+        // Fix: ใช้ doc_sequence แทน doc_date เพราะ doc_date บางฝนบันทึกเป็น พ.ศ. บางเป็น ค.ศ. ทำให้ sort ผิด
+        const { data } = await query.order('doc_sequence', { ascending: false }).limit(5);
         
         // ดึงจำนวนทั้งหมดเพื่อนำไปโชว์ในคำตอบ
         const { count } = await supabase
@@ -432,20 +433,21 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       keys: ['หนังสือรับ', 'จดหมาย', 'เอกสารรับ', 'หนังสือเข้า', 'ไฟล์แนบ', 'เอกสารแนบ', 'แนบ', 'ไฟล์รับ'],
       fetch: async () => {
         const searchWord = extractDocSearchWord(message);
-        let query = supabase.from('incoming_docs').select('id, status, doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls, doc_assignments(instruction, status, teachers(prefix, first_name, last_name))');
+        let query = supabase.from('incoming_docs').select('id, doc_sequence, status, doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls, doc_assignments(instruction, status, teachers(prefix, first_name, last_name))');
         if (schoolId) query = query;
 
         const filterStr = buildThaiDocOrFilter(searchWord, 'doc_number');
         if (filterStr) query = query.or(filterStr);
-        let { data } = await query.order('doc_date', { ascending: false }).limit(5);
+        // Fix: สั่งตาม doc_sequence เพราะเป็นตัวเลขที่เชื่อถือได้ ไม่สับสนเรื่องปี ค.ศ./ พ.ศ. ใน doc_date
+        let { data } = await query.order('doc_sequence', { ascending: false }).limit(5);
 
         // Fallback: ถ้าไม่พบผลลัพธ์ด้วยคำค้นยาว ให้ทดลองค้นแบบคำย่อย 6 อักขระแรก
         if ((!data || data.length === 0) && searchWord.length > 5) {
           const subKw = searchWord.substring(0, 6);
-          let fbQuery = supabase.from('incoming_docs').select('id, status, doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls, doc_assignments(instruction, status, teachers(prefix, first_name, last_name))')
+          let fbQuery = supabase.from('incoming_docs').select('id, doc_sequence, status, doc_number, subject, from_agency, doc_date, urgency, remark, file_url, attachment_urls, doc_assignments(instruction, status, teachers(prefix, first_name, last_name))')
             .or(`subject.ilike.%${subKw}%,doc_number.ilike.%${subKw}%`);
           if (schoolId) fbQuery = fbQuery;
-          const { data: fbData } = await fbQuery.order('doc_date', { ascending: false }).limit(5);
+          const { data: fbData } = await fbQuery.order('doc_sequence', { ascending: false }).limit(5);
           if (fbData && fbData.length > 0) data = fbData;
         }
 
@@ -457,10 +459,11 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       keys: ['หนังสือส่ง', 'เอกสารส่ง', 'หนังสือออก', 'ไฟล์ส่ง'],
       fetch: async () => {
         const searchWord = extractDocSearchWord(message);
-        let query = supabase.from('outgoing_docs').select('doc_number, subject, to_agency, doc_date, urgency, remark, file_url');
+        let query = supabase.from('outgoing_docs').select('doc_sequence, doc_number, subject, to_agency, doc_date, urgency, remark, file_url');
         if (schoolId) query = query;
         if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,doc_number.ilike.%${searchWord}%`);
-        const { data } = await query.order('doc_date', { ascending: false }).limit(5);
+        // Fix: สั่งตาม doc_sequence เพื่อหลีกปัญหาปีปะปนใน doc_date
+        const { data } = await query.order('doc_sequence', { ascending: false }).limit(5);
         const outWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
         return `ข้อมูลหนังสือส่งล่าสุด: ${JSON.stringify(outWithLinks)}`;
       }
@@ -469,10 +472,11 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       keys: ['คำสั่ง', 'ใบสั่ง', 'ไฟล์คำสั่ง'],
       fetch: async () => {
         const searchWord = extractDocSearchWord(message);
-        let query = supabase.from('orders').select('order_number, subject, issuer, order_date, remark, file_url');
+        let query = supabase.from('orders').select('doc_sequence, order_number, subject, issuer, order_date, remark, file_url');
         if (schoolId) query = query;
         if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,order_number.ilike.%${searchWord}%`);
-        const { data } = await query.order('order_date', { ascending: false }).limit(5);
+        // Fix: สั่งตาม doc_sequence เพื่อหลีกปัญหาปีปะปนใน order_date
+        const { data } = await query.order('doc_sequence', { ascending: false }).limit(5);
         const ordWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
         return `ข้อมูลคำสั่งล่าสุด: ${JSON.stringify(ordWithLinks)}`;
       }
@@ -481,10 +485,11 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
       keys: ['บันทึก', 'เมโม่', 'memo', 'บันทึกข้อความ', 'ไฟล์บันทึก'],
       fetch: async () => {
         const searchWord = extractDocSearchWord(message);
-        let query = supabase.from('memos').select('memo_number, subject, requester, memo_date, urgency, remark, file_url');
+        let query = supabase.from('memos').select('doc_sequence, memo_number, subject, requester, memo_date, urgency, remark, file_url');
         if (schoolId) query = query;
         if (searchWord.length > 0) query = query.or(`subject.ilike.%${searchWord}%,memo_number.ilike.%${searchWord}%`);
-        const { data } = await query.order('memo_date', { ascending: false }).limit(5);
+        // Fix: สั่งตาม doc_sequence เพื่อหลีกปัญหาปีปะปนใน memo_date
+        const { data } = await query.order('doc_sequence', { ascending: false }).limit(5);
         const memoWithLinks = (data || []).map((d: any) => ({ ...d, _links: formatDocLinks(d) }));
         return `ข้อมูลบันทึกข้อความล่าสุด: ${JSON.stringify(memoWithLinks)}`;
       }
