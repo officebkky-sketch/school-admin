@@ -2507,12 +2507,16 @@ export default async function handler(req: any, res: any) {
 
       if (apiKey) {
         // --- โหมด AI อัจฉริยะ (Jarvis Mode V2 with Strict Rules) ---
-        const systemPrompt = `คุณคือ "น้องชบา AI" ผู้ช่วยอัจฉริยะระบบงานธุรการและสารบรรณของ ${settings.school_name || 'โรงเรียน'} (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
+        const systemPrompt = `คุณคือ "น้องชบา" ผู้ช่วยอัจฉริยะระบบงานธุรการและสารบรรณของ ${settings.school_name || 'โรงเรียน'} (ห้ามใช้คำว่า AI Cowork หรือ AI เด็ดขาด)
 ลักษณะนิสัย: สุภาพ อ่อนน้อม ใช้ "ค่ะ/นะคะ" แทนตัวว่า "ชบา" หรือ "หนู" (ห้ามใช้หางเสียง "ครับ" หรือคำพูดเชิงผู้ชายเด็ดขาด)
 คล้ายกับบอท J.A.R.V.I.S. ในไอรอนแมน (ผู้ช่วยสมองกลอัจฉริยะ)
 
+⚠️ กฎภาษา (บังคับสูงสุด):
+- ตอบเป็นภาษาไทยเท่านั้น ห้ามใช้ภาษาอังกฤษในคำตอบเด็ดขาด แม้แต่คำเดียว
+- ห้ามเขียน Thinking / Reasoning / Planning หรือขั้นตอนการคิดเป็นภาษาอังกฤษก่อนตอบ
+
 กฎเหล็ก:
-- ตอบเฉพาะ "คำตอบสุดท้ายที่จะส่งให้ครู" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น
+- ตอบเฉพาะ "คำตอบสุดท้ายที่จะส่งให้ครู" โดยใส่ไว้ในแท็ก <ans>...</ans> เท่านั้น ห้ามมีข้อความใดๆ นอกแท็ก <ans> เด็ดขาด
 - ห้ามพิมพ์ขั้นตอนการคิด (Thinking), ห้ามทวนคำถาม, ห้ามเกริ่นนำใดๆ นอกแท็ก <ans>
 - ห้ามจินตนาการ ห้ามสร้าง คาดเดา หรือสมมติข้อมูลใดๆ เช่น ชื่อคน ชื่อโครงการ วันที่ หรือตัวเลขขึ้นมาเองโดยเด็ดขาด หากข้อมูลไม่อยู่ใน "ข้อมูลฐานข้อมูลโรงเรียน" ที่ส่งมา ให้ตอบอย่างสุภาพว่าไม่พบข้อมูลดังกล่าวในระบบ
 - ให้ใช้รูปแบบ HTML สำหรับ Telegram ในการจัดรูปแบบข้อความเท่านั้น **ห้ามใช้รูปแบบ Markdown (เช่น ห้ามใช้ ** หรือ [ข้อความ](ลิงก์) เด็ดขาด)**:
@@ -2551,7 +2555,18 @@ export default async function handler(req: any, res: any) {
                 content = content.replace(/<\/?a(n(s)?)?$/i, '').trim();
                 finalAnswer = content;
               } else {
-                finalAnswer = rawResponse;
+                // Fix: ไม่มีแท็ก <ans> เลย (Gemini ส่ง thinking ภาษาอังกฤษออกมา)
+                // ตัดทุก paragraph ที่มีแต่ตัวอักษร ASCII (EN) ออก เก็บเฉพาะบรรทัดที่มีภาษาไทย
+                const lines = rawResponse.split('\n');
+                const thaiLines = lines.filter(line => /[\u0E00-\u0E7F]/.test(line));
+                if (thaiLines.length > 0) {
+                  finalAnswer = thaiLines.join('\n').trim();
+                  console.warn('[TELEGRAM WEBHOOK] No <ans> tag found — extracted Thai-only lines from raw response.');
+                } else {
+                  // ไม่มีแม้แต่ภาษาไทย — ให้ Gemini ลองใหม่หรือตอบ default
+                  console.error('[TELEGRAM WEBHOOK] No <ans> tag and no Thai text in Gemini response. Raw:', rawResponse.substring(0, 300));
+                  finalAnswer = '';
+                }
               }
             }
 
