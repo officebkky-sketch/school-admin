@@ -2480,6 +2480,42 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true });
     }
 
+    // เช็คว่าเป็นคำสั่งด่วนค้นหาหนังสือรอเกษียณ / รอเสนอผู้บริหารหรือไม่
+    const isProposalQuery = ['รอเกษียณ', 'ขอหนังสือรอเกษียณ', 'หนังสือรอเกษียณ', 'ค้างเกษียณ', 'รอเสนอ', 'เสนอหนังสือ', 'หนังสือรอเสนอ'].some(k => cleanedText.includes(k));
+    if (isProposalQuery) {
+      const { data: pendingDocs } = await supabase
+        .from('incoming_docs')
+        .select('id, doc_number, subject, from_agency, file_url, created_at')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (!pendingDocs || pendingDocs.length === 0) {
+        await sendTelegramMessage(
+          botToken,
+          chatId,
+          `🎉 ขณะนี้ไม่มีหนังสือราชการที่อยู่ระหว่างรอเสนอเกษียณสั่งการค้างอยู่เลยค่ะ 🌸`
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      let msgText = `📥 <b>รายการหนังสือรับที่อยู่ระหว่างรอเสนอเกษียณสั่งการ (${pendingDocs.length} รายการ)</b>\n\n`;
+      const inlineKeyboard: any[] = [];
+
+      pendingDocs.forEach((doc: any, idx: number) => {
+        msgText += `<b>${idx + 1}. ${doc.subject}</b>\n`;
+        msgText += `• <b>เลขที่รับ</b>: <code>${doc.doc_number}</code>\n`;
+        msgText += `• <b>จาก</b>: ${doc.from_agency || 'ไม่ระบุ'}\n\n`;
+
+        inlineKeyboard.push([
+          { text: `✍️ เกษียณสั่งการ (${doc.doc_number})`, callback_data: `action=start_assign&id=${doc.id}` }
+        ]);
+      });
+
+      await sendTelegramMessage(botToken, chatId, msgText, { inline_keyboard: inlineKeyboard });
+      return res.status(200).json({ ok: true });
+    }
+
     try {
       // 1. Smart Data Fetch — ดึงข้อมูลจริงจากฐานข้อมูลตามหมวดคำถาม
       const contextData = await smartFetchContext(cleanedText, currentYear, supabase, schoolId, profileLinked);
