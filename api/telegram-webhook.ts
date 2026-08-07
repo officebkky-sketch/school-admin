@@ -2204,7 +2204,7 @@ export default async function handler(req: any, res: any) {
 
         const startingSeq = settings.start_memo_seq || 1;
         const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'memos', docYearNum, startingSeq);
-        const fullNumber = `ศธ 04153/ว ${nextSeq}`;
+        const fullNumber = `${nextSeq}/${docYearNum}`;
         const todayStr = new Date().toISOString().split('T')[0];
 
         const { error } = await supabase.from('memos').insert([{
