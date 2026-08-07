@@ -80,6 +80,16 @@ async function sendTelegramMessageSingle(botToken: string, chatId: number, text:
   return resp;
 }
 
+/** ป้องกัน Telegram HTML injection: แปลงสัญลักษณ์พิเศษให้ปลอดภัยก่อนแทรกใน parse_mode HTML */
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 /** อัปโหลดไฟล์จาก Telegram (Photo/Document) ไปยัง Google Drive (และ Supabase Storage เป็นส่วนสำรอง) */
 async function uploadTelegramFileToSupabase(botToken: string, fileId: string, customExt?: string, supabase?: any, settings?: any): Promise<string> {
   try {
@@ -898,9 +908,9 @@ async function executeDocAssignment(
     await supabase.from('line_action_states').delete().eq('user_id', `telegram:${profileTgId}`);
 
     const teacherName = `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}`;
-    await sendTelegramMessage(botToken, chatId, `✅ ทำการเกษียณสั่งการหนังสือเรื่อง "${doc.subject}" และมอบหมายงานให้คุณครู <b>${teacherName}</b> เรียบร้อยแล้วค่ะ 🌸`);
+    await sendTelegramMessage(botToken, chatId, `✅ ทำการเกษียณสั่งการหนังสือเรื่อง "${escapeHtml(doc.subject)}" และมอบหมายงานให้คุณครู <b>${escapeHtml(teacherName)}</b> เรียบร้อยแล้วค่ะ 🌸`);
 
-    const personalMsg = `📌 <b>มีงานมอบหมายใหม่ถึงคุณ</b>\n\n• <b>เรื่อง</b>: ${doc.subject}\n• <b>เลขที่หนังสือ</b>: ${doc.doc_number}\n• <b>คำสั่งการ</b>: ${instruction}\n\n📄 <a href="${finalFileUrl}">เปิดดูต้นฉบับเอกสารสั่งการ</a>`;
+    const personalMsg = `📌 <b>มีงานมอบหมายใหม่ถึงคุณ</b>\n\n• <b>เรื่อง</b>: ${escapeHtml(doc.subject)}\n• <b>เลขที่หนังสือ</b>: ${escapeHtml(doc.doc_number)}\n• <b>คำสั่งการ</b>: ${escapeHtml(instruction)}\n\n📄 <a href="${finalFileUrl}">เปิดดูต้นฉบับเอกสารสั่งการ</a>`;
     const { data: teacherProfile } = await supabase.from('profiles').select('telegram_chat_id').eq('email', teacher.email).maybeSingle();
 
     if (teacherProfile?.telegram_chat_id) {
@@ -1172,7 +1182,7 @@ export default async function handler(req: any, res: any) {
           user_id: `telegram:${userTelegramId}`,
           action: 'tg_assign_flow',
           context: { doc_id: docId },
-          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+          expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() // Fix Bug#6: ขยายเป็น 30 นาที ลด race condition
         }]);
 
         // ดึงรายชื่อคุณครู active ทั้งหมด
@@ -1211,7 +1221,7 @@ export default async function handler(req: any, res: any) {
         await sendTelegramMessage(
           botToken,
           callbackChatId,
-          `🧑‍🏫 กรุณาเลือกคุณครูผู้รับมอบงานสำหรับเอกสารเรื่อง <b>"${doc.subject}"</b> ด้านล่างนี้ค่ะ:`,
+          `🧑‍🏫 กรุณาเลือกคุณครูผู้รับมอบงานสำหรับเอกสารเรื่อง <b>"${escapeHtml(doc.subject)}"</b> ด้านล่างนี้ค่ะ:`,
           { inline_keyboard: inlineKeyboard }
         );
 
@@ -1348,10 +1358,10 @@ export default async function handler(req: any, res: any) {
 
         if (targetGroupId) {
           let broadcastMsg = `📢 <b>ประชาสัมพันธ์ / แจ้งเพื่อทราบ</b>\n\n`;
-          broadcastMsg += `• <b>เรื่อง</b>: ${assign.incoming_docs?.subject || '-'}\n`;
-          broadcastMsg += `• <b>เลขที่หนังสือ</b>: ${assign.incoming_docs?.doc_number || '-'}\n`;
-          broadcastMsg += `• <b>ผู้รับมอบหมาย</b>: ${teacherName}\n`;
-          broadcastMsg += `• <b>คำสั่งการ/การดำเนินการ</b>: ${assign.instruction || 'มอบดำเนินการ'}\n`;
+          broadcastMsg += `• <b>เรื่อง</b>: ${escapeHtml(assign.incoming_docs?.subject || '-')}\n`;
+          broadcastMsg += `• <b>เลขที่หนังสือ</b>: ${escapeHtml(assign.incoming_docs?.doc_number || '-')}\n`;
+          broadcastMsg += `• <b>ผู้รับมอบหมาย</b>: ${escapeHtml(teacherName)}\n`;
+          broadcastMsg += `• <b>คำสั่งการ/การดำเนินการ</b>: ${escapeHtml(assign.instruction || 'มอบดำเนินการ')}\n`;
 
           // ส่งลิงก์ไฟล์หนังสือหลัก
           if (assign.incoming_docs?.file_url) {
@@ -2083,7 +2093,7 @@ export default async function handler(req: any, res: any) {
 
           if (teacherProfile?.telegram_chat_id) {
             const docSubject = assign.incoming_docs?.subject || 'งานที่มอบหมาย';
-            const teacherMsg = `📌 ผอ. มีคำแนะนำ/สั่งการเพิ่มเติม\n<b>เรื่อง</b>: ${docSubject}\n\n<b>คำสั่ง ผอ.</b>: "${rawText}"\n\nรบกวนคุณครูดำเนินการเพิ่มเติม และรายงานผลส่งกลับอีกครั้งเมื่อเสร็จงานนะคะ 🌸`;
+            const teacherMsg = `📌 ผอ. มีคำแนะนำ/สั่งการเพิ่มเติม\n<b>เรื่อง</b>: ${escapeHtml(docSubject)}\n\n<b>คำสั่ง ผอ.</b>: "${escapeHtml(rawText)}"\n\nรบกวนคุณครูดำเนินการเพิ่มเติม และรายงานผลส่งกลับอีกครั้งเมื่อเสร็จงานนะคะ 🌸`;
             
             const teacherReplyMarkup = {
               inline_keyboard: [
@@ -2150,7 +2160,7 @@ export default async function handler(req: any, res: any) {
         await sendTelegramMessage(
           botToken,
           chatId,
-          `✅ ทำการปฏิเสธ/ส่งแก้ไข ${nameString} เรื่อง <b>"${doc.subject}"</b> และส่งเหตุผลคืนคุณครูผู้ร่างเรียบร้อยแล้วค่ะ 🌸`
+          `✅ ทำการปฏิเสธ/ส่งแก้ไข ${nameString} เรื่อง <b>"${escapeHtml(doc.subject)}"</b> และส่งเหตุผลคืนคุณครูผู้ร่างเรียบร้อยแล้วค่ะ 🌸`
         );
 
         // 3. แจ้งเตือนครูผู้ร่าง
@@ -2165,7 +2175,7 @@ export default async function handler(req: any, res: any) {
             await sendTelegramMessage(
               botToken,
               parseInt(creator.telegram_chat_id),
-              `❌ <b>แจ้งเตือนส่งกลับแก้ไขเอกสาร</b>\n\n${nameString} เรื่อง <b>"${doc.subject}"</b> ได้ถูกส่งกลับแก้ไข\n\n💬 <b>เหตุผลของ ผอ.:</b> "${rawText}"\n\nรบกวนคุณครูช่วยตรวจสอบและเข้าไปทำการแก้ไขบนหน้าเว็บโรงเรียนนะคะ 🙇‍♀️🌸`
+              `❌ <b>แจ้งเตือนส่งกลับแก้ไขเอกสาร</b>\n\n${nameString} เรื่อง <b>"${escapeHtml(doc.subject)}"</b> ได้ถูกส่งกลับแก้ไข\n\n💬 <b>เหตุผลของ ผอ.:</b> "${escapeHtml(rawText)}"\n\nรบกวนคุณครูช่วยตรวจสอบและเข้าไปทำการแก้ไขบนหน้าเว็บโรงเรียนนะคะ 🙇‍♀️🌸`
             );
           }
         }
@@ -2596,7 +2606,8 @@ export default async function handler(req: any, res: any) {
                     const docId = idMatch[1];
                     addedIds.add(docId);
                     
-                    const docBlockMatch = contextData.match(new RegExp(`\\{[^\\{]*?"id":"${docId}".*?\\}`));
+                    // Fix Bug#8: ปรับ regex ให้จับ JSON object ที่มี id ตรงตำแหน่งแรก ไม่ข้ามบล็อก
+                    const docBlockMatch = contextData.match(new RegExp(`\\{[^{}]*?"id"\\s*:\\s*"${docId}"[^{}]*?\\}`));
                     if (docBlockMatch && docBlockMatch[0]) {
                       let docNum = '';
                       let status = '';
