@@ -893,7 +893,9 @@ async function executeDocAssignment(
     if (assignErr) throw assignErr;
     const assignment = insertedAssigns?.[0];
 
-    await supabase.from('line_action_states').delete().eq('user_id', `telegram:${profile.id}`);
+    // Fix Bug#1: ใช้ telegram_chat_id จาก profile แทน profile.id (UUID) เพื่อล้าง State ให้ถูก user
+    const profileTgId = profile?.telegram_chat_id || profile?.id;
+    await supabase.from('line_action_states').delete().eq('user_id', `telegram:${profileTgId}`);
 
     const teacherName = `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}`;
     await sendTelegramMessage(botToken, chatId, `✅ ทำการเกษียณสั่งการหนังสือเรื่อง "${doc.subject}" และมอบหมายงานให้คุณครู <b>${teacherName}</b> เรียบร้อยแล้วค่ะ 🌸`);
@@ -1965,7 +1967,9 @@ export default async function handler(req: any, res: any) {
 
         if (newFileUrl) {
           if (reportFileUrls.length >= 5) {
-            await sendTelegramMessage(botToken, chatId, '⚠️ งานนี้บันทึกไฟล์แนบครบ 5 ไฟล์แล้วค่ะ ไม่สามารถเพิ่มไฟล์อีกได้');
+            // Fix Bug#4: return ทันทีเมื่อไฟล์เกิน 5 ไม่ให้โค้ดวิ่งต่อและบันทึกรายงานโดยไม่มีไฟล์
+            await sendTelegramMessage(botToken, chatId, '⚠️ งานนี้บันทึกไฟล์แนบครบ 5 ไฟล์แล้วค่ะ ไม่สามารถเพิ่มไฟล์อีกได้ค่ะ');
+            return res.status(200).json({ ok: true });
           } else {
             reportFileUrls.push(newFileUrl);
           }
@@ -2166,6 +2170,10 @@ export default async function handler(req: any, res: any) {
           }
         }
         return res.status(200).json({ ok: true });
+      } else {
+        // Fix Bug#2 (activeState guard): action ที่ไม่รู้จัก เช่น tg_assign_flow ที่ค้างอยู่
+        // ให้ปล่อยผ่านลงไปสู่ระบบ AI ตอบกลับปกติ ห้ามตัดจบเงียบ
+        console.warn(`[TELEGRAM WEBHOOK] Unhandled activeState action: ${activeState?.action}, falling through to AI response.`);
       }
     }
 
@@ -2411,7 +2419,11 @@ export default async function handler(req: any, res: any) {
 
     // จัดการข้อความสนทนาทั่วไป
     const isGroup = chatId < 0;
-    const botMention = settings.telegram_bot_username ? `@${settings.telegram_bot_username}` : `@${settings.telegram_bot_token?.split(':')[0] || 'ChabaSchoolBot'}`;
+    // Fix Bug#3: fallback botMention ต้องใช้ชื่อ bot จริง ไม่ใช่ตัวเลข Token ID
+    // telegram_bot_username ควรเก็บเฉพาะชื่อ เช่น "ChabaSchoolBot" (ไม่มี @)
+    const botMention = settings?.telegram_bot_username
+      ? `@${settings.telegram_bot_username}`
+      : '@ChabaSchoolBot'; // fallback ชื่อ default ที่ถูกต้อง
     const isMentioned = !isGroup || rawText.includes(botMention) || rawText.includes('ชบา') || rawText.includes('น้องชบา');
 
     if (isGroup && !isMentioned) {
