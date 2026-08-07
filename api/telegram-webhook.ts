@@ -42,7 +42,12 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
     return;
   }
 
-  return sendTelegramMessageSingle(botToken, chatId, text, replyMarkup);
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 /** ฟังก์ชันสำหรับส่งข้อความเดี่ยวของ Telegram */
@@ -2486,7 +2491,7 @@ export default async function handler(req: any, res: any) {
       const { data: pendingDocs } = await supabase
         .from('incoming_docs')
         .select('id, doc_number, subject, from_agency, file_url, created_at')
-        .eq('status', 'pending')
+        .in('status', ['pending', 'waiting_proposal'])
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -2503,12 +2508,16 @@ export default async function handler(req: any, res: any) {
       const inlineKeyboard: any[] = [];
 
       pendingDocs.forEach((doc: any, idx: number) => {
-        msgText += `<b>${idx + 1}. ${doc.subject}</b>\n`;
-        msgText += `• <b>เลขที่รับ</b>: <code>${doc.doc_number}</code>\n`;
-        msgText += `• <b>จาก</b>: ${doc.from_agency || 'ไม่ระบุ'}\n\n`;
+        const safeSubject = escapeHtml(doc.subject);
+        const safeAgency = escapeHtml(doc.from_agency || 'ไม่ระบุ');
+        const safeDocNum = escapeHtml(doc.doc_number || '-');
+
+        msgText += `<b>${idx + 1}. ${safeSubject}</b>\n`;
+        msgText += `• <b>เลขที่รับ</b>: <code>${safeDocNum}</code>\n`;
+        msgText += `• <b>จาก</b>: ${safeAgency}\n\n`;
 
         inlineKeyboard.push([
-          { text: `✍️ เกษียณสั่งการ (${doc.doc_number})`, callback_data: `action=start_assign&id=${doc.id}` }
+          { text: `✍️ เกษียณสั่งการ (เล่มที่ ${idx + 1})`, callback_data: `action=start_assign&id=${doc.id}` }
         ]);
       });
 
