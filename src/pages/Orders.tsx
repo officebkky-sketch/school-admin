@@ -88,14 +88,20 @@ export default function Orders() {
   async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
     try {
-      let query = supabase.from('orders').select('*');
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      let filtered = data || [];
       if (yearToFetch) {
-        query = query.or(`doc_year.eq.${yearToFetch},doc_year.is.null,is_reserved.eq.true,status.eq.reserved`);
+        filtered = filtered.filter(d => d.doc_year === yearToFetch || d.is_reserved || d.status === 'reserved' || !d.doc_year);
       }
-      const { data } = await query.order('created_at', { ascending: false });
-      setDocs(data || []);
+      setDocs(filtered);
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching orders:', e);
     }
     setLoading(false);
   }
