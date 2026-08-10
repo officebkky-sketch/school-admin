@@ -2256,8 +2256,9 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      if (textTrimmed.startsWith('/ขอเลขส่ง')) {
-        const payload = textTrimmed.replace(/^\/ขอเลขส่ง\s*/, '').trim();
+      // รองรับทั้ง /ขอเลขส่ง และ /ขอเลขหนังสือส่ง (alias)
+      if (textTrimmed.startsWith('/ขอเลขส่ง') || textTrimmed.startsWith('/ขอเลขหนังสือส่ง')) {
+        const payload = textTrimmed.replace(/^\/(ขอเลขหนังสือส่ง|ขอเลขส่ง)\s*/, '').trim();
         let subject = payload;
         let toAgency = 'หน่วยงานภายนอก';
 
