@@ -62,7 +62,8 @@ export default async function handler(req: Request): Promise<Response> {
 
   try {
     const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY!;
+    // Fix: ใช้ SUPABASE_SERVICE_ROLE_KEY ให้ตรงกับชื่อที่ตั้งไว้จริงใน Vercel Dashboard
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // ✅ 3. ดึงตั้งค่า Telegram ของโรงเรียน
