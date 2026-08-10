@@ -194,9 +194,19 @@ export default function Settings() {
       
       const { data: existing } = await supabase.from('settings').select('id').maybeSingle();
 
-      const { error } = existing 
+      let { error } = existing 
         ? await supabase.from('settings').update(payload).eq('id', existing.id)
         : await supabase.from('settings').insert([payload]);
+
+      // Fallback: หากตารางยังไม่มีคอลัมน์ school_doc_prefix ใน Supabase DB
+      if (error && error.message.includes('school_doc_prefix')) {
+        console.warn('Column school_doc_prefix not found in DB table settings, attempting save without it...');
+        const { school_doc_prefix, ...payloadWithoutPrefix } = payload as any;
+        const fallbackRes = existing 
+          ? await supabase.from('settings').update(payloadWithoutPrefix).eq('id', existing.id)
+          : await supabase.from('settings').insert([payloadWithoutPrefix]);
+        error = fallbackRes.error;
+      }
 
       if (error) throw error;
 
