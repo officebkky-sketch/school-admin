@@ -351,7 +351,7 @@ export default function Settings() {
 
               <div className="space-y-1.5 pb-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-brand-primary ml-1">
-                  รหัสตัวเลขนำหน้าหนังสือราชการ (School Document Prefix)
+                  รหัสตัวเลขนำหน้าหนังสือส่ง (Outgoing Document Prefix)
                 </label>
                 <input 
                   type="text" 
@@ -361,7 +361,7 @@ export default function Settings() {
                   placeholder="เช่น ศธ 04225.016/ หรือ ศธ 04153/"
                 />
                 <span className="text-[10px] text-slate-400 font-medium ml-1">
-                  * กำหนดค่าตัวเลขหมวดของโรงเรียน เช่น <code>ศธ 04225.016/</code> (ระบบจะนำไปต่อด้วยเลขลำดับ เช่น <code>ศธ 04225.016/175</code>)
+                  * กำหนดค่าตัวเลขหมวดหนังสือส่งของโรงเรียน เช่น <code>ศธ 04225.016/</code> (ระบบจะนำไปสร้างเลขหนังสือส่ง เช่น <code>ศธ 04225.016/175</code>)
                 </span>
               </div>
 
