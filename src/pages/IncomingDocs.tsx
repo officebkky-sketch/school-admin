@@ -320,21 +320,29 @@ export default function IncomingDocs() {
   async function handleDelete(id: string) {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนี้?')) return;
     try {
-      const { data: doc } = await supabase.from('incoming_docs').select('file_url, attachment_urls').eq('id', id).single();
+      const { data: doc } = await supabase.from('incoming_docs').select('file_url, attachment_urls').eq('id', id).maybeSingle();
       if (doc) {
-        if (doc.file_url.includes('drive.google.com')) await deleteFileFromDrive(doc.file_url);
-        else if (doc.file_url.includes('supabase.co')) {
-           const path = doc.file_url.split('/').pop()?.split('?')[0];
-           if (path) await deleteFromSupabase('temp_docs', path);
+        if (doc.file_url && typeof doc.file_url === 'string') {
+          if (doc.file_url.includes('drive.google.com')) await deleteFileFromDrive(doc.file_url);
+          else if (doc.file_url.includes('supabase.co')) {
+             const path = doc.file_url.split('/').pop()?.split('?')[0];
+             if (path) await deleteFromSupabase('temp_docs', path);
+          }
         }
         if (Array.isArray(doc.attachment_urls)) {
-          for (const url of doc.attachment_urls) await deleteFileFromDrive(url);
+          for (const url of doc.attachment_urls) {
+            if (url && typeof url === 'string' && url.includes('drive.google.com')) {
+              await deleteFileFromDrive(url);
+            }
+          }
         }
       }
       const { error } = await supabase.from('incoming_docs').delete().eq('id', id);
       if (error) throw error;
+      alert('ลบข้อมูลเรียบร้อยแล้ว');
       fetchDocs();
     } catch (err: any) {
+      alert('ลบไม่สำเร็จ: ' + err.message);
     }
   }
 
