@@ -17,7 +17,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Bot
+  Bot,
+  Paperclip
 } from 'lucide-react';
 import garuda15mm from '../assets/saraban/garuda-1.5cm.png';
 
@@ -36,6 +37,11 @@ export default function Memos() {
   const [directorOpinion, setDirectorOpinion] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<any>(null);
+
+  const [isAttachModalOpen, setIsAttachModalOpen] = useState(false);
+  const [selectedDocForAttach, setSelectedDocForAttach] = useState<any>(null);
+  const [attachFile, setAttachFile] = useState<File | null>(null);
+  const [isAttaching, setIsAttaching] = useState(false);
 
   const [formData, setFormData] = useState({
     memo_number: '',
@@ -505,6 +511,40 @@ export default function Memos() {
     }
   }
 
+  async function handleAttachReservedFile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedDocForAttach || !attachFile) return;
+
+    setIsAttaching(true);
+    try {
+      const sanitized = (selectedDocForAttach.subject || 'บันทึกข้อความ').replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 50);
+      const fileName = `บันทึกข้อความ_${selectedDocForAttach.memo_number}_เรื่อง_${sanitized}.pdf`;
+      const fileUrl = await uploadFile(attachFile, 'memos', fileName.replace('.pdf', ''));
+
+      const { error } = await supabase
+        .from('memos')
+        .update({
+          file_url: fileUrl,
+          is_reserved: false,
+          status: 'pending'
+        })
+        .eq('id', selectedDocForAttach.id);
+
+      if (error) throw error;
+
+      alert('แนบไฟล์บันทึกข้อความย้อนหลังสำเร็จ!');
+      setIsAttachModalOpen(false);
+      setSelectedDocForAttach(null);
+      setAttachFile(null);
+      fetchDocs();
+    } catch (err: any) {
+      console.error(err);
+      alert('แนบไฟล์ไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsAttaching(false);
+    }
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setIsSaving(true);
@@ -697,7 +737,21 @@ export default function Memos() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-end gap-1 items-center">
+                      {(doc.status === 'reserved' || doc.is_reserved) && (
+                        <button 
+                          onClick={() => {
+                            setSelectedDocForAttach(doc);
+                            setAttachFile(null);
+                            setIsAttachModalOpen(true);
+                          }}
+                          className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors flex items-center gap-1 font-bold text-xs shadow-xs"
+                          title="แนบไฟล์เอกสารย้อนหลัง"
+                        >
+                          <Paperclip size={14} /> แนบไฟล์
+                        </button>
+                      )}
+
                       {isDirector && doc.status === 'pending' && (
                         <>
                           <button onClick={() => { setSelectedMemoForApproval(doc); setDirectorDecision('อนุมัติ'); setDirectorOpinion(''); setIsApprovalModalOpen(true); }} className="p-2 text-green-500 hover:bg-green-50 rounded-lg transition-colors" title="พิจารณาอนุมัติ"><CheckCircle size={18} /></button>
@@ -913,6 +967,48 @@ export default function Memos() {
               className="w-full bg-brand-primary text-white py-4 rounded-2xl font-black text-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 shadow-xl shadow-green-100"
             >
               {isSaving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />} ยืนยันการอนุมัติ
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal สำหรับอัปโหลดแนบไฟล์ย้อนหลัง */}
+      <Modal isOpen={isAttachModalOpen} onClose={() => setIsAttachModalOpen(false)} title="📎 แนบไฟล์บันทึกข้อความย้อนหลัง (รายการจองเลข)">
+        <form onSubmit={handleAttachReservedFile} className="space-y-4">
+          {selectedDocForAttach && (
+            <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-xs space-y-1">
+              <p className="font-bold text-amber-900">📌 เลขที่บันทึก: <span className="text-brand-primary">{selectedDocForAttach.memo_number}</span></p>
+              <p className="font-bold text-slate-700">📄 เรื่อง: {selectedDocForAttach.subject}</p>
+              <p className="text-slate-500">👤 ผู้เสนอ: {selectedDocForAttach.requester || '-'}</p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-700">เลือกไฟล์ PDF หรือรูปภาพฉบับสมบูรณ์:</label>
+            <input 
+              type="file" 
+              accept=".pdf,image/*" 
+              onChange={e => setAttachFile(e.target.files?.[0] || null)}
+              className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20 cursor-pointer"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button 
+              type="button" 
+              onClick={() => setIsAttachModalOpen(false)} 
+              className="w-full bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-all text-sm"
+            >
+              ยกเลิก
+            </button>
+            <button 
+              type="submit" 
+              disabled={isAttaching || !attachFile} 
+              className="w-full bg-brand-primary text-white py-3 rounded-xl font-bold hover:bg-green-700 transition-all text-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              {isAttaching ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={16} />}
+              ยืนยันการแนบไฟล์
             </button>
           </div>
         </form>
