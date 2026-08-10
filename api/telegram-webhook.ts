@@ -2427,10 +2427,68 @@ export default async function handler(req: any, res: any) {
         await supabase.from(matchedTable).update({
           file_url: uploadedUrl,
           is_reserved: false,
-          status: 'pending'
+          status: matchedTable === 'incoming_docs' ? 'waiting_proposal' : 'pending'
         }).eq('id', matchedId);
 
-        await sendTelegramMessage(botToken, chatId, `🎉 <b>แนบไฟล์เอกสารย้อนหลังสำเร็จ!</b>\n\nอัปเดตไฟล์แนบใส่เรคคอร์ดเลขลำดับ <b>${targetSeq}</b> และเปลี่ยนสถานะเป็นสมบูรณ์เรียบร้อยแล้วค่ะ 🌸✨`);
+        let noticeMsg = `🎉 <b>แนบไฟล์เอกสารย้อนหลังสำเร็จ!</b>\n\nอัปเดตไฟล์แนบใส่เรคคอร์ดเลขลำดับ <b>${targetSeq}</b> และเปลี่ยนสถานะเป็นสมบูรณ์เรียบร้อยแล้วค่ะ 🌸✨`;
+
+        // หากเป็นหนังสือรับ (incoming_docs) ให้ส่งแจ้งเตือนเสนอ ผอ. พร้อมปุ่มสั่งการอัตโนมัติทันที
+        if (matchedTable === 'incoming_docs') {
+          const { data: incDoc } = await supabase
+            .from('incoming_docs')
+            .select('*')
+            .eq('id', matchedId)
+            .maybeSingle();
+
+          if (incDoc) {
+            const proposalMsg = `📥 <b>เสนอหนังสือรับเข้าใหม่รอเกษียณสั่งการ</b>\n\n📌 <b>เลขรับที่:</b> <code>${incDoc.doc_number || targetSeq}</code>\n📄 <b>เรื่อง:</b> ${escapeHtml(incDoc.subject || '-')}\n🏢 <b>จาก:</b> ${escapeHtml(incDoc.from_agency || '-')}\n👤 <b>ผู้ลงรับ:</b> ${incDoc.reserved_by_name || profileLinked.display_name}\n\n📄 <a href="${uploadedUrl}">เปิดดูต้นฉบับเอกสาร</a>\n\n💡 <i>ท่านสามารถกดปุ่ม "✍️ สั่งการ" ด้านล่างเพื่อดำเนินการสั่งการผ่าน Telegram ได้ทันทีค่ะ 🌸</i>`;
+            
+            const replyMarkup = {
+              inline_keyboard: [
+                [
+                  {
+                    text: `✍️ สั่งการเรื่อง ${incDoc.doc_number || targetSeq}`,
+                    callback_data: `action=start_assign&id=${matchedId}`
+                  }
+                ]
+              ]
+            };
+
+            // ดึง Telegram ส่วนตัวของ ผอ. / Admin
+            const { data: directorProfiles } = await supabase
+              .from('profiles')
+              .select('telegram_chat_id')
+              .or('role.eq.director,role.eq.admin')
+              .not('telegram_chat_id', 'is', null);
+
+            let sentProposalCount = 0;
+            if (directorProfiles && directorProfiles.length > 0) {
+              for (const dir of directorProfiles) {
+                if (dir.telegram_chat_id) {
+                  const dirChatIdNum = parseInt(String(dir.telegram_chat_id), 10);
+                  if (!isNaN(dirChatIdNum)) {
+                    await sendTelegramMessage(botToken, dirChatIdNum, proposalMsg, replyMarkup);
+                    sentProposalCount++;
+                  }
+                }
+              }
+            }
+
+            // Fallback เข้ากลุ่มเสนอหนังสือ
+            const rawGroupId = settings?.telegram_group_id || '';
+            const proposalGroupIdStr = rawGroupId.split('|')[1]?.trim() || rawGroupId.split('|')[0]?.trim() || '';
+            const proposalGroupIdNum = proposalGroupIdStr ? parseInt(proposalGroupIdStr, 10) : null;
+            
+            if (sentProposalCount === 0 && proposalGroupIdNum !== null && !isNaN(proposalGroupIdNum)) {
+              await sendTelegramMessage(botToken, proposalGroupIdNum, proposalMsg, replyMarkup);
+              sentProposalCount++;
+            }
+
+            noticeMsg += `\n\n📨 <i>ระบบได้ทำการส่งหนังสือเสนอ ผอ. เพื่อเกษียณสั่งการเรียบร้อยแล้วค่ะ (${sentProposalCount} ช่องทาง)</i>`;
+          }
+        }
+
+        await sendTelegramMessage(botToken, chatId, noticeMsg);
         return res.status(200).json({ ok: true });
       }
     }
