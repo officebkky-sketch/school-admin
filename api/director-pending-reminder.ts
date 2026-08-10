@@ -1,6 +1,16 @@
 declare const process: any;
 import { createClient } from '@supabase/supabase-js';
 
+// ── Helper: ดึง Header ให้รองรับทั้ง Node.js IncomingMessage และ Web Standard Request ──
+function getHeader(req: any, name: string): string {
+  if (typeof req.headers?.get === 'function') {
+    // Web Standard Request (Edge Runtime)
+    return req.headers.get(name) || '';
+  }
+  // Node.js IncomingMessage (Serverless Functions)
+  return req.headers?.[name] || req.headers?.[name.toLowerCase()] || '';
+}
+
 // ── Helper: ส่งข้อความ Telegram ──────────────────────────────────────────────
 async function sendTelegram(token: string, chatId: number, text: string, replyMarkup?: any) {
   try {
@@ -8,7 +18,7 @@ async function sendTelegram(token: string, chatId: number, text: string, replyMa
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: chatId,          // Fix Bug#2: ใช้ number เสมอ ไม่ใช่ string
+        chat_id: chatId,
         text,
         parse_mode: 'HTML',
         disable_web_page_preview: true,
@@ -40,13 +50,25 @@ function parseAttachmentUrls(raw: any): string[] {
   return [];
 }
 
+// ── Helper: ส่ง Response รองรับทั้ง Node.js res และ Web Standard Response ────
+function sendResponse(res: any, data: any, status: number): any {
+  if (res && typeof res.status === 'function') {
+    return res.status(status).json(data);
+  }
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
 // ── Main Handler ──────────────────────────────────────────────────────────────
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(req: any, res?: any): Promise<any> {
   // ✅ 1. ตรวจสอบ Authorization Header (Vercel CRON_SECRET)
-  const authHeader = req.headers.get('authorization');
+  // รองรับทั้ง Node.js IncomingMessage และ Web Standard Request
+  const authHeader = getHeader(req, 'authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    return sendResponse(res, { error: 'Unauthorized' }, 401);
   }
 
   // ✅ 2. ตรวจสอบวันทำงาน (เฉพาะ จันทร์ - ศุกร์) ตามเวลาประเทศไทย Asia/Bangkok
@@ -57,7 +79,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (dayOfWeek === 0 || dayOfWeek === 6) {
     console.log('[DIRECTOR-REMINDER] Skipped: Weekend day (Sat/Sun)');
-    return new Response(JSON.stringify({ message: 'Skipped: Weekend day' }), { status: 200 });
+    return sendResponse(res, { message: 'Skipped: Weekend day' }, 200);
   }
 
   try {
@@ -74,7 +96,7 @@ export default async function handler(req: Request): Promise<Response> {
       .maybeSingle();
 
     if (!settings || !settings.telegram_bot_token) {
-      return new Response(JSON.stringify({ message: 'No Telegram bot token configured' }), { status: 200 });
+      return sendResponse(res, { message: 'No Telegram bot token configured' }, 200);
     }
 
     const botToken = settings.telegram_bot_token;
@@ -83,18 +105,16 @@ export default async function handler(req: Request): Promise<Response> {
     // Rule B: telegram_group_id เป็น "centralId|proposalId"
     // Fix Bug#2: แปลงเป็น number ตั้งแต่ต้น เพื่อให้ Telegram API รับได้ถูกต้อง
     const proposalGroupIdStr = rawGroupId.split('|')[1]?.trim() || rawGroupId.split('|')[0]?.trim() || '';
-    const proposalGroupId: number | null = proposalGroupIdStr ? parseInt(proposalGroupIdStr, 10) : null;
-    // ตรวจว่า parse ได้จริง
-    const validProposalGroupId = proposalGroupId !== null && !isNaN(proposalGroupId) ? proposalGroupId : null;
+    const proposalGroupIdNum = proposalGroupIdStr ? parseInt(proposalGroupIdStr, 10) : null;
+    const validProposalGroupId = proposalGroupIdNum !== null && !isNaN(proposalGroupIdNum) ? proposalGroupIdNum : null;
 
     // ✅ 4. ดึงรายการหนังสือรับเข้าที่ยังรอการเกษียณสั่งการ (status = pending หรือ waiting_proposal)
-    // ดึงทั้ง file_url (ไฟล์หลัก) และ attachment_urls (ไฟล์แนบ) พร้อมนับจำนวนรวมทั้งหมด
     const { data: pendingDocs, count: totalPending } = await supabase
       .from('incoming_docs')
       .select('id, doc_number, subject, from_agency, urgency, doc_date, file_url, attachment_urls, created_at', { count: 'exact' })
       .in('status', ['pending', 'waiting_proposal'])
       .order('created_at', { ascending: false })
-      .limit(10); // จำกัดแสดงรายละเอียด 10 ฉบับแรก ป้องกันข้อความยาวเกินไปบน Telegram
+      .limit(10);
 
     // Fix Bug#4: ใช้ null check แทน || เพื่อไม่ให้ totalPending=0 ถูกแทนที่ผิดพลาด
     const totalCount = (totalPending !== null && totalPending !== undefined)
@@ -103,8 +123,8 @@ export default async function handler(req: Request): Promise<Response> {
 
     // หากไม่มีหนังสือค้าง ไม่ต้องส่งข้อความใดๆ เพื่อไม่รบกวน ผอ.
     if (!pendingDocs || pendingDocs.length === 0 || totalCount === 0) {
-      console.log('[DIRECTOR-REMINDER] No pending documents for retirement. Skipped sending message.');
-      return new Response(JSON.stringify({ message: 'No pending documents for retirement' }), { status: 200 });
+      console.log('[DIRECTOR-REMINDER] No pending documents. Skipped.');
+      return sendResponse(res, { message: 'No pending documents for retirement' }, 200);
     }
 
     // ✅ 5. คิวรีหา ผอ.รร. จาก profiles (role = director หรือ admin ที่ผูก telegram_chat_id ไว้)
@@ -134,12 +154,11 @@ export default async function handler(req: Request): Promise<Response> {
       msg += `   • <b>จาก:</b> ${doc.from_agency || '-'}\n`;
       msg += `   • <b>เลขรับ:</b> ${docNumStr}\n`;
 
-      // แสดงลิงก์ต้นฉบับเอกสารหลัก
       if (doc.file_url) {
         msg += `   📄 <a href="${doc.file_url}">เปิดดูต้นฉบับ</a>`;
       }
 
-      // Fix Bug#3: ใช้ helper parseAttachmentUrls รองรับทั้ง Array และ JSON string
+      // Fix Bug#3: รองรับ attachment_urls ทั้งแบบ Array และ JSON string
       const atts = parseAttachmentUrls(doc.attachment_urls);
       if (atts.length > 0) {
         msg += ` | 📎 <b>ไฟล์แนบ:</b> `;
@@ -148,13 +167,9 @@ export default async function handler(req: Request): Promise<Response> {
         });
       }
 
-      if (doc.file_url || atts.length > 0) {
-        msg += `\n`;
-      }
-
+      if (doc.file_url || atts.length > 0) msg += `\n`;
       msg += `\n`;
 
-      // ใส่ปุ่มทางลัดสั่งการรายฉบับ (สูงสุด 5 ปุ่ม เพื่อไม่ให้แน่นหน้าจอ)
       if (inlineButtons.length < 5) {
         inlineButtons.push([{
           text: `✍️ สั่งการเรื่อง ${docNumStr}`,
@@ -163,7 +178,6 @@ export default async function handler(req: Request): Promise<Response> {
       }
     });
 
-    // หากมีหนังสือค้างมากกว่า 10 ฉบับ ให้แสดงข้อความแจ้งเตือนเพิ่มเติม
     if (totalCount > 10) {
       msg += `📌 <i>และยังมีหนังสือรอเกษียณอีก ${totalCount - 10} ฉบับในระบบ...</i>\n\n`;
     }
@@ -172,7 +186,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     const replyMarkup = { inline_keyboard: inlineButtons };
 
-    // ✅ 7. ส่งข้อความ (ส่งเข้า Telegram ส่วนตัว ผอ. ถ้าผูกไว้ -> หากไม่มีให้ Fallback เข้ากลุ่มเสนอหนังสือ)
+    // ✅ 7. ส่งข้อความตามทางเลือก 1-A
     let sentCount = 0;
 
     if (directorProfiles && directorProfiles.length > 0) {
@@ -185,33 +199,33 @@ export default async function handler(req: Request): Promise<Response> {
             sentCount++;
             await new Promise(r => setTimeout(r, 200));
           } else {
-            console.warn('[DIRECTOR-REMINDER] Invalid telegram_chat_id for director:', dir.display_name, dir.telegram_chat_id);
+            console.warn('[DIRECTOR-REMINDER] Invalid telegram_chat_id:', dir.display_name, dir.telegram_chat_id);
           }
         }
       }
     }
 
-    // Fallback ส่งเข้ากลุ่มเสนอหนังสือ หากไม่สามารถส่งถึง Telegram ส่วนตัวของ ผอ. รายใดได้เลย
+    // Fallback ส่งเข้ากลุ่มเสนอหนังสือ
     if (sentCount === 0 && validProposalGroupId !== null) {
-      console.log('[DIRECTOR-REMINDER] No director telegram_chat_id found. Fallback to proposal group:', validProposalGroupId);
+      console.log('[DIRECTOR-REMINDER] Fallback to proposal group:', validProposalGroupId);
       await sendTelegram(botToken, validProposalGroupId, msg, replyMarkup);
       sentCount++;
     } else if (sentCount === 0) {
-      console.warn('[DIRECTOR-REMINDER] No valid chat_id found for director and no valid proposal group ID. Message not sent.');
+      console.warn('[DIRECTOR-REMINDER] No valid target to send. Message not sent.');
     }
 
-    console.log(`[DIRECTOR-REMINDER] ส่งแจ้งเตือนหนังสือค้างเกษียณสำเร็จ ${sentCount} ช่องทาง (มีหนังสือค้างทั้งหมด ${totalCount} ฉบับ)`);
+    console.log(`[DIRECTOR-REMINDER] ส่งสำเร็จ ${sentCount} ช่องทาง (หนังสือค้าง ${totalCount} ฉบับ)`);
 
-    return new Response(JSON.stringify({
+    return sendResponse(res, {
       success: true,
       sent: sentCount,
       totalPendingCount: totalCount,
       displayedCount: pendingDocs.length,
       timestamp: bangkokDate.toISOString()
-    }), { status: 200 });
+    }, 200);
 
   } catch (err: any) {
     console.error('[DIRECTOR-REMINDER] Error:', err);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+    return sendResponse(res, { error: err.message }, 500);
   }
 }
