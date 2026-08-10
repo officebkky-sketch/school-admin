@@ -10,6 +10,10 @@
       "schedule": "0 0 * * *"
     },
     {
+      "path": "/api/director-pending-reminder",
+      "schedule": "0 1 * * 1-5"
+    },
+    {
       "path": "/api/weekly-backup",
       "schedule": "0 0 * * 0"
     }

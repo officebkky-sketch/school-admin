@@ -1165,7 +1165,8 @@ export default async function handler(req: any, res: any) {
         }
 
         // ป้องกันการทำซ้ำในขั้นตอนเกษียณหนังสือของ ผอ.
-        if (doc.status && doc.status !== 'pending') {
+        // Fix Bug#1: เพิ่ม waiting_proposal ให้ผ่านได้ เพราะระบบแจ้งเตือน director-pending-reminder ส่งทั้ง 2 status
+        if (doc.status && doc.status !== 'pending' && doc.status !== 'waiting_proposal') {
           await answerCallbackQuery(botToken, callbackQuery.id, '⚠️ หนังสือรับฉบับนี้ได้รับการเกษียณสั่งการไปเรียบร้อยแล้วค่ะ', true);
 
           const completedMarkup = {
