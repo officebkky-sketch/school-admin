@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.1.19] - 2026-08-10
+### Added
+- **ระบบแจ้งเตือนหนังสือรอเกษียณสั่งการประจำวันยามเช้า (Director Morning Digest)**:
+  - สร้าง Serverless Cron API ใหม่ `api/director-pending-reminder.ts` ส่งสรุปหนังสือค้างเกษียณสั่งการตอน **08:00 น. ทุกวันทำการ (จันทร์–ศุกร์)** ผ่าน Vercel Cron Schedule `0 1 * * 1-5`
+  - ส่งแจ้งเตือนตรงเข้า **Telegram ส่วนตัว** ของผู้ที่มี Role `director` และ `admin` ที่ผูก Telegram ไว้ในระบบ (Strategy: Direct → Fallback กลุ่มเสนอหนังสือ)
+  - **ไม่ส่งข้อความเมื่อไม่มีหนังสือค้าง** เพื่อไม่รบกวนยามเช้า
+  - แสดงรายละเอียด **สูงสุด 10 ฉบับแรก** พร้อมบอกยอดรวมทั้งหมด (เช่น "มีทั้งหมด 15 ฉบับ และยังมีอีก 5 ฉบับ...")
+  - แนบลิงก์คลิกเปิดดู **ต้นฉบับเอกสารหลัก** และ **ไฟล์แนบทุกไฟล์** (`attachment_urls`) ในข้อความเดียว
+  - แสดง **สัญลักษณ์ความเร่งด่วน** 🔴 ด่วนที่สุด / 🟡 ด่วน / 🟢 ปกติ
+  - ปุ่มกด **`[✍️ สั่งการเรื่อง ...]`** สูงสุด 5 ปุ่ม เพื่อให้ ผอ. เกษียณสั่งการได้ทันทีจาก Telegram ส่วนตัวโดยไม่ต้องเข้าหน้าเว็บ
+  - ตรวจเช็คเวลาตามเขต **Asia/Bangkok** ป้องกันเสาร์-อาทิตย์ซ้ำที่ระดับโค้ด
+
+### Fixed
+- **แก้บั๊กใน `api/telegram-webhook.ts` (Bug #1)**:
+  - แก้เงื่อนไขป้องกันการเกษียณซ้ำ บรรทัด `start_assign` — เดิมบล็อค `status = waiting_proposal` ผิดพลาดว่า "เกษียณแล้ว" แก้เป็น `!== 'pending' && !== 'waiting_proposal'` ให้ผ่านได้ถูกต้อง
+- **แก้บั๊กใน `api/director-pending-reminder.ts` (Bug #2-4)**:
+  - **Bug #2**: แปลง `proposalGroupId` จาก string เป็น `number` ด้วย `parseInt()` ก่อนส่งเข้า Telegram API ป้องกัน `400 Bad Request` แบบเงียบ
+  - **Bug #3**: เพิ่ม Helper `parseAttachmentUrls()` รองรับ `attachment_urls` ทั้งแบบ `Array` และ `JSON string` สอดคล้องกับข้อมูลจริงในฐานข้อมูล
+  - **Bug #4**: แก้การคำนวณ `totalCount` จาก `totalPending || length` เป็น `null/undefined check` เพื่อไม่ให้ค่า `0` ถูกแทนที่ผิดพลาด
+- **แก้ `TypeError: req.headers.get is not a function`**:
+  - เปลี่ยน Handler Signature จาก Web Standard `(req: Request)` เป็น Node.js Compatible `(req: any, res?: any)` พร้อม Helper `getHeader()` และ `sendResponse()` รองรับทั้ง 2 Runtime
+
+### Notes (สำหรับอัปเดตครั้งถัดไป)
+- 🔲 เพิ่มการตรวจสอบ **วันหยุดนักขัตฤกษ์ไทย** (Thai Public Holidays) เพื่อข้ามการแจ้งเตือนในวันหยุดราชการ
+- 🔲 พิจารณาเพิ่ม Endpoint สำหรับ **ทดสอบ Manual Trigger** แยกต่างหากที่ไม่ตรวจสอบวัน
+
 ## [1.1.18] - 2026-08-07
 ### Added
 - **ระบบขอเลขหนังสือและจองเลขฉุกเฉินผ่าน Telegram (Telegram Document Booking)**:
