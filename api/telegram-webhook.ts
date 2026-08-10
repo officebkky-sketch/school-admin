@@ -2275,7 +2275,7 @@ export default async function handler(req: any, res: any) {
 
         const startSeq = settings?.start_outgoing_seq || 1;
         const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'outgoing_docs', docYearNum, startSeq);
-        const prefix = settings?.school_doc_prefix || 'ศธ 04153/';
+        const prefix = settings?.school_doc_prefix || 'ศธ 04225.016/';
         const fullNumber = `${prefix}${nextSeq}`;
         const todayStr = new Date().toISOString().split('T')[0];
 
@@ -2355,7 +2355,7 @@ export default async function handler(req: any, res: any) {
 
         const startSeq = settings?.start_incoming_seq || 1;
         const nextSeq = await getAccurateNextSeqInWebhook(supabase, 'incoming_docs', docYearNum, startSeq);
-        const prefix = settings?.school_doc_prefix || 'ศธ 04153/';
+        const prefix = settings?.school_doc_prefix || 'ศธ 04225.016/';
         const fullNumber = `${prefix}${nextSeq}`;
         const todayStr = new Date().toISOString().split('T')[0];
 
