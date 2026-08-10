@@ -2221,11 +2221,11 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      // Fix: ตรวจสอบคำสั่งจำเพาะก่อนเสมอ ป้องกัน /ขอเลข ดักจับคำสั่งอื่นที่ขึ้นต้นด้วย /ขอเลข...
-      if (textTrimmed.startsWith('/ขอเลขบันทึก') || (textTrimmed.startsWith('/ขอเลข') && !textTrimmed.startsWith('/ขอเลขรับ') && !textTrimmed.startsWith('/ขอเลขส่ง') && !textTrimmed.startsWith('/ขอเลขคำสั่ง') && !textTrimmed.startsWith('/ขอเลขหนังสือรับ'))) {
-        let subject = textTrimmed.replace(/^\/(ขอเลขบันทึก|ขอเลข)\s*/, '').trim();
+      // เหลือเฉพาะ /ขอเลขบันทึก เท่านั้น ป้องกัน prefix ตัดคำ
+      if (textTrimmed.startsWith('/ขอเลขบันทึก')) {
+        let subject = textTrimmed.replace(/^\/ขอเลขบันทึก\s*/, '').trim();
         if (!subject) {
-          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลข ขออนุมัติจัดโครงการพัฒนาวิชาการ</code> ค่ะ 🌸`);
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลขบันทึก ขออนุมัติจัดโครงการพัฒนาวิชาการ</code> ค่ะ 🌸`);
           return res.status(200).json({ ok: true });
         }
 
