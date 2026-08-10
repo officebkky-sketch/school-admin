@@ -2221,7 +2221,8 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      if (textTrimmed.startsWith('/ขอเลขบันทึก') || textTrimmed.startsWith('/ขอเลข')) {
+      // Fix: ตรวจสอบคำสั่งจำเพาะก่อนเสมอ ป้องกัน /ขอเลข ดักจับคำสั่งอื่นที่ขึ้นต้นด้วย /ขอเลข...
+      if (textTrimmed.startsWith('/ขอเลขบันทึก') || (textTrimmed.startsWith('/ขอเลข') && !textTrimmed.startsWith('/ขอเลขรับ') && !textTrimmed.startsWith('/ขอเลขส่ง') && !textTrimmed.startsWith('/ขอเลขคำสั่ง') && !textTrimmed.startsWith('/ขอเลขหนังสือรับ'))) {
         let subject = textTrimmed.replace(/^\/(ขอเลขบันทึก|ขอเลข)\s*/, '').trim();
         if (!subject) {
           await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลข ขออนุมัติจัดโครงการพัฒนาวิชาการ</code> ค่ะ 🌸`);
@@ -2334,8 +2335,9 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      if (textTrimmed.startsWith('/ขอเลขรับ')) {
-        const payload = textTrimmed.replace(/^\/ขอเลขรับ\s*/, '').trim();
+      // รองรับทั้ง /ขอเลขรับ และ /ขอเลขหนังสือรับ (alias)
+      if (textTrimmed.startsWith('/ขอเลขรับ') || textTrimmed.startsWith('/ขอเลขหนังสือรับ')) {
+        const payload = textTrimmed.replace(/^\/(ขอเลขหนังสือรับ|ขอเลขรับ)\s*/, '').trim();
         let subject = payload;
         let fromAgency = 'หน่วยงานภายนอก';
 
