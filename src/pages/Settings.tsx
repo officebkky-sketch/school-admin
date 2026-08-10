@@ -43,6 +43,7 @@ export default function Settings() {
     start_outgoing_seq: 1,
     start_memo_seq: 1,
     start_order_seq: 1,
+    school_doc_prefix: 'ศธ 04225.016/',
     custom_sop: ''
   });
 
@@ -342,11 +343,28 @@ export default function Settings() {
 
             <div className="col-span-full space-y-3 pt-4 border-t border-slate-50">
               <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                <CalendarDays size={16} className="text-brand-primary" /> การตั้งค่าเลขหนังสือเริ่มต้นประจำปี (Starting Sequence)
+                <CalendarDays size={16} className="text-brand-primary" /> การตั้งค่าหมวดเลขหนังสือและเลขเริ่มต้น (Document Prefix & Sequence)
               </h4>
               <p className="text-[10px] text-slate-400 font-bold ml-1">
-                กำหนดเลขลำดับเริ่มต้นกรณีเริ่มใช้งานระบบกลางปี หรือต้องการรันเลขต่อจากสมุดสารบรรณเล่มเดิม (หากไม่ระบุจะเริ่มที่ 1)
+                กำหนดรหัสตัวเลขนำหน้าหนังสือราชการของโรงเรียน และเลขลำดับเริ่มต้นกรณีรันเลขต่อจากสมุดสารบรรณเดิม
               </p>
+
+              <div className="space-y-1.5 pb-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-brand-primary ml-1">
+                  รหัสตัวเลขนำหน้าหนังสือราชการ (School Document Prefix)
+                </label>
+                <input 
+                  type="text" 
+                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
+                  value={settings.school_doc_prefix || ''}
+                  onChange={e => setSettings({...settings, school_doc_prefix: e.target.value})}
+                  placeholder="เช่น ศธ 04225.016/ หรือ ศธ 04153/"
+                />
+                <span className="text-[10px] text-slate-400 font-medium ml-1">
+                  * กำหนดค่าตัวเลขหมวดของโรงเรียน เช่น <code>ศธ 04225.016/</code> (ระบบจะนำไปต่อด้วยเลขลำดับ เช่น <code>ศธ 04225.016/175</code>)
+                </span>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขรับเริ่มต้น</label>
