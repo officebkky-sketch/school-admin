@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
+import { sendTelegramNotification } from '../lib/telegramNotify';
 import { generateAIDraft } from '../lib/aiService';
 import Modal from '../components/Modal';
 import { 
@@ -540,6 +541,31 @@ export default function Orders() {
     }
   }
 
+  const getNextOrderNumber = (customDate = formData.order_date) => {
+    const docDateObj = new Date(customDate || new Date());
+    const targetYear = docDateObj.getFullYear() + 543;
+    
+    const yearDocs = docs.filter(d => d.doc_year === targetYear);
+    let maxNum = 0;
+    yearDocs.forEach(d => {
+      if (d.doc_sequence && d.doc_sequence > maxNum) {
+        maxNum = d.doc_sequence;
+      } else if (d.order_number && d.order_number !== 'รออนุมัติ') {
+        const match = d.order_number.match(/^(\d+)/);
+        if (match) {
+          const num = parseInt(match[1]);
+          if (num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    });
+    
+    const startSeq = settings?.start_order_seq || 1;
+    const finalNext = Math.max(maxNum + 1, startSeq);
+    return `${finalNext}/${targetYear}`;
+  };
+
   async function handleAttachReservedFile(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedDocForAttach || !attachFile) return;
@@ -599,8 +625,20 @@ export default function Orders() {
       const orderDateObj = new Date(formData.order_date);
       const docYear = orderDateObj.getFullYear() + 543;
 
+      // ค้นหา sequence ถัดไปสำหรับคำสั่ง
+      const { data: seqDocs } = await supabase
+        .from('orders')
+        .select('doc_sequence')
+        .eq('doc_year', docYear)
+        .order('doc_sequence', { ascending: false })
+        .limit(1);
+        
+      const startSeq = settings?.start_order_seq || 1;
+      const docSeq = (seqDocs && seqDocs.length > 0) ? Math.max(Number(seqDocs[0].doc_sequence) + 1, startSeq) : startSeq;
+      const finalOrderNum = formData.order_number.trim() || `${docSeq}/${docYear}`;
+
       const { data: insertedDocs, error } = await supabase.from('orders').insert([{ 
-        order_number: formData.order_number || 'รออนุมัติ',
+        order_number: finalOrderNum,
         subject: formData.subject,
         issuer: formData.issuer,
         order_date: formData.order_date,
@@ -608,7 +646,8 @@ export default function Orders() {
         file_url, 
         status: 'pending',
         created_by: user?.id,
-        doc_year: docYear
+        doc_year: docYear,
+        doc_sequence: docSeq
       }]).select();
 
       if (error) throw new Error(`บันทึกข้อมูลไม่สำเร็จ: ${error.message}`);
@@ -635,6 +674,19 @@ export default function Orders() {
         lineMessage,
         lineActions
       );
+
+      // ส่งการแจ้งเตือนทาง Telegram ไปยังกลุ่มเสนอ / ผอ.
+      try {
+        const tgMsg = `📋 <b>เสนออนุมัติคำสั่งแต่งตั้ง (คำสั่งใหม่)</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>ผู้ออกคำสั่ง</b>: ${formData.issuer}\n• <b>ผู้เสนอ</b>: ${profile?.display_name || 'ครูผู้รับผิดชอบ'}\n• <b>เลขที่ร่างคำสั่ง</b>: ${finalOrderNum}\n\n📄 <a href="${file_url || '#'}">เปิดดูร่างคำสั่ง</a>`;
+        const tgReplyMarkup = {
+          inline_keyboard: [[
+            { text: '✅ อนุมัติลงนาม (Telegram)', callback_data: `action=approve_doc&type=order&id=${insertedDoc?.id || ''}` }
+          ]]
+        };
+        await sendTelegramNotification(tgMsg, 'proposal', tgReplyMarkup);
+      } catch (tgErr) {
+        console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
+      }
 
       setIsModalOpen(false);
       resetForm();
@@ -687,7 +739,8 @@ export default function Orders() {
           .order('doc_sequence', { ascending: false })
           .limit(1);
           
-        docSeq = (seqDocs && seqDocs.length > 0) ? (Number(seqDocs[0].doc_sequence) + 1) : 1;
+        const startSeq = settings?.start_order_seq || 1;
+        docSeq = (seqDocs && seqDocs.length > 0) ? Math.max(Number(seqDocs[0].doc_sequence) + 1, startSeq) : startSeq;
         finalOrderNumber = `${docSeq}/${docYear}`;
       }
 
@@ -720,6 +773,17 @@ export default function Orders() {
             }
           }
         }
+      }
+
+      // แจ้งเตือนเข้ากลุ่ม Telegram ส่วนกลางเมื่ออนุมัติคำสั่งแล้ว
+      try {
+        let tgApprovedMsg = `📜 <b>อนุมัติและออกเลขที่คำสั่งโรงเรียนเรียบร้อยแล้ว</b>\n\n• <b>เลขที่คำสั่ง</b>: ${finalOrderNumber}\n• <b>เรื่อง</b>: ${selectedOrderForApproval.subject}\n• <b>ผู้ออกคำสั่ง</b>: ${selectedOrderForApproval.issuer}`;
+        if (selectedOrderForApproval.file_url) {
+          tgApprovedMsg += `\n\n📄 <a href="${selectedOrderForApproval.file_url}">เปิดดูคำสั่งฉบับเต็ม</a>`;
+        }
+        await sendTelegramNotification(tgApprovedMsg, 'central');
+      } catch (tgErr) {
+        console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
       }
 
       alert('อนุมัติและออกเลขที่คำสั่งเรียบร้อยแล้ว');
@@ -871,13 +935,13 @@ ${groups.map(g => `<duty name="${g}">
 
   function resetForm() {
     setFormData({ 
-      order_number: '', 
+      order_number: getNextOrderNumber(), 
       subject: '', 
-      issuer: settings?.school_name || 'โรงเรียนบ้านควนโคกยา', 
+      issuer: settings?.school_name || 'โรงเรียน', 
       order_date: new Date().toISOString().split('T')[0], 
       content: '',
       sign_name: settings?.director_name || '',
-      sign_position: `ผู้อำนวยการ${settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}`,
+      sign_position: `ผู้อำนวยการ${settings?.school_name || 'โรงเรียน'}`,
       committees: [{ teacher_id: '', role: 'ประธานกรรมการ', duty: '' }] as any[],
       legal_refs: [] as string[],
       show_director_opinion: false

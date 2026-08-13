@@ -1712,7 +1712,8 @@ export default async function handler(req: any, res: any) {
               .order('doc_sequence', { ascending: false })
               .limit(1);
               
-            docSeq = (seqDocs && seqDocs.length > 0) ? (seqDocs[0].doc_sequence + 1) : 1;
+            const startSeq = settings?.start_order_seq || 1;
+            docSeq = (seqDocs && seqDocs.length > 0) ? Math.max(Number(seqDocs[0].doc_sequence) + 1, startSeq) : startSeq;
             finalNumber = `${docSeq}/${docYear}`;
           }
 
@@ -2197,7 +2198,20 @@ export default async function handler(req: any, res: any) {
     const docYearNum = parseInt(currentYear, 10) || (new Date().getFullYear() + 543);
     const textTrimmed = (rawText || '').trim();
 
-    if (textTrimmed.startsWith('/ขอเลข') || textTrimmed.startsWith('/เช็คเลขจอง') || textTrimmed.startsWith('/แนบเอกสาร')) {
+    if (
+      textTrimmed.startsWith('/ขอเลข') ||
+      textTrimmed.startsWith('/เช็คเลขจอง') ||
+      textTrimmed.startsWith('/แนบเอกสาร') ||
+      textTrimmed.startsWith('/แนบรับ') ||
+      textTrimmed.startsWith('/แนบหนังสือรับ') ||
+      textTrimmed.startsWith('/แนบส่ง') ||
+      textTrimmed.startsWith('/แนบหนังสือส่ง') ||
+      textTrimmed.startsWith('/แนบคำสั่ง') ||
+      textTrimmed.startsWith('/แนบบันทึก') ||
+      textTrimmed.startsWith('/แนบเมโม่') ||
+      textTrimmed.startsWith('/ยกเลิก') ||
+      textTrimmed.startsWith('/ลบเลขจอง')
+    ) {
       if (textTrimmed.startsWith('/เช็คเลขจอง')) {
         const [memoRes, outRes, ordRes, incRes] = await Promise.all([
           supabase.from('memos').select('memo_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true),
@@ -2215,15 +2229,92 @@ export default async function handler(req: any, res: any) {
         if (list.length === 0) {
           await sendTelegramMessage(botToken, chatId, `🎉 คุณครู <b>${profileLinked.display_name || ''}</b> ไม่มีรายการเลขหนังสือที่จองค้างไว้เลยค่ะ 🌸`);
         } else {
-          const resMsg = `📋 <b>รายการเลขหนังสือที่จองค้างไว้ (${list.length} รายการ)</b>\n\n${list.join('\n')}\n\n💡 <i>พิมพ์ <code>/แนบเอกสาร [เลขที่]</code> พร้อมส่งไฟล์ PDF มาผูกย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+          const resMsg = `📋 <b>รายการเลขหนังสือที่จองค้างไว้ (${list.length} รายการ)</b>\n\n${list.join('\n')}\n\n💡 <i>พิมพ์ <code>/แนบเอกสาร [เลขที่]</code> เพื่อแนบไฟล์ หรือ <code>/ยกเลิกเลขจอง [เลขที่]</code> เพื่อยกเลิกรายการจองค่ะ 🌸</i>`;
           await sendTelegramMessage(botToken, chatId, resMsg);
         }
         return res.status(200).json({ ok: true });
       }
 
-      // เหลือเฉพาะ /ขอเลขบันทึก เท่านั้น ป้องกัน prefix ตัดคำ
-      if (textTrimmed.startsWith('/ขอเลขบันทึก')) {
-        let subject = textTrimmed.replace(/^\/ขอเลขบันทึก\s*/, '').trim();
+      if (
+        textTrimmed.startsWith('/ยกเลิกเลขจอง') ||
+        textTrimmed.startsWith('/ยกเลิกจอง') ||
+        textTrimmed.startsWith('/ลบเลขจอง') ||
+        textTrimmed.startsWith('/ยกเลิกรับ') ||
+        textTrimmed.startsWith('/ยกเลิกส่ง') ||
+        textTrimmed.startsWith('/ยกเลิกคำสั่ง') ||
+        textTrimmed.startsWith('/ยกเลิกบันทึก') ||
+        textTrimmed.startsWith('/ยกเลิกเมโม่')
+      ) {
+        let typeHint = '';
+        if (textTrimmed.startsWith('/ยกเลิกรับ')) typeHint = 'incoming_docs';
+        else if (textTrimmed.startsWith('/ยกเลิกส่ง')) typeHint = 'outgoing_docs';
+        else if (textTrimmed.startsWith('/ยกเลิกคำสั่ง')) typeHint = 'orders';
+        else if (textTrimmed.startsWith('/ยกเลิกบันทึก') || textTrimmed.startsWith('/ยกเลิกเมโม่')) typeHint = 'memos';
+
+        const targetSeqStr = textTrimmed.replace(/^\/(ยกเลิกเลขจอง|ยกเลิกจอง|ลบเลขจอง|ยกเลิกรับ|ยกเลิกส่ง|ยกเลิกคำสั่ง|ยกเลิกบันทึก|ยกเลิกเมโม่)\s*/, '').trim();
+        const targetSeq = parseInt(targetSeqStr, 10);
+
+        if (isNaN(targetSeq)) {
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุตัวเลขลำดับที่ต้องการยกเลิกการจอง เช่น <code>/ยกเลิกเลขจอง 5</code> ค่ะ 🌸`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const tablesToSearch = typeHint ? [typeHint] : ['memos', 'outgoing_docs', 'orders', 'incoming_docs'];
+        const foundMatches: { table: string; id: string; subject: string; doc_number: string }[] = [];
+
+        for (const tbl of tablesToSearch) {
+          const { data: rows } = await supabase
+            .from(tbl)
+            .select('*')
+            .eq('doc_sequence', targetSeq)
+            .eq('is_reserved', true)
+            .eq('doc_year', docYearNum);
+
+          if (rows && rows.length > 0) {
+            rows.forEach(r => {
+              const num = r.memo_number || r.doc_number || r.order_number || String(targetSeq);
+              foundMatches.push({ table: tbl, id: r.id, subject: r.subject || '', doc_number: num });
+            });
+          }
+        }
+
+        if (foundMatches.length === 0) {
+          await sendTelegramMessage(botToken, chatId, `❌ ไม่พบรายการจองเลขลำดับที่ <b>${targetSeq}</b> สำหรับปีการศึกษา ${docYearNum} ที่สามารถยกเลิกได้ในระบบค่ะ 🌸`);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (foundMatches.length > 1 && !typeHint) {
+          const tableLabelMap: Record<string, string> = {
+            memos: 'บันทึกข้อความ',
+            outgoing_docs: 'หนังสือส่ง',
+            orders: 'คำสั่งโรงเรียน',
+            incoming_docs: 'หนังสือรับ'
+          };
+          const cmdMap: Record<string, string> = {
+            memos: '/ยกเลิกบันทึก',
+            outgoing_docs: '/ยกเลิกส่ง',
+            orders: '/ยกเลิกคำสั่ง',
+            incoming_docs: '/ยกเลิกรับ'
+          };
+          const optionsList = foundMatches.map(m => `• <b>${tableLabelMap[m.table] || m.table}</b>: <code>${m.doc_number}</code> (${m.subject})\n  👉 พิมพ์คำสั่ง: <code>${cmdMap[m.table]} ${targetSeq}</code>`).join('\n\n');
+          await sendTelegramMessage(botToken, chatId, `⚠️ พบรายการจองเลขลำดับ <b>${targetSeq}</b> ซ้ำกัน ${foundMatches.length} หมวดเอกสารค่ะ:\n\n${optionsList}\n\nกรุณาพิมพ์คำสั่งระบุประเภทเอกสารที่ต้องการยกเลิกอีกครั้งนะคะ 🌸`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const target = foundMatches[0];
+        const { error: delErr } = await supabase.from(target.table).delete().eq('id', target.id);
+
+        if (delErr) {
+          await sendTelegramMessage(botToken, chatId, `❌ เกิดข้อผิดพลาดในการยกเลิกรายการจอง: ${delErr.message}`);
+          return res.status(200).json({ ok: true });
+        }
+
+        await sendTelegramMessage(botToken, chatId, `🗑️ <b>ยกเลิกการจองเลขสำเร็จ!</b>\n\nทำการลบรายการจองเลขลำดับ <b>${targetSeq}</b> (เรื่อง: ${target.subject || '-'}) ออกจากระบบเรียบร้อยแล้วค่ะ สามารถพิมพ์ขอเลขใหม่ได้ทันทีค่ะ 🌸✨`);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (textTrimmed.startsWith('/ขอเลขบันทึก') || textTrimmed.startsWith('/ขอเลขเมโม่') || textTrimmed.startsWith('/ขอเลขmemo')) {
+        let subject = textTrimmed.replace(/^\/(ขอเลขบันทึก|ขอเลขเมโม่|ขอเลขmemo)\s*/, '').trim();
         if (!subject) {
           await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลขบันทึก ขออนุมัติจัดโครงการพัฒนาวิชาการ</code> ค่ะ 🌸`);
           return res.status(200).json({ ok: true });
@@ -2381,8 +2472,23 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      if (textTrimmed.startsWith('/แนบเอกสาร')) {
-        const targetSeqStr = textTrimmed.replace(/^\/แนบเอกสาร\s*/, '').trim();
+      if (
+        textTrimmed.startsWith('/แนบเอกสาร') ||
+        textTrimmed.startsWith('/แนบรับ') ||
+        textTrimmed.startsWith('/แนบหนังสือรับ') ||
+        textTrimmed.startsWith('/แนบส่ง') ||
+        textTrimmed.startsWith('/แนบหนังสือส่ง') ||
+        textTrimmed.startsWith('/แนบคำสั่ง') ||
+        textTrimmed.startsWith('/แนบบันทึก') ||
+        textTrimmed.startsWith('/แนบเมโม่')
+      ) {
+        let typeHint = '';
+        if (textTrimmed.startsWith('/แนบรับ') || textTrimmed.startsWith('/แนบหนังสือรับ')) typeHint = 'incoming_docs';
+        else if (textTrimmed.startsWith('/แนบส่ง') || textTrimmed.startsWith('/แนบหนังสือส่ง')) typeHint = 'outgoing_docs';
+        else if (textTrimmed.startsWith('/แนบคำสั่ง')) typeHint = 'orders';
+        else if (textTrimmed.startsWith('/แนบบันทึก') || textTrimmed.startsWith('/แนบเมโม่')) typeHint = 'memos';
+
+        const targetSeqStr = textTrimmed.replace(/^\/(แนบเอกสาร|แนบรับ|แนบหนังสือรับ|แนบส่ง|แนบหนังสือส่ง|แนบคำสั่ง|แนบบันทึก|แนบเมโม่)\s*/, '').trim();
         const targetSeq = parseInt(targetSeqStr, 10);
 
         let uploadedUrl = '';
@@ -2404,25 +2510,47 @@ export default async function handler(req: any, res: any) {
           return res.status(200).json({ ok: true });
         }
 
-        let matchedTable = '';
-        let matchedId = '';
+        // ค้นหารายการจองในตารางที่เกี่ยวข้อง
+        const tablesToSearch = typeHint ? [typeHint] : ['memos', 'outgoing_docs', 'orders', 'incoming_docs'];
+        const foundMatches: { table: string; id: string; subject: string; doc_number: string }[] = [];
 
-        const [memos, outg, ords, incs] = await Promise.all([
-          supabase.from('memos').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle(),
-          supabase.from('outgoing_docs').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle(),
-          supabase.from('orders').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle(),
-          supabase.from('incoming_docs').select('id').eq('doc_sequence', targetSeq).eq('is_reserved', true).maybeSingle()
-        ]);
+        for (const tbl of tablesToSearch) {
+          const { data: rows } = await supabase.from(tbl).select('*').eq('doc_sequence', targetSeq).eq('is_reserved', true).eq('doc_year', docYearNum);
+          if (rows && rows.length > 0) {
+            rows.forEach(r => {
+              const num = r.memo_number || r.doc_number || r.order_number || String(targetSeq);
+              foundMatches.push({ table: tbl, id: r.id, subject: r.subject || '', doc_number: num });
+            });
+          }
+        }
 
-        if (memos.data) { matchedTable = 'memos'; matchedId = memos.data.id; }
-        else if (outg.data) { matchedTable = 'outgoing_docs'; matchedId = outg.data.id; }
-        else if (ords.data) { matchedTable = 'orders'; matchedId = ords.data.id; }
-        else if (incs.data) { matchedTable = 'incoming_docs'; matchedId = incs.data.id; }
-
-        if (!matchedTable || !matchedId) {
-          await sendTelegramMessage(botToken, chatId, `❌ ไม่พบรายการจองเลขลำดับที่ <b>${targetSeq}</b> ในระบบค่ะ กรุณาเช็คจาก <code>/เช็คเลขจอง</code> อีกครั้งค่ะ`);
+        if (foundMatches.length === 0) {
+          await sendTelegramMessage(botToken, chatId, `❌ ไม่พบรายการจองเลขลำดับที่ <b>${targetSeq}</b> สำหรับปีการศึกษา ${docYearNum} ในระบบค่ะ กรุณาเช็คจาก <code>/เช็คเลขจอง</code> อีกครั้งค่ะ`);
           return res.status(200).json({ ok: true });
         }
+
+        // กรณีพบหลายรายการที่มีเลขลำดับซ้ำกันต่างประเภทเอกสาร
+        if (foundMatches.length > 1 && !typeHint) {
+          const tableLabelMap: Record<string, string> = {
+            memos: 'บันทึกข้อความ',
+            outgoing_docs: 'หนังสือส่ง',
+            orders: 'คำสั่งโรงเรียน',
+            incoming_docs: 'หนังสือรับ'
+          };
+          const cmdMap: Record<string, string> = {
+            memos: '/แนบบันทึก',
+            outgoing_docs: '/แนบส่ง',
+            orders: '/แนบคำสั่ง',
+            incoming_docs: '/แนบรับ'
+          };
+          const optionsList = foundMatches.map(m => `• <b>${tableLabelMap[m.table] || m.table}</b>: <code>${m.doc_number}</code> (${m.subject})\n  👉 พิมพ์คำสั่ง: <code>${cmdMap[m.table]} ${targetSeq}</code>`).join('\n\n');
+          await sendTelegramMessage(botToken, chatId, `⚠️ พบรายการจองเลขลำดับ <b>${targetSeq}</b> ซ้ำกัน ${foundMatches.length} หมวดเอกสารค่ะ:\n\n${optionsList}\n\nกรุณาส่งไฟล์พร้อมพิมพ์ระบุประเภทคำสั่งอีกครั้งนะคะ 🌸`);
+          return res.status(200).json({ ok: true });
+        }
+
+        const selectedMatch = foundMatches[0];
+        const matchedTable = selectedMatch.table;
+        const matchedId = selectedMatch.id;
 
         await supabase.from(matchedTable).update({
           file_url: uploadedUrl,

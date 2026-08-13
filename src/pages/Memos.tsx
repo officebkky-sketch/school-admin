@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
+import { sendTelegramNotification } from '../lib/telegramNotify';
 import { generateAIDraft } from '../lib/aiService';
 import Modal from '../components/Modal';
 import { 
@@ -116,14 +117,10 @@ export default function Memos() {
   const isDirector = profile?.role === 'director' || profile?.role === 'admin';
 
   const getNextMemoNumber = (customDate = formData.memo_date) => {
-    const docDateObj = new Date(customDate);
+    const docDateObj = new Date(customDate || new Date());
     const targetYear = docDateObj.getFullYear() + 543;
     
     const yearDocs = docs.filter(d => d.doc_year === targetYear);
-    if (yearDocs.length === 0) {
-      return `1/${targetYear}`;
-    }
-    
     let maxNum = 0;
     yearDocs.forEach(d => {
       if (d.doc_sequence && d.doc_sequence > maxNum) {
@@ -204,6 +201,17 @@ export default function Memos() {
         await sendLineNotification(lineMessage, requesterLineUserId);
       } else {
         await sendLineNotification(lineMessage);
+      }
+
+      // ส่ง Telegram แจ้งเตือนการอนุมัติบันทึกข้อความ
+      try {
+        let tgApprovedMsg = `✅ <b>อนุมัติลงนามบันทึกข้อความเรียบร้อยแล้ว</b>\n\n• <b>เลขที่บันทึก</b>: ${selectedMemoForApproval.memo_number}\n• <b>เรื่อง</b>: ${selectedMemoForApproval.subject}\n• <b>ผู้เสนอ</b>: ${selectedMemoForApproval.requester}`;
+        if (selectedMemoForApproval.file_url) {
+          tgApprovedMsg += `\n\n📄 <a href="${selectedMemoForApproval.file_url}">เปิดดูบันทึกข้อความฉบับสมบูรณ์</a>`;
+        }
+        await sendTelegramNotification(tgApprovedMsg, 'central');
+      } catch (tgErr) {
+        console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
       }
 
       alert('บันทึกการอนุมัติและลายเซ็นเรียบร้อยแล้ว');
@@ -572,7 +580,6 @@ export default function Memos() {
       const docDateObj = new Date(formData.memo_date);
       const docYear = docDateObj.getFullYear() + 543;
 
-      // ค้นหา sequence ถัดไป
       const { data: seqData } = await supabase
         .from('memos')
         .select('doc_sequence')
@@ -580,7 +587,8 @@ export default function Memos() {
         .order('doc_sequence', { ascending: false })
         .limit(1);
       
-      const docSeq = (seqData && seqData.length > 0) ? (Number(seqData[0].doc_sequence) + 1) : 1;
+      const startSeq = settings?.start_memo_seq || 1;
+      const docSeq = (seqData && seqData.length > 0) ? Math.max(Number(seqData[0].doc_sequence) + 1, startSeq) : startSeq;
       const finalMemoNumber = formData.memo_number.trim() || `${docSeq}/${docYear}`;
 
       const { data: insertedDocs, error } = await supabase.from('memos').insert([{ 
@@ -622,6 +630,19 @@ export default function Memos() {
           lineMessage,
           lineActions
         );
+
+        // ส่งการแจ้งเตือนทาง Telegram เข้ากลุ่มเสนอ / ผอ.
+        try {
+          const tgMsg = `📝 <b>เสนออนุมัติบันทึกข้อความเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>ผู้เสนอ</b>: ${formData.requester}\n• <b>หน่วยงาน</b>: ${formData.department}\n• <b>เลขที่บันทึก</b>: ${finalMemoNumber}\n\n📄 <a href="${file_url || '#'}">เปิดดูร่างบันทึกข้อความ</a>`;
+          const tgReplyMarkup = {
+            inline_keyboard: [[
+              { text: '✅ อนุมัติลงนาม (Telegram)', callback_data: `action=approve_doc&type=memo&id=${insertedDoc?.id || ''}` }
+            ]]
+          };
+          await sendTelegramNotification(tgMsg, 'proposal', tgReplyMarkup);
+        } catch (tgErr) {
+          console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
+        }
       } else {
         const lineMessage = `เลขที่บันทึก: ${finalMemoNumber}\nเรื่อง: ${formData.subject}\nผู้เสนอ: ${formData.requester}`;
         const lineActions = file_url ? [{ label: '📄 ดูเอกสาร', type: 'uri' as const, uri: file_url }] : [];
@@ -631,6 +652,13 @@ export default function Memos() {
           lineMessage,
           lineActions
         );
+
+        try {
+          const tgMsg = `📝 <b>บันทึกข้อความใหม่ (ลงทะเบียนตรง)</b>\n\n• <b>เลขที่บันทึก</b>: ${finalMemoNumber}\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>ผู้เสนอ</b>: ${formData.requester}`;
+          await sendTelegramNotification(tgMsg, 'central');
+        } catch (tgErr) {
+          console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
+        }
       }
 
       setIsModalOpen(false);
@@ -645,16 +673,16 @@ export default function Memos() {
 
   function resetForm() {
     setFormData({ 
-      memo_number: '', 
+      memo_number: getNextMemoNumber(), 
       subject: '', 
-      requester: '', 
-      department: settings?.school_name || 'โรงเรียนบ้านควนโคกยา', 
+      requester: profile?.display_name || '', 
+      department: settings?.school_name || 'โรงเรียน', 
       memo_date: new Date().toISOString().split('T')[0],
-      to_person: `ผู้อำนวยการ${settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}`,
+      to_person: `ผู้อำนวยการ${settings?.school_name || 'โรงเรียน'}`,
       content: '',
-      closing_phrase: 'จึงเรียนมาเพื่อทราบ',
-      sign_name: '',
-      sign_position: 'ครูโรงเรียนบ้านควนโคกยา',
+      closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบและพิจารณาอนุมัติ',
+      sign_name: profile?.display_name || '',
+      sign_position: profile?.position || 'ครู',
       online_submit: true,
       ai_key_points: '',
       show_director_opinion: false

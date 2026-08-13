@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase'; 
 import {
   FileSpreadsheet,
@@ -12,9 +12,13 @@ import {
   FileText,
   BarChart,
   PieChart as PieChartIcon,
-  Filter
+  Filter,
+  GraduationCap,
+  Download
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { toPng } from 'html-to-image';
+import jsPDF from 'jspdf';
 import {
   BarChart as ReBarChart,
   Bar,
@@ -31,7 +35,9 @@ import {
 
 export default function Reports() {
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const [selectedYear, setSelectedYear] = useState('');
+  const [schoolName, setSchoolName] = useState('');
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [stats, setStats] = useState({
     incomingCount: 0,
@@ -48,14 +54,34 @@ export default function Reports() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [studentDistData, setStudentDistData] = useState<any[]>([]);
 
+  // ตารางสถิตินักเรียน แยกชั้น เพศ ศาสนา
+  type ClassRow = {
+    class_level: string;
+    room: string;
+    male: number;
+    female: number;
+    total: number;
+    religions: Record<string, number>;
+  };
+  const [classRows, setClassRows] = useState<ClassRow[]>([]);
+  const [allReligions, setAllReligions] = useState<string[]>([]);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const tableRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     initReports();
+    // รอ layout เสร็จก่อน render recharts ใน Electron
+    const t = setTimeout(() => setMounted(true), 100);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
     if (selectedYear) {
       fetchStats();
       fetchChartData();
+      fetchStudentTableData();
     }
   }, [selectedYear]);
 
@@ -68,9 +94,12 @@ export default function Reports() {
         uniqueYears = Array.from(new Set(yearsData.map(s => s.academic_year))).filter(Boolean) as string[];     
       }
 
-      // 2. Fetch current year from settings as default
-      const { data: settings } = await supabase.from('settings').select('current_academic_year').limit(1).maybeSingle();      
+      // 2. Fetch current year and school_name from settings as default
+      const { data: settings } = await supabase.from('settings').select('current_academic_year, school_name').limit(1).maybeSingle();      
       const currentYear = settings?.current_academic_year || '2568';
+      if (settings?.school_name) {
+        setSchoolName(settings.school_name);
+      }
 
       if (!uniqueYears.includes(currentYear)) {
         uniqueYears.push(currentYear);
@@ -216,6 +245,141 @@ export default function Reports() {
     }
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // ตารางสถิตินักเรียน แยกชั้น เพศ ศาสนา
+  // ────────────────────────────────────────────────────────────────
+  async function fetchStudentTableData() {
+    setTableLoading(true);
+    try {
+      const { data: students } = await supabase
+        .from('students')
+        .select('class_level, room, gender, religion, prefix')
+        .eq('academic_year', selectedYear)
+        .or('graduation_status.ilike.%กำลังศึกษา%,graduation_status.eq.ปกติ');
+
+      if (!students) return;
+
+      // รวบรวมศาสนาทั้งหมด
+      const religionSet = new Set<string>();
+      students.forEach(s => {
+        const r = s.religion?.trim() || 'ไม่ระบุ';
+        religionSet.add(r);
+      });
+      const religions = Array.from(religionSet).sort();
+      setAllReligions(religions);
+
+      // group by class_level + room
+      const map: Record<string, ClassRow> = {};
+      students.forEach(s => {
+        const lvl = s.class_level?.trim() || 'ไม่ระบุ';
+        const rm  = s.room?.trim() || '-';
+        const key = `${lvl}__${rm}`;
+        if (!map[key]) {
+          map[key] = { class_level: lvl, room: rm, male: 0, female: 0, total: 0, religions: {} };
+        }
+        const g = (s.gender?.trim() || '').toLowerCase();
+        const p = (s.prefix?.trim() || '').toLowerCase();
+
+        const isMale = g === 'ชาย' || g === 'male' || g === 'm' || g === 'ช' || p.includes('ชาย') || p.includes('นาย') || p.startsWith('ด.ช');
+        const isFemale = g === 'หญิง' || g === 'female' || g === 'f' || g === 'ญ' || p.includes('หญิง') || p.includes('นาง') || p.startsWith('ด.ญ');
+
+        if (isMale) map[key].male++;
+        else if (isFemale) map[key].female++;
+
+        map[key].total++;
+        const rel = s.religion?.trim() || 'ไม่ระบุ';
+        map[key].religions[rel] = (map[key].religions[rel] || 0) + 1;
+      });
+
+      // เรียงชั้น (รองรับทั้งชื่อย่อและชื่อเต็ม)
+      const classOrder = [
+        'อ.1', 'อ.2', 'อ.3',
+        'อนุบาล 1', 'อนุบาล 2', 'อนุบาล 3',
+        'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+        'ประถมศึกษาปีที่ 1', 'ประถมศึกษาปีที่ 2', 'ประถมศึกษาปีที่ 3', 'ประถมศึกษาปีที่ 4', 'ประถมศึกษาปีที่ 5', 'ประถมศึกษาปีที่ 6',
+        'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6',
+        'มัธยมศึกษาปีที่ 1', 'มัธยมศึกษาปีที่ 2', 'มัธยมศึกษาปีที่ 3', 'มัธยมศึกษาปีที่ 4', 'มัธยมศึกษาปีที่ 5', 'มัธยมศึกษาปีที่ 6'
+      ];
+      const rows = Object.values(map).sort((a, b) => {
+        const ai = classOrder.indexOf(a.class_level);
+        const bi = classOrder.indexOf(b.class_level);
+        if (ai !== bi) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        return a.room.localeCompare(b.room, 'th');
+      });
+      setClassRows(rows);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTableLoading(false);
+    }
+  }
+
+  function exportStudentTableExcel() {
+    const header = ['ชั้น', 'ห้อง', 'ชาย', 'หญิง', 'รวม', ...allReligions];
+    const data = classRows.map(r => [
+      r.class_level, r.room, r.male, r.female, r.total,
+      ...allReligions.map(rel => r.religions[rel] || 0)
+    ]);
+    const totalMale   = classRows.reduce((s, r) => s + r.male, 0);
+    const totalFemale = classRows.reduce((s, r) => s + r.female, 0);
+    const totalAll    = classRows.reduce((s, r) => s + r.total, 0);
+    const totalRel    = allReligions.map(rel => classRows.reduce((s, r) => s + (r.religions[rel] || 0), 0));
+    data.push(['รวมทั้งหมด', '', totalMale, totalFemale, totalAll, ...totalRel]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'สถิตินักเรียน');
+    XLSX.writeFile(wb, `สถิตินักเรียน_แยกชั้น_เพศ_ศาสนา_${selectedYear}.xlsx`);
+    setExportMenuOpen(false);
+  }
+
+  async function exportStudentTablePNG() {
+    if (!tableRef.current) return;
+    setExporting(true);
+    setExportMenuOpen(false);
+    try {
+      const dataUrl = await toPng(tableRef.current, { cacheBust: true, backgroundColor: '#ffffff' });
+      const link = document.createElement('a');
+      link.download = `สถิตินักเรียน_แยกชั้น_เพศ_ศาสนา_${selectedYear}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Export PNG failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function exportStudentTablePDF() {
+    if (!tableRef.current) return;
+    setExporting(true);
+    setExportMenuOpen(false);
+    try {
+      const dataUrl = await toPng(tableRef.current, { cacheBust: true, backgroundColor: '#ffffff' });
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((resolve) => { img.onload = resolve; });
+      const imgW = img.width;
+      const imgH = img.height;
+      const pdfW = 297;
+      const pdfH = Math.round((imgH / imgW) * pdfW);
+      const orientation = pdfH > 210 ? 'p' : 'l';
+      const pdf = new jsPDF({ orientation, unit: 'mm', format: orientation === 'l' ? 'a4' : [pdfW, pdfH] });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const ratio = Math.min(pageW / imgW, pageH / imgH);
+      const drawW = imgW * ratio;
+      const drawH = imgH * ratio;
+      const offsetX = (pageW - drawW) / 2;
+      const offsetY = (pageH - drawH) / 2;
+      pdf.addImage(dataUrl, 'PNG', offsetX, offsetY, drawW, drawH);
+      pdf.save(`สถิตินักเรียน_แยกชั้น_เพศ_ศาสนา_${selectedYear}.pdf`);
+    } catch (err) {
+      console.error('Export PDF failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const exportToExcel = async (table: string, fileName: string) => {
     try {
       const { data, error } = await supabase.from(table).select('*');
@@ -339,7 +503,7 @@ export default function Reports() {
             </div>
           </div>
           <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            {mounted && <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <ReBarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 700}} />
@@ -354,7 +518,7 @@ export default function Reports() {
                 <Bar dataKey="orders" name="คำสั่ง" fill="#a855f7" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="memos" name="บันทึก" fill="#10b981" radius={[4, 4, 0, 0]} />
               </ReBarChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer>}
           </div>
         </div>
 
@@ -370,7 +534,7 @@ export default function Reports() {
             </div>
           </div>
           <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            {mounted && <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <RePieChart>
                 <Pie
                   data={studentDistData}
@@ -391,9 +555,200 @@ export default function Reports() {
                 />
                 <Legend iconType="circle" layout="vertical" align="right" verticalAlign="middle" wrapperStyle={{ fontWeight: 700, fontSize: '12px' }} />
               </RePieChart>
-            </ResponsiveContainer>
+            </ResponsiveContainer>}
           </div>
         </div>
+      </div>
+
+      {/* ── ตารางสถิตินักเรียน แยกชั้น เพศ ศาสนา ── */}
+      <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="px-8 py-6 flex flex-col sm:flex-row sm:items-center gap-4 justify-between border-b border-slate-100">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
+              <GraduationCap size={24} />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-800">สถิตินักเรียน แยกชั้น เพศ และศาสนา</h3>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Student Statistics by Class, Gender &amp; Religion · {selectedYear}</p>
+            </div>
+          </div>
+          {/* Export Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setExportMenuOpen(v => !v)}
+              disabled={tableLoading || classRows.length === 0 || exporting}
+              className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-sm transition-colors shrink-0"
+            >
+              {exporting
+                ? <><Loader2 size={16} className="animate-spin" /> กำลังสร้างไฟล์...</>
+                : <><Download size={16} /> Export <ChevronRight size={14} className="rotate-90 ml-0.5" /></>}
+            </button>
+            {exportMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setExportMenuOpen(false)} />
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-20">
+                  <button
+                    onClick={exportStudentTableExcel}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-slate-700 font-bold text-sm transition-colors"
+                  >
+                    <FileSpreadsheet size={16} className="text-emerald-600" />
+                    Excel (.xlsx)
+                  </button>
+                  <button
+                    onClick={exportStudentTablePDF}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-slate-700 font-bold text-sm transition-colors"
+                  >
+                    <FileText size={16} className="text-red-500" />
+                    PDF (.pdf)
+                  </button>
+                  <button
+                    onClick={exportStudentTablePNG}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-slate-700 font-bold text-sm transition-colors"
+                  >
+                    <FileDown size={16} className="text-blue-500" />
+                    PNG (.png)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Table */}
+        {tableLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="animate-spin text-emerald-500" size={32} />
+          </div>
+        ) : classRows.length === 0 ? (
+          <div className="text-center py-20 text-slate-400 font-bold">ไม่พบข้อมูลนักเรียนในปีการศึกษา {selectedYear}</div>
+        ) : (() => {
+          const totalMale   = classRows.reduce((s, r) => s + r.male, 0);
+          const totalFemale = classRows.reduce((s, r) => s + r.female, 0);
+          const totalAll    = classRows.reduce((s, r) => s + r.total, 0);
+
+          // จัดกลุ่มตาม class_level เพื่อทำ rowspan
+          const grouped: { level: string; rows: typeof classRows }[] = [];
+          classRows.forEach(r => {
+            const last = grouped[grouped.length - 1];
+            if (last && last.level === r.class_level) last.rows.push(r);
+            else grouped.push({ level: r.class_level, rows: [r] });
+          });
+
+          return (
+            <div ref={tableRef} className="p-6 bg-white rounded-[32px]">
+              {/* Header สรุปรายงานสำหรับไฟล์ Export/Print */}
+              <div className="mb-6 pb-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800">รายงานสถิตินักเรียน แยกชั้น เพศ และศาสนา</h2>
+                  {schoolName && (
+                    <p className="text-base font-black text-emerald-700 mt-1">
+                      โรงเรียน{schoolName.replace(/^โรงเรียน/, '')}
+                    </p>
+                  )}
+                  <p className="text-sm font-bold text-slate-500 mt-0.5">ปีการศึกษา {selectedYear} (ข้อมูล ณ วันที่ {new Date().toLocaleDateString('th-TH')})</p>
+                </div>
+                <div className="text-xs font-bold text-slate-400">
+                  ระบบบริหารจัดการสถานศึกษา (School Admin Multischool)
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-slate-800 text-white">
+                      <th className="px-4 py-3 text-left font-black text-xs uppercase tracking-wider whitespace-nowrap rounded-l-xl">ชั้น</th>
+                      <th className="px-4 py-3 text-center font-black text-xs uppercase tracking-wider">ห้อง</th>
+                      <th className="px-4 py-3 text-center font-black text-xs uppercase tracking-wider bg-blue-700/80">ชาย</th>
+                      <th className="px-4 py-3 text-center font-black text-xs uppercase tracking-wider bg-rose-700/80">หญิง</th>
+                      <th className="px-4 py-3 text-center font-black text-xs uppercase tracking-wider bg-emerald-700/80">รวม</th>
+                      {allReligions.map((rel, idx) => (
+                        <th key={rel} className={`px-4 py-3 text-center font-black text-xs uppercase tracking-wider whitespace-nowrap ${idx === allReligions.length - 1 ? 'rounded-r-xl' : ''}`}>{rel}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                <tbody>
+                  {grouped.map((group) => {
+                    const grpMale   = group.rows.reduce((s, r) => s + r.male, 0);
+                    const grpFemale = group.rows.reduce((s, r) => s + r.female, 0);
+                    const grpTotal  = group.rows.reduce((s, r) => s + r.total, 0);
+                    const grpRel    = allReligions.map(rel => group.rows.reduce((s, r) => s + (r.religions[rel] || 0), 0));
+
+                    return [
+                      // แถวข้อมูลแต่ละห้อง
+                      ...group.rows.map((row, ri) => (
+                        <tr key={`${group.level}-${row.room}-${ri}`}
+                          className="border-t border-slate-100 hover:bg-slate-50/70 transition-colors group">
+                          {ri === 0 && (
+                            <td
+                              rowSpan={group.rows.length + 1}
+                              className="px-4 py-3 font-black text-slate-800 text-base align-top border-r-2 border-slate-100 whitespace-nowrap"
+                            >
+                              <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-black">
+                                {group.level}
+                              </span>
+                            </td>
+                          )}
+                          <td className="px-4 py-3 text-center font-bold text-slate-600">ห้อง {row.room}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-50 text-blue-700 font-black text-sm">{row.male}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-rose-50 text-rose-600 font-black text-sm">{row.female}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center bg-emerald-50/40">
+                            <span className="inline-flex items-center justify-center w-10 h-8 rounded-full bg-emerald-100 text-emerald-700 font-black text-sm">{row.total}</span>
+                          </td>
+                          {allReligions.map(rel => (
+                            <td key={rel} className="px-4 py-3 text-center text-slate-600 font-semibold">
+                              {row.religions[rel] || '-'}
+                            </td>
+                          ))}
+                        </tr>
+                      )),
+                      // แถวรวมของชั้นนั้น (sub-total)
+                      <tr key={`${group.level}-subtotal`} className="bg-slate-50/80 border-t border-slate-200">
+                        <td className="px-4 py-2.5 text-center font-black text-slate-400 text-xs uppercase tracking-wider">รวมชั้น</td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="inline-flex items-center justify-center w-8 h-7 rounded-full bg-blue-100 text-blue-700 font-black text-sm">{grpMale}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="inline-flex items-center justify-center w-8 h-7 rounded-full bg-rose-100 text-rose-600 font-black text-sm">{grpFemale}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center bg-emerald-50/60">
+                          <span className="inline-flex items-center justify-center w-10 h-7 rounded-full bg-emerald-200 text-emerald-800 font-black text-sm">{grpTotal}</span>
+                        </td>
+                        {grpRel.map((cnt, ri) => (
+                          <td key={ri} className="px-4 py-2.5 text-center font-bold text-slate-500 text-sm">{cnt || '-'}</td>
+                        ))}
+                      </tr>
+                    ];
+                  })}
+                  {/* Grand Total */}
+                  <tr className="bg-slate-800 text-white border-t-2 border-slate-300">
+                    <td className="px-4 py-4 font-black text-white text-sm whitespace-nowrap" colSpan={2}>รวมทั้งหมด</td>
+                    <td className="px-4 py-4 text-center">
+                      <span className="inline-flex items-center justify-center w-10 h-8 rounded-full bg-blue-400/30 text-blue-200 font-black">{totalMale}</span>
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      <span className="inline-flex items-center justify-center w-10 h-8 rounded-full bg-rose-400/30 text-rose-200 font-black">{totalFemale}</span>
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      <span className="inline-flex items-center justify-center w-12 h-8 rounded-full bg-emerald-400/30 text-emerald-200 font-black">{totalAll}</span>
+                    </td>
+                    {allReligions.map(rel => {
+                      const cnt = classRows.reduce((s, r) => s + (r.religions[rel] || 0), 0);
+                      return (
+                        <td key={rel} className="px-4 py-4 text-center font-black text-slate-300">{cnt}</td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+        })()}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
