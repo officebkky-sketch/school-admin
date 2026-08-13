@@ -818,7 +818,7 @@ export default function Settings() {
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.1.17'}
+                {import.meta.env.VITE_APP_VERSION || '1.2.0'}
               </span>
             </div>
           </div>
@@ -828,6 +828,21 @@ export default function Settings() {
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.2.0 (Major Release)</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(13 ส.ค. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li><strong>ระบบสารบรรณอัจฉริยะ 4 หมวดเอกสาร (Smart Saraban & Telegram Bot)</strong>: รองรับการขอเลข จองเลข แนบไฟล์ และยกเลิกการจองผ่าน Telegram สอดคล้องกันทั้ง 4 หมวด (คำสั่งโรงเรียน, บันทึกข้อความ, หนังสือส่ง, หนังสือรับ)</li>
+                  <li><strong>ระบบแสดงชื่อผู้จองและป้ายเลขล่าสุด</strong>: แสดงป้าย <code>จองโดย: [ชื่อครู]</code> และป้าย <code>ล่าสุด: [เลขที่]</code> บนตารางหน้าเว็บเรียลไทม์</li>
+                  <li><strong>เปิดสิทธิ์ให้ครูสร้างและออกเลขคำสั่งโรงเรียน</strong>: ปรับสิทธิ์ RLS ให้คุณครูทุกคนสามารถจองและร่างคำสั่งโรงเรียนได้</li>
+                  <li><strong>ปรับปรุงระบบคำนวณเลขอัตโนมัติ</strong>: แก้ไขการอ่านลำดับเลขสูงสุด ป้องกันการออกเลขซ้ำซ้อนและดึงข้อมูลจาก Supabase โดยตรง 100%</li>
+                  <li><strong>เพิ่มรายงานสถิตินักเรียน (Student Statistics Report)</strong>: สรุปข้อมูลแยกชั้น เพศ ศาสนา พร้อมส่งออกเป็น PDF, PNG, Excel</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.1.17-patch2</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(6 ส.ค. 2569)</span>
