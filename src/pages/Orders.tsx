@@ -33,7 +33,9 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const currentYearBE = new Date().getFullYear() + 543;
   const [selectedYear, setSelectedYear] = useState<number | null>(currentYearBE);
+  const [latestNumber, setLatestNumber] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [selectedOrderForApproval, setSelectedOrderForApproval] = useState<any>(null);
@@ -89,18 +91,32 @@ export default function Orders() {
   async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false });
+      let query = supabase.from('orders').select('*');
+      if (yearToFetch) {
+        query = query.eq('doc_year', yearToFetch);
+      }
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
+      setDocs(data || []);
 
-      let filtered = data || [];
       if (yearToFetch) {
-        filtered = filtered.filter(d => d.doc_year === yearToFetch || d.is_reserved || d.status === 'reserved' || !d.doc_year);
+        const { data: latestSeqDoc } = await supabase
+          .from('orders')
+          .select('order_number')
+          .eq('doc_year', yearToFetch)
+          .order('doc_sequence', { ascending: false })
+          .limit(1);
+        if (latestSeqDoc && latestSeqDoc.length > 0) {
+          setLatestNumber(latestSeqDoc[0].order_number);
+        } else {
+          setLatestNumber('');
+        }
+      } else if (data && data.length > 0) {
+        setLatestNumber(data[0].order_number);
+      } else {
+        setLatestNumber('');
       }
-      setDocs(filtered);
     } catch (e) {
       console.error('Error fetching orders:', e);
     }
@@ -972,6 +988,13 @@ ${groups.map(g => `<duty name="${g}">
             <option value={currentYearBE - 1}>{currentYearBE - 1}</option>
             <option value={currentYearBE - 2}>{currentYearBE - 2}</option>
           </select>
+
+          {latestNumber && (
+            <div className="shrink-0 px-3 py-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-xl flex items-center gap-1.5 whitespace-nowrap shadow-xs h-[48px]">
+              <span className="text-[10px] font-black text-brand-primary uppercase tracking-tighter mr-1">ล่าสุด:</span>
+              <span className="text-xs font-black text-brand-primary tracking-tight">{latestNumber}</span>
+            </div>
+          )}
         </div>
         <button onClick={() => { resetForm(); setIsModalOpen(true); }} className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg active:scale-95 transition-all">
           <Book size={20} /> ออกเลขคำสั่ง
