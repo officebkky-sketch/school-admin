@@ -687,11 +687,12 @@ ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow authenticated staff to view orders" ON orders
   FOR SELECT USING (auth.uid() IS NOT NULL);
 
-CREATE POLICY "Allow director/admin to manage orders" ON orders
+CREATE POLICY "Allow owners and admin/director/teacher to manage orders" ON orders
   FOR ALL USING (
-    EXISTS (
+    auth.uid() = created_by 
+    OR EXISTS (
       SELECT 1 FROM profiles 
-      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin')
+      WHERE profiles.id = auth.uid() AND profiles.role IN ('director', 'admin', 'teacher')
     )
   );
 
