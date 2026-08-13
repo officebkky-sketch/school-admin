@@ -1,3 +1,4 @@
+// School Admin System - Orders Management Page
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
