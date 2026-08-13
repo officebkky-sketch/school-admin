@@ -1044,7 +1044,14 @@ ${groups.map(g => `<duty name="${g}">
                     <div className="font-bold text-slate-800 text-sm">{doc.order_number}</div>
                     <div className="text-[10px] text-slate-400">{doc.order_date}</div>
                   </td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-700">{doc.subject}</td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-slate-700">{doc.subject}</div>
+                    {(doc.reserved_by_name || doc.issuer) && (
+                      <div className="text-[10px] text-slate-400 font-bold mt-0.5">
+                        {doc.status === 'reserved' || doc.is_reserved ? `จองโดย: ${doc.reserved_by_name || '-'}` : `ออกโดย: ${doc.issuer || '-'}`}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-center">
                     {doc.status === 'reserved' || doc.is_reserved ? (
                       <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1">🟡 จองเลขแล้ว (รอไฟล์)</span>

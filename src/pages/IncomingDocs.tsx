@@ -881,7 +881,9 @@ export default function IncomingDocs() {
                   <td className="px-6 py-4">
                     <p className="text-sm font-medium text-slate-700">{doc.subject}</p>
                     <div className="flex items-center gap-2">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">{doc.from_agency}</p>
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">
+                        {doc.status === 'reserved' || doc.is_reserved ? `จองโดย: ${doc.reserved_by_name || doc.from_agency || '-'}` : doc.from_agency}
+                      </p>
                       {(doc.status === 'reserved' || doc.is_reserved) && (
                         <span className="flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200" title="ขอจองเลขไว้ผ่าน Telegram (ยังไม่มีไฟล์เอกสาร)">
                           🟡 จองเลขแล้ว (รอไฟล์)

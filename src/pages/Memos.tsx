@@ -752,7 +752,9 @@ export default function Memos() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-slate-700">{doc.subject}</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-bold">โดย: {doc.requester}</div>
+                    <div className="text-[10px] text-slate-400 font-bold mt-0.5">
+                      {doc.status === 'reserved' || doc.is_reserved ? `จองโดย: ${doc.reserved_by_name || doc.requester || '-'}` : `โดย: ${doc.requester || '-'}`}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-center">
                     {doc.status === 'reserved' || doc.is_reserved ? (

@@ -949,7 +949,12 @@ ${userDetail}
                     <div className="text-[10px] text-slate-400">{doc.doc_date}</div>
                   </td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-700">
-                    {doc.subject}
+                    <div>{doc.subject}</div>
+                    {(doc.reserved_by_name || doc.sender_name) && (
+                      <div className="text-[10px] text-slate-400 font-bold mt-0.5">
+                        {doc.status === 'reserved' || doc.is_reserved ? `จองโดย: ${doc.reserved_by_name || '-'}` : `ผู้ส่ง: ${doc.sender_name || '-'}`}
+                      </div>
+                    )}
                     {doc.status === 'rejected' && (
                       <div className="text-xs font-semibold text-red-500 mt-1">
                         ⚠️ ส่งกลับแก้ไข: {(() => {
