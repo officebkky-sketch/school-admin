@@ -92,29 +92,40 @@ export default function Orders() {
   async function fetchDocs(yearToFetch = selectedYear) {
     setLoading(true);
     try {
-      let query = supabase.from('orders').select('*');
-      if (yearToFetch) {
-        query = query.eq('doc_year', yearToFetch);
-      }
-      const { data, error } = await query.order('created_at', { ascending: false });
+      let data: any[] | null = null;
+      let error: any = null;
 
-      if (error) throw error;
+      if (yearToFetch) {
+        // ค้นหาทั้งในรูปแบบตัวเลขและข้อความ
+        const res = await supabase
+          .from('orders')
+          .select('*')
+          .or(`doc_year.eq.${yearToFetch},doc_year.eq.${String(yearToFetch)}`)
+          .order('created_at', { ascending: false });
+        data = res.data;
+        error = res.error;
+      }
+
+      // ถ้าค้นหาแบบระบุปีไม่พบ หรือไม่มีการระบุปี ให้ดึงรายการคำสั่งทั้งหมดมาสำรองไว้
+      if (!data || data.length === 0 || error) {
+        const fallbackRes = await supabase
+          .from('orders')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (fallbackRes.data && fallbackRes.data.length > 0) {
+          data = fallbackRes.data;
+        }
+      }
+
       setDocs(data || []);
 
-      if (yearToFetch) {
-        const { data: latestSeqDoc } = await supabase
-          .from('orders')
-          .select('order_number')
-          .eq('doc_year', yearToFetch)
-          .order('doc_sequence', { ascending: false })
-          .limit(1);
-        if (latestSeqDoc && latestSeqDoc.length > 0) {
-          setLatestNumber(latestSeqDoc[0].order_number);
+      if (data && data.length > 0) {
+        const latestDoc = data.find(d => d.order_number);
+        if (latestDoc) {
+          setLatestNumber(latestDoc.order_number);
         } else {
           setLatestNumber('');
         }
-      } else if (data && data.length > 0) {
-        setLatestNumber(data[0].order_number);
       } else {
         setLatestNumber('');
       }
