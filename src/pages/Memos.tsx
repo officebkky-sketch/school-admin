@@ -120,17 +120,18 @@ export default function Memos() {
     const docDateObj = new Date(customDate || new Date());
     const targetYear = docDateObj.getFullYear() + 543;
     
-    const yearDocs = docs.filter(d => d.doc_year === targetYear);
     let maxNum = 0;
-    yearDocs.forEach(d => {
-      if (d.doc_sequence && d.doc_sequence > maxNum) {
-        maxNum = d.doc_sequence;
-      } else if (d.memo_number) {
-        const match = d.memo_number.match(/^(\d+)/);
-        if (match) {
-          const num = parseInt(match[1]);
-          if (num > maxNum) {
-            maxNum = num;
+    docs.forEach(d => {
+      if (!d.doc_year || Number(d.doc_year) === Number(targetYear)) {
+        if (d.doc_sequence && Number(d.doc_sequence) > maxNum) {
+          maxNum = Number(d.doc_sequence);
+        } else if (d.memo_number) {
+          const match = d.memo_number.match(/^(\d+)/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNum) {
+              maxNum = num;
+            }
           }
         }
       }

@@ -567,17 +567,18 @@ export default function Orders() {
     const docDateObj = new Date(customDate || new Date());
     const targetYear = docDateObj.getFullYear() + 543;
     
-    const yearDocs = docs.filter(d => d.doc_year === targetYear);
     let maxNum = 0;
-    yearDocs.forEach(d => {
-      if (d.doc_sequence && d.doc_sequence > maxNum) {
-        maxNum = d.doc_sequence;
-      } else if (d.order_number && d.order_number !== 'รออนุมัติ') {
-        const match = d.order_number.match(/^(\d+)/);
-        if (match) {
-          const num = parseInt(match[1]);
-          if (num > maxNum) {
-            maxNum = num;
+    docs.forEach(d => {
+      if (!d.doc_year || Number(d.doc_year) === Number(targetYear)) {
+        if (d.doc_sequence && Number(d.doc_sequence) > maxNum) {
+          maxNum = Number(d.doc_sequence);
+        } else if (d.order_number && d.order_number !== 'รออนุมัติ') {
+          const match = d.order_number.match(/^(\d+)/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNum) {
+              maxNum = num;
+            }
           }
         }
       }
@@ -650,14 +651,28 @@ export default function Orders() {
       // ค้นหา sequence ถัดไปสำหรับคำสั่ง
       const { data: seqDocs } = await supabase
         .from('orders')
-        .select('doc_sequence')
+        .select('doc_sequence, order_number')
         .eq('doc_year', docYear)
         .order('doc_sequence', { ascending: false })
-        .limit(1);
-        
+        .limit(10);
+
+      let maxSeqFromDB = 0;
+      (seqDocs || []).forEach(sd => {
+        if (sd.doc_sequence && Number(sd.doc_sequence) > maxSeqFromDB) {
+          maxSeqFromDB = Number(sd.doc_sequence);
+        } else if (sd.order_number) {
+          const m = sd.order_number.match(/^(\d+)/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (n > maxSeqFromDB) maxSeqFromDB = n;
+          }
+        }
+      });
+
       const startSeq = settings?.start_order_seq || 1;
-      const docSeq = (seqDocs && seqDocs.length > 0) ? Math.max(Number(seqDocs[0].doc_sequence) + 1, startSeq) : startSeq;
-      const finalOrderNum = formData.order_number.trim() || `${docSeq}/${docYear}`;
+      const docSeq = Math.max(maxSeqFromDB + 1, startSeq);
+      const calculatedNum = `${docSeq}/${docYear}`;
+      const finalOrderNum = formData.order_number.trim() && formData.order_number.trim() !== `${maxSeqFromDB}/${docYear}` ? formData.order_number.trim() : calculatedNum;
 
       const { data: insertedDocs, error } = await supabase.from('orders').insert([{ 
         order_number: finalOrderNum,
