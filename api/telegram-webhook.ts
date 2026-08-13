@@ -2408,6 +2408,7 @@ export default async function handler(req: any, res: any) {
         const { error } = await supabase.from('orders').insert([{
           order_number: fullNumber,
           subject: subject,
+          issuer: settings?.school_name || 'โรงเรียน',
           order_date: todayStr,
           doc_year: docYearNum,
           doc_sequence: nextSeq,
