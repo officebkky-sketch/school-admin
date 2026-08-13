@@ -682,7 +682,7 @@ export default function Memos() {
       content: '',
       closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบและพิจารณาอนุมัติ',
       sign_name: profile?.display_name || '',
-      sign_position: profile?.position || 'ครู',
+      sign_position: 'ครู',
       online_submit: true,
       ai_key_points: '',
       show_director_opinion: false
