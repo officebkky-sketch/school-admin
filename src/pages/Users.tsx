@@ -251,6 +251,15 @@ export default function UsersManagement() {
                               ⚪ ยังไม่ผูก Telegram
                             </span>
                           )}
+                          {user.line_user_id ? (
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full text-[9px] font-black border border-emerald-100 flex items-center gap-1 shadow-2xs" title={`LINE User ID: ${user.line_user_id}`}>
+                              🟢 ผูก LINE แล้ว
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-400 rounded-full text-[9px] font-black border border-slate-200">
+                              ⚪ ยังไม่ผูก LINE
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
