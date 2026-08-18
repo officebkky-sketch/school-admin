@@ -290,15 +290,57 @@ export default function IncomingDocs() {
           telegramChatId = prof.telegram_chat_id;
         }
 
+        // สกัดรายการสิ่งที่ส่งมาด้วย (ไฟล์แนบ) สำหรับ Telegram
+        let tgAttachLinksText = '';
+        const rawAtts = selectedDoc.attachment_urls;
+        let docAtts: string[] = [];
+        if (Array.isArray(rawAtts)) {
+          docAtts = rawAtts.filter(Boolean);
+        } else if (typeof rawAtts === 'string') {
+          try {
+            const parsed = JSON.parse(rawAtts);
+            if (Array.isArray(parsed)) docAtts = parsed.filter(Boolean);
+          } catch {}
+        }
+
+        if (docAtts.length > 0) {
+          tgAttachLinksText = '\n\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>';
+          docAtts.forEach((url: string, i: number) => {
+            tgAttachLinksText += `\n  ${i + 1}. <a href="${url}">ไฟล์แนบที่ ${i + 1}</a>`;
+          });
+        }
+
+        const docButtons: any[] = [];
+        if (selectedDoc.file_url) {
+          docButtons.push({ text: '📄 ดูเอกสารสั่งการ', url: selectedDoc.file_url });
+        }
+        if (docAtts.length > 0) {
+          docAtts.slice(0, 2).forEach((url, i) => {
+            docButtons.push({ text: `📎 แนบ ${i + 1}`, url });
+          });
+        }
+
+        const telegramReplyMarkup = {
+          inline_keyboard: [
+            ...(docButtons.length > 0 ? [docButtons] : []),
+            [
+              { text: '✅ รับทราบงาน', callback_data: `action=acknowledge&id=${insertedAssign?.id || ''}` }
+            ],
+            [
+              { text: '📢 ประชาสัมพันธ์ลงกลุ่มกลาง', callback_data: `action=bc_grp&id=${insertedAssign?.id || ''}` }
+            ]
+          ]
+        };
+
         if (telegramChatId) {
           // ส่งตรงถึงครูผู้รับมอบหมายทาง Telegram
-          const telegramPersonalMsg = `📬 <b>มีงานมอบหมายใหม่ถึงคุณครูค่ะ</b>\n\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ/แนวทาง</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสาร</a>`;
-          await sendTelegramNotification(telegramPersonalMsg, telegramChatId);
+          const telegramPersonalMsg = `📬 <b>มีงานมอบหมายใหม่ถึงคุณครูค่ะ</b>\n\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ/แนวทาง</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${tgAttachLinksText}`;
+          await sendTelegramNotification(telegramPersonalMsg, telegramChatId, telegramReplyMarkup);
           telegramNotifyStatus = ` และ Telegram ✅`;
         } else {
           // ส่งเข้ากลุ่ม Telegram ส่วนกลาง
-          const telegramGroupMsg = `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: ${teacherName}\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสาร</a>`;
-          await sendTelegramNotification(telegramGroupMsg, 'central');
+          const telegramGroupMsg = `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: ${teacherName}\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${tgAttachLinksText}`;
+          await sendTelegramNotification(telegramGroupMsg, 'central', telegramReplyMarkup);
           telegramNotifyStatus = ' และส่งเข้ากลุ่ม Telegram ส่วนกลาง 📣';
         }
       } catch (tgErr: any) {

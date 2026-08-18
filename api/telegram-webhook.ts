@@ -915,12 +915,43 @@ async function executeDocAssignment(
     const teacherName = `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}`;
     await sendTelegramMessage(botToken, chatId, `✅ ทำการเกษียณสั่งการหนังสือเรื่อง "${escapeHtml(doc.subject)}" และมอบหมายงานให้คุณครู <b>${escapeHtml(teacherName)}</b> เรียบร้อยแล้วค่ะ 🌸`);
 
-    const personalMsg = `📌 <b>มีงานมอบหมายใหม่ถึงคุณ</b>\n\n• <b>เรื่อง</b>: ${escapeHtml(doc.subject)}\n• <b>เลขที่หนังสือ</b>: ${escapeHtml(doc.doc_number)}\n• <b>คำสั่งการ</b>: ${escapeHtml(instruction)}\n\n📄 <a href="${finalFileUrl}">เปิดดูต้นฉบับเอกสารสั่งการ</a>`;
+    // สกัด attachment_urls ของหนังสือรับ (สิ่งที่ส่งมาด้วย)
+    const rawAttachments = doc.attachment_urls;
+    let attachmentUrls: string[] = [];
+    if (Array.isArray(rawAttachments)) {
+      attachmentUrls = rawAttachments.filter(Boolean);
+    } else if (typeof rawAttachments === 'string') {
+      try {
+        const parsed = JSON.parse(rawAttachments);
+        if (Array.isArray(parsed)) attachmentUrls = parsed.filter(Boolean);
+      } catch { /* ignore */ }
+    }
+
+    let attachLinksText = '';
+    if (attachmentUrls.length > 0) {
+      attachLinksText = `\n\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>`;
+      attachmentUrls.forEach((url: string, idx: number) => {
+        attachLinksText += `\n  ${idx + 1}. <a href="${url}">ไฟล์แนบ ${idx + 1}</a>`;
+      });
+    }
+
+    const personalMsg = `📌 <b>มีงานมอบหมายใหม่ถึงคุณ</b>\n\n• <b>เรื่อง</b>: ${escapeHtml(doc.subject)}\n• <b>เลขที่หนังสือ</b>: ${escapeHtml(doc.doc_number)}\n• <b>คำสั่งการ</b>: ${escapeHtml(instruction)}\n\n📄 <a href="${finalFileUrl}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${attachLinksText}`;
     const { data: teacherProfile } = await supabase.from('profiles').select('telegram_chat_id').eq('email', teacher.email).maybeSingle();
+
+    const docButtons: any[] = [];
+    if (finalFileUrl) {
+      docButtons.push({ text: '📄 ดูเอกสารสั่งการ', url: finalFileUrl });
+    }
+    if (attachmentUrls.length > 0) {
+      attachmentUrls.slice(0, 2).forEach((url, i) => {
+        docButtons.push({ text: `📎 แนบ ${i + 1}`, url });
+      });
+    }
 
     if (teacherProfile?.telegram_chat_id) {
       const teacherReplyMarkup = {
         inline_keyboard: [
+          ...(docButtons.length > 0 ? [docButtons] : []),
           [
             { text: '✅ รับทราบงาน', callback_data: `action=acknowledge&id=${assignment.id}` }
           ],
@@ -933,12 +964,14 @@ async function executeDocAssignment(
     } else {
       const teacherReplyMarkup = {
         inline_keyboard: [
+          ...(docButtons.length > 0 ? [docButtons] : []),
           [
             { text: '✅ รับทราบงาน', callback_data: `action=acknowledge&id=${assignment.id}` }
           ]
         ]
       };
-      await sendTelegramMessage(botToken, chatId, `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: ${teacherName}\n• <b>เรื่อง</b>: ${doc.subject}\n• <b>คำสั่งการ</b>: ${instruction}\n\n📄 <a href="${finalFileUrl}">เปิดดูเอกสารสั่งการ</a>`, teacherReplyMarkup);
+      const fallbackGroupMsg = `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: ${escapeHtml(teacherName)}\n• <b>เรื่อง</b>: ${escapeHtml(doc.subject)}\n• <b>เลขที่หนังสือ</b>: ${escapeHtml(doc.doc_number)}\n• <b>คำสั่งการ</b>: ${escapeHtml(instruction)}\n\n📄 <a href="${finalFileUrl}">เปิดดูเอกสารสั่งการ</a>${attachLinksText}`;
+      await sendTelegramMessage(botToken, chatId, fallbackGroupMsg, teacherReplyMarkup);
     }
 
   } catch (err: any) {
@@ -2654,7 +2687,7 @@ export default async function handler(req: any, res: any) {
 
       let assignQuery = supabase
         .from('doc_assignments')
-        .select('id, instruction, status, incoming_docs(subject, doc_number, file_url)')
+        .select('id, instruction, status, incoming_docs(subject, doc_number, file_url, attachment_urls)')
         .in('status', ['pending', 'acknowledged'])
         .order('created_at', { ascending: false });
 
@@ -2681,10 +2714,32 @@ export default async function handler(req: any, res: any) {
         const docNum = item.incoming_docs?.doc_number || '-';
         const statusLabel = item.status === 'pending' ? '⏳ รอรับทราบ' : '📌 อยู่ระหว่างดำเนินงาน';
 
-        taskListMsg += `<b>${idx + 1}. ${docSubject}</b>\n`;
-        taskListMsg += `• <b>เลขที่หนังสือ</b>: ${docNum}\n`;
-        taskListMsg += `• <b>คำสั่งการ</b>: ${item.instruction || 'มอบดำเนินการ'}\n`;
-        taskListMsg += `• <b>สถานะ</b>: ${statusLabel}\n\n`;
+        taskListMsg += `<b>${idx + 1}. ${escapeHtml(docSubject)}</b>\n`;
+        taskListMsg += `• <b>เลขที่หนังสือ</b>: ${escapeHtml(docNum)}\n`;
+        taskListMsg += `• <b>คำสั่งการ</b>: ${escapeHtml(item.instruction || 'มอบดำเนินการ')}\n`;
+        taskListMsg += `• <b>สถานะ</b>: ${statusLabel}\n`;
+
+        if (item.incoming_docs?.file_url) {
+          taskListMsg += `• 📄 <a href="${item.incoming_docs.file_url}">เปิดดูเอกสารสั่งการ</a>`;
+        }
+
+        const rawAtts = item.incoming_docs?.attachment_urls;
+        let itemAtts: string[] = [];
+        if (Array.isArray(rawAtts)) itemAtts = rawAtts.filter(Boolean);
+        else if (typeof rawAtts === 'string') {
+          try {
+            const parsed = JSON.parse(rawAtts);
+            if (Array.isArray(parsed)) itemAtts = parsed.filter(Boolean);
+          } catch {}
+        }
+
+        if (itemAtts.length > 0) {
+          taskListMsg += ` | 📎 `;
+          itemAtts.forEach((url, i) => {
+            taskListMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+          });
+        }
+        taskListMsg += `\n\n`;
 
         const shortLabel = docNum !== '-' ? docNum : docSubject.substring(0, 15);
         inlineKeyboard.push([
