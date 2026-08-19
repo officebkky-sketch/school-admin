@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.3.0] - 2026-08-19
+### Added
+- **ระบบคลังความรู้ระเบียบราชการและคู่มือปฏิบัติงาน (RAG Knowledge Base)**:
+  - เพิ่มหน้าต่างค้นหาคู่มือปฏิบัติงานและข้อระเบียบราชการบนหน้าเว็บ (`src/pages/KnowledgeBase.tsx`)
+  - ค้นหาเนื้อหาจากฐานข้อมูลชิ้นส่วนเอกสาร (`ai_private_knowledge_chunks`) และประมวลผลคำตอบด้วย Gemini AI
+  - เพิ่มเมนูคลังความรู้ในแถบด้านข้าง Sidebar (`src/App.tsx`)
+- **ระบบตรวจสอบความถูกต้องบันทึกข้อความ (Doc Verification System)**:
+  - เพิ่มคอมโพเนนต์การ์ดตรวจสอบเอกสาร (`src/components/DocVerificationCard.tsx` และ `src/lib/docChecker.ts`)
+  - ตรวจสอบฟอร์แมตวันที่ไทย, คำขึ้นต้น, คำลงท้าย, เลขที่หนังสืออัตโนมัติในหน้า `Memos.tsx` ก่อนส่งเสนอ ผอ.
+- **ระบบตรวจสอบวันหยุดราชการไทย (Thai Public Holidays Utility)**:
+  - สร้าง Utility คำนวณวันหยุดราชการไทยและวันหยุดตามปฏิทิน (`api/_utils/thaiHolidays.ts`)
+  - ใช้ใน Cron Job (`api/director-pending-reminder.ts` และ `api/deadline-reminder.ts`) เพื่อข้ามการส่งแจ้งเตือนในวันหยุดเสาร์-อาทิตย์และวันหยุดนักขัตฤกษ์
+  - เพิ่ม API ทดสอบระบบแบบ Manual Trigger (`api/trigger-test.ts`) รองรับการทดสอบ Director Digest, Deadline Reminder และ Backup
+- **ระบบป้องกันหน้าจอขาวและการจัดการข้อผิดพลาด (Dashboard Error Handling & UI Guards)**:
+  - เพิ่ม Error Banner แจ้งเตือนเมื่อโหลดข้อมูล Dashboard ไม่สำเร็จ ป้องกันปัญหา White Screen (`src/pages/Dashboard.tsx`)
+  - เพิ่ม Nullish Coalescing (`?.`, `?? '-'`) ใน `src/pages/TaskManagement.tsx` ป้องกันหน้าจอค้างจากข้อมูลไม่สมบูรณ์
+
+### Fixed & Enhanced
+- **ระบบแปลง Attachment URLs ปลอดภัย**:
+  - ปรับปรุงการแปลง `attachment_urls` ให้รองรับทั้ง JSON string และ Array ใน `src/pages/IncomingDocs.tsx`
+- **ความเสถียรของ Telegram Webhook**:
+  - รักษาความเสถียรของระบบขอเลข, เช็คเลขจอง, ยกเลิกเลขจอง และการแจ้งเตือนหนังสือแนบผ่าน Telegram โดยคงโครงสร้างหลักของ Webhook ให้ทำงานได้อย่างราบรื่น 100%
+
 ## [1.1.19] - 2026-08-10
 ### Added
 - **ระบบแจ้งเตือนหนังสือรอเกษียณสั่งการประจำวันยามเช้า (Director Morning Digest)**:
