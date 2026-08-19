@@ -6,6 +6,8 @@ import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNot
 import { sendTelegramNotification } from '../lib/telegramNotify';
 import { generateAIDraft } from '../lib/aiService';
 import Modal from '../components/Modal';
+import { DocVerificationBadge, DocVerificationCard } from '../components/DocVerificationCard';
+
 import { 
   Search, 
   ExternalLink,
@@ -757,16 +759,20 @@ export default function Memos() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    {doc.status === 'reserved' || doc.is_reserved ? (
-                      <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1">🟡 จองเลขแล้ว (รอไฟล์)</span>
-                    ) : doc.status === 'approved' ? (
-                      <span className="px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><CheckCircle size={12} /> อนุมัติแล้ว</span>
-                    ) : doc.status === 'rejected' ? (
-                      <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><XCircle size={12} /> ไม่อนุมัติ</span>
-                    ) : (
-                      <span className="px-3 py-1 bg-amber-50 text-amber-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><Clock size={12} /> รออนุมัติ</span>
-                    )}
+                    <div className="flex flex-col items-center gap-1">
+                      {doc.status === 'reserved' || doc.is_reserved ? (
+                        <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1">🟡 จองเลขแล้ว (รอไฟล์)</span>
+                      ) : doc.status === 'approved' ? (
+                        <span className="px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><CheckCircle size={12} /> อนุมัติแล้ว</span>
+                      ) : doc.status === 'rejected' ? (
+                        <span className="px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><XCircle size={12} /> ไม่อนุมัติ</span>
+                      ) : (
+                        <span className="px-3 py-1 bg-amber-50 text-amber-600 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1"><Clock size={12} /> รออนุมัติ</span>
+                      )}
+                      <DocVerificationBadge doc={doc} />
+                    </div>
                   </td>
+
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1 items-center">
                       {(doc.status === 'reserved' || doc.is_reserved) && (
@@ -951,6 +957,9 @@ export default function Memos() {
               ผู้เสนอ: {selectedMemoForApproval?.requester} ({selectedMemoForApproval?.department}) | เลขที่บันทึก: {selectedMemoForApproval?.memo_number}
             </div>
           </div>
+
+          {selectedMemoForApproval && <DocVerificationCard doc={selectedMemoForApproval} compact={false} />}
+
 
           <div className="bg-slate-50 p-5 rounded-3xl space-y-4 border border-slate-100">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><MessageSquare size={14} /> การตัดสินใจของ ผอ.</h4>

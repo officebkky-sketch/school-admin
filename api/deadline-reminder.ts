@@ -1,5 +1,5 @@
-declare const process: any;
 import { createClient } from '@supabase/supabase-js';
+import { isNonWorkingDay, getThaiDateInfo } from './_utils/thaiHolidays';
 
 // ── Helper: ส่งข้อความ Telegram ──────────────────────────────────────────────
 async function sendTelegram(token: string, chatId: number, text: string, replyMarkup?: any) {
@@ -53,6 +53,12 @@ function daysEmoji(days: number): string {
   return `🟢 อีก <b>${days} วัน</b>`;
 }
 
+/** HTML escape ป้องกัน XSS/400 Error ใน Telegram HTML mode */
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ── Main Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req: Request): Promise<Response> {
   // ✅ ตรวจสอบ Authorization Header (Vercel ส่ง CRON_SECRET มาให้ตรวจ)
@@ -61,6 +67,25 @@ export default async function handler(req: Request): Promise<Response> {
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
+
+  // ดึง query params (ถ้ามี) สำหรับตรวจสอบการบังคับรัน (Manual Trigger)
+  const url = new URL(req.url || 'http://localhost');
+  const isForce = url.searchParams.get('force') === 'true';
+
+  // ✅ ตรวจสอบวันทำงาน (ข้ามเสาร์-อาทิตย์ และวันหยุดนักขัตฤกษ์ไทย)
+  const dateInfo = getThaiDateInfo();
+  const nonWorkingCheck = isNonWorkingDay();
+
+  if (!isForce && nonWorkingCheck.isNonWorking) {
+    console.log(`[DEADLINE-REMINDER] Skipped: ${nonWorkingCheck.reason}`);
+    return new Response(JSON.stringify({
+      message: `Skipped: ${nonWorkingCheck.reason}`,
+      date: dateInfo.thaiDateStr,
+      isHoliday: dateInfo.isHoliday,
+      holidayName: dateInfo.holidayName || null
+    }), { status: 200 });
+  }
+
 
   try {
     // ── 1. ดึง settings ของทุกโรงเรียน ────────────────────────────────────────
@@ -137,10 +162,11 @@ export default async function handler(req: Request): Promise<Response> {
 
         let msg = `⏰ <b>แจ้งเตือน: ใกล้ครบกำหนดดำเนินการ</b>\n`;
         msg += `${urgencyText}\n\n`;
-        msg += `📄 <b>หนังสือเลขรับ:</b> ${receiveNo}\n`;
-        msg += `📝 <b>เรื่อง:</b> ${doc.subject || '-'}\n`;
+        msg += `📄 <b>หนังสือเลขรับ:</b> ${escapeHtml(receiveNo)}\n`;
+        msg += `📝 <b>เรื่อง:</b> ${escapeHtml(doc.subject || '-')}\n`;
         msg += `🗓 <b>กำหนดส่ง:</b> ${thaiDeadline}\n`;
-        msg += `🧑‍🏫 <b>ผู้รับผิดชอบ:</b> ${teacherName}\n`;
+        msg += `🧑‍🏫 <b>ผู้รับผิดชอบ:</b> ${escapeHtml(teacherName)}\n`;
+
 
         if (days <= 0) {
           msg += `\n❗ <b>กรุณาดำเนินการและอัปเดตสถานะในระบบด่วน!</b>`;

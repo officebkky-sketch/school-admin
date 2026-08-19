@@ -30,6 +30,7 @@ import ARLearning from './pages/ARLearning';
 import ARAdmin from './pages/ARAdmin';
 import ServiceArea from './pages/ServiceArea';
 import Athletics from './pages/Athletics';
+import KnowledgeBase from './pages/KnowledgeBase';
 import IdentityFooter from './components/IdentityFooter';
 import ResetPasswordModal from './components/ResetPasswordModal';
 import ToastContainer from './components/ToastContainer';
@@ -43,6 +44,8 @@ import {
   Settings as SettingsIcon, 
   LogOut, 
   Book, 
+  BookOpen,
+
   MessageSquare,
   ChevronRight,
   PieChart,
@@ -70,7 +73,8 @@ import {
 
 const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'knowledge_base' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics';
+
 
 function App() {
   const { user, profile, loading, signOut } = useAuth();
@@ -294,6 +298,8 @@ function App() {
 
               <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">นวัตกรรม AI</div>
               <SidebarItem icon={<Bot size={20} />} label="AI Cowork" active={activeTab === 'ai_cowork'} onClick={() => setActiveTab('ai_cowork')} />
+              <SidebarItem icon={<BookOpen size={20} />} label="คลังคู่มือ (RAG)" active={activeTab === 'knowledge_base'} onClick={() => setActiveTab('knowledge_base')} />
+
 
               {canAccessAcademic && (
                 <div className="py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mt-4 text-[9px]">
@@ -385,6 +391,7 @@ function App() {
             {activeTab === 'utilities' && 'ระบบเบิกค่าสาธารณูปโภค'}
             {activeTab === 'free_education' && 'ระบบจ่ายเงินเรียนฟรี (๑๕ ปี)'}
             {activeTab === 'ai_cowork' && 'AI Cowork'}
+            {activeTab === 'knowledge_base' && 'คลังคู่มือปฏิบัติงาน (RAG Knowledge Base)'}
             {activeTab === 'ar_learning' && 'น้องชบาพาพิชิต (AR)'}
             {activeTab === 'ar_admin' && 'จัดการด่านบทเรียน น้องชบาพาพิชิต (AR)'}
             {activeTab === 'service_area' && 'เด็กในเขตพื้นที่บริการ (ทร.14)'}
@@ -432,10 +439,12 @@ function App() {
             {activeTab === 'utilities' && <Utilities />}
             {activeTab === 'free_education' && <FreeEducation />}
             {activeTab === 'ai_cowork' && <AICowork />}
+            {activeTab === 'knowledge_base' && <KnowledgeBase />}
             {activeTab === 'ar_learning' && <ARLearning onBack={() => setActiveTab('academic')} />}
             {activeTab === 'ar_admin' && <ARAdmin onBack={() => setActiveTab('academic')} />}
             {activeTab === 'service_area' && <ServiceArea />}
             {activeTab === 'athletics' && <Athletics />}
+
             
             <IdentityFooter schoolName={schoolName} schoolLogo={schoolLogo} localGovName={localGovName} />
           </div>

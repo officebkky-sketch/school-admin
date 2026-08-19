@@ -28,6 +28,8 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const [recentDocs, setRecentDocs] = useState<any[]>([]);
   const [dutyTeachers, setDutyTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -124,8 +126,10 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         });
         setRecentDocs(latestDocs || []);
         setDutyTeachers(currentDutyTeachers);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching dashboard data:', err);
+        setFetchError('ไม่สามารถโหลดข้อมูล Dashboard ได้ กรุณาตรวจสอบการเชื่อมต่อ');
+
       } finally {
         setLoading(false);
       }
@@ -143,7 +147,14 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Error Banner */}
+      {fetchError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-2xl px-5 py-3 text-sm font-medium flex items-center gap-2">
+          <span>⚠️</span> {fetchError}
+        </div>
+      )}
       {/* Summary Row */}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard label="นักเรียนทั้งหมด" value={stats.totalStudents} color="bg-blue-500" icon={<Users size={28} />} />
         <StatCard label="หนังสือรับวันนี้" value={stats.incomingToday} color="bg-orange-500" icon={<FileText size={28} />} />

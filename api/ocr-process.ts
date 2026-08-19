@@ -3,6 +3,12 @@ import { waitUntil } from '@vercel/functions';
 
 declare const process: any;
 
+/** HTML escape ป้องกัน XSS/400 Error ใน Telegram HTML mode */
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function getSupabase() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
@@ -55,13 +61,14 @@ async function callGemini(system: string, user: string, apiKey: string, inlineIm
 }
 
 /** ฟังก์ชันส่ง Telegram Message */
-async function sendTelegramMessage(botToken: string, chatId: number, text: string, replyMarkup?: any) {
+async function sendTelegramMessage(botToken: string, chatId: number | string, text: string, replyMarkup?: any) {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
+
       text: text,
       parse_mode: 'HTML',
       reply_markup: replyMarkup
@@ -69,24 +76,18 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
   });
 }
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    return new Response(JSON.stringify({ message: 'Method not allowed' }), { status: 405 });
   }
 
   // ตอบกลับ 200 OK ทันที ป้องกัน timeout
-  res.status(200).json({ ok: true, message: 'กำลังประมวลผล OCR และความจำ RAG ในพื้นหลัง...' });
+  const immediateResponse = new Response(JSON.stringify({ ok: true, message: 'กำลังประมวลผล OCR และความจำ RAG ในพื้นหลัง...' }), { status: 200 });
 
-  const mockRes: any = {
-    status: () => mockRes,
-    json: () => mockRes,
-    send: () => mockRes,
-    end: () => mockRes
-  };
+  const body = await req.json() as any;
 
   waitUntil((async () => {
-    const res = mockRes;
-    const { docId, fileUrl } = req.body || {};
+    const { docId, fileUrl } = body || {};
     if (!docId || !fileUrl) return;
 
     let supabase: any = null;
@@ -98,6 +99,7 @@ export default async function handler(req: any, res: any) {
       // 1. ดึงข้อมูล Settings & Teachers
       const { data: settings } = await supabase
         .from('settings')
+
         .select('school_name, telegram_bot_token, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year, google_vision_api_key')
         .single();
 
@@ -252,15 +254,17 @@ ${extractedText.substring(0, 4000)}
           }
         }
 
+
         let notifyMsg = `📄 <b>สแกนอ่านหนังสือรับสำเร็จเรียบร้อย!</b>\n\n`;
-        notifyMsg += `<b>เรื่อง:</b> ${docSubject}\n`;
-        notifyMsg += `<b>เลขที่หนังสือ:</b> ${parsedInfo.doc_number || '-'}\n`;
-        if (parsedInfo.summary) notifyMsg += `<b>สรุปสาระสำคัญ:</b> "${parsedInfo.summary}"\n`;
+        notifyMsg += `<b>เรื่อง:</b> ${escapeHtml(docSubject)}\n`;
+        notifyMsg += `<b>เลขที่หนังสือ:</b> ${escapeHtml(parsedInfo.doc_number || '-')}\n`;
+        if (parsedInfo.summary) notifyMsg += `<b>สรุปสาระสำคัญ:</b> "${escapeHtml(parsedInfo.summary)}"\n`;
         if (parsedInfo.action_deadline) {
           const deadlineDate = new Date(parsedInfo.action_deadline).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
           notifyMsg += `⏰ <b>กำหนดการดำเนินการ:</b> <u>${deadlineDate}</u>\n`;
         }
-        notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <b>${suggestedTeacherName}</b>\n`;
+        notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <b>${escapeHtml(suggestedTeacherName)}</b>\n`;
+
 
         const inlineButtons: any[] = [];
         if (parsedInfo.suggested_assignee_id) {
@@ -274,16 +278,24 @@ ${extractedText.substring(0, 4000)}
           callback_data: `action=start_assign&id=${docId}`
         }]);
 
-        // ส่งให้ ผอ.
+        // ส่งให้ ผอ. ส่วนตัว
         const { data: directors } = await supabase.from('profiles').select('telegram_chat_id').eq('role', 'director');
         if (directors) {
           for (const dir of directors) {
             if (dir.telegram_chat_id) {
-              await sendTelegramMessage(botToken, parseInt(dir.telegram_chat_id), notifyMsg, { inline_keyboard: inlineButtons });
+              await sendTelegramMessage(botToken, dir.telegram_chat_id, notifyMsg, { inline_keyboard: inlineButtons });
             }
           }
         }
+
+        // Rule B: ส่งเข้ากลุ่มเสนอหนังสือ (ถ้ามี)
+        const rawGroupId = settings.telegram_group_id || '';
+        const proposalGroupId = rawGroupId.split('|')[1]?.trim() || rawGroupId.split('|')[0]?.trim();
+        if (proposalGroupId) {
+          await sendTelegramMessage(botToken, proposalGroupId, notifyMsg, { inline_keyboard: inlineButtons });
+        }
       }
+
 
     } catch (err: any) {
       console.error('[OCR PROCESS ERROR]', err);
@@ -305,5 +317,7 @@ ${extractedText.substring(0, 4000)}
       }
     }
   })());
+
+  return immediateResponse;
 }
 

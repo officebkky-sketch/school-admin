@@ -8,6 +8,8 @@ import { sendTelegramNotification } from '../lib/telegramNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
 import Modal from '../components/Modal';
+import { DocVerificationBadge, DocVerificationCard } from '../components/DocVerificationCard';
+
 import { 
   FilePlus, 
   Search, 
@@ -616,7 +618,10 @@ export default function IncomingDocs() {
         from_agency: d.from_agency || '',
         doc_number: d.doc_number || '',
         file_url: d.file_url || '',
-        attachment_urls: Array.isArray(d.attachment_urls) ? d.attachment_urls : []
+        attachment_urls: Array.isArray(d.attachment_urls)
+          ? d.attachment_urls
+          : (() => { try { const p = JSON.parse(d.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })()
+
       }));
 
       await sendBulkFlexCarousel(
@@ -634,7 +639,10 @@ export default function IncomingDocs() {
           if (doc.file_url) {
             telegramMsg += `📄 <a href="${doc.file_url}">เปิดดูต้นฉบับหนังสือ</a>\n`;
           }
-          const docAtts = Array.isArray(doc.attachment_urls) ? doc.attachment_urls : [];
+          const docAtts = Array.isArray(doc.attachment_urls)
+            ? doc.attachment_urls
+            : (() => { try { const p = JSON.parse(doc.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })();
+
           if (docAtts.length > 0) {
             telegramMsg += `📎 <b>ไฟล์แนบ:</b> `;
             docAtts.forEach((url: string, i: number) => {
@@ -953,8 +961,10 @@ export default function IncomingDocs() {
                           🧠 ชบาจำเนื้อหาแล้ว
                         </span>
                       )}
+                      <DocVerificationBadge doc={doc} />
                     </div>
                   </td>
+
                   <td className="px-6 py-4 text-center">
                     <div className="flex justify-center gap-1.5">
                       {doc.file_url && (
@@ -962,11 +972,15 @@ export default function IncomingDocs() {
                           <FileText size={16} />
                         </a>
                       )}
-                      {Array.isArray(doc.attachment_urls) && doc.attachment_urls.map((url: string, idx: number) => (
+                      {(Array.isArray(doc.attachment_urls)
+                        ? doc.attachment_urls
+                        : (() => { try { const p = JSON.parse(doc.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })()
+                      ).map((url: string, idx: number) => (
                         <a key={idx} href={url} target="_blank" className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center hover:bg-blue-100 transition-colors">
                           <Paperclip size={14} />
                         </a>
                       ))}
+
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
@@ -1158,6 +1172,8 @@ export default function IncomingDocs() {
 
       <Modal isOpen={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} title="เกษียณหนังสือและมอบหมายงาน">
         <form onSubmit={handleAssign} className="space-y-6">
+          {selectedDoc && <DocVerificationCard doc={selectedDoc} compact={false} />}
+
           <div className="grid grid-cols-2 gap-4 bg-blue-50 p-4 rounded-2xl border border-blue-100">
              <div>
                <h4 className="text-sm font-black text-blue-800 mb-1">{selectedDoc?.subject}</h4>
@@ -1168,6 +1184,7 @@ export default function IncomingDocs() {
                <input type="number" min="1" className="w-full p-2 bg-white border-2 border-brand-primary/20 rounded-xl font-black text-brand-primary text-center" required value={assignForm.stamp_page} onChange={e => setAssignForm({...assignForm, stamp_page: parseInt(e.target.value) || 1})} />
              </div>
           </div>
+
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-1">คำสั่งการผู้อำนวยการ (จะประทับตราลงใน PDF)</label>
             <textarea className="w-full p-4 bg-white border border-brand-primary/20 rounded-2xl font-bold text-blue-800 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all" rows={3} placeholder="เช่น มอบครู... ดำเนินการ, เห็นชอบตามเสนอ..." required value={assignForm.instruction} onChange={e => setAssignForm({...assignForm, instruction: e.target.value})} />

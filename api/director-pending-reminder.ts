@@ -1,5 +1,5 @@
-declare const process: any;
 import { createClient } from '@supabase/supabase-js';
+import { isNonWorkingDay, getThaiDateInfo } from './_utils/thaiHolidays';
 
 // ── Helper: ดึง Header ให้รองรับทั้ง Node.js IncomingMessage และ Web Standard Request ──
 function getHeader(req: any, name: string): string {
@@ -41,6 +41,12 @@ function urgencyEmoji(urgency?: string): string {
   return '🟢 <b>[ปกติ]</b>';
 }
 
+/** HTML escape ป้องกัน XSS/400 Error ใน Telegram HTML mode */
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ── Helper: แปลง attachment_urls ให้เป็น string[] เสมอ (Bug#3) ───────────────
 function parseAttachmentUrls(raw: any): string[] {
   if (Array.isArray(raw)) return raw.filter(Boolean);
@@ -71,16 +77,24 @@ export default async function handler(req: any, res?: any): Promise<any> {
     return sendResponse(res, { error: 'Unauthorized' }, 401);
   }
 
-  // ✅ 2. ตรวจสอบวันทำงาน (เฉพาะ จันทร์ - ศุกร์) ตามเวลาประเทศไทย Asia/Bangkok
-  const now = new Date();
-  const bangkokDateStr = now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' });
-  const bangkokDate = new Date(bangkokDateStr);
-  const dayOfWeek = bangkokDate.getDay(); // 0 = อาทิตย์, 6 = เสาร์
+  // ดึง query params (ถ้ามี) สำหรับตรวจสอบการบังคับรัน (Manual Trigger)
+  const url = req.url ? new URL(req.url, 'http://localhost') : null;
+  const isForce = url?.searchParams.get('force') === 'true';
 
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    console.log('[DIRECTOR-REMINDER] Skipped: Weekend day (Sat/Sun)');
-    return sendResponse(res, { message: 'Skipped: Weekend day' }, 200);
+  // ✅ 2. ตรวจสอบวันทำงาน (ข้ามเสาร์-อาทิตย์ และวันหยุดนักขัตฤกษ์ไทย) ตามเวลาประเทศไทย
+  const dateInfo = getThaiDateInfo();
+  const nonWorkingCheck = isNonWorkingDay();
+
+  if (!isForce && nonWorkingCheck.isNonWorking) {
+    console.log(`[DIRECTOR-REMINDER] Skipped: ${nonWorkingCheck.reason}`);
+    return sendResponse(res, { 
+      message: `Skipped: ${nonWorkingCheck.reason}`,
+      date: dateInfo.thaiDateStr,
+      isHoliday: dateInfo.isHoliday,
+      holidayName: dateInfo.holidayName || null
+    }, 200);
   }
+
 
   try {
     const supabaseUrl = process.env.VITE_SUPABASE_URL!;
@@ -135,14 +149,11 @@ export default async function handler(req: any, res?: any): Promise<any> {
       .not('telegram_chat_id', 'is', null);
 
     // ✅ 6. ประกอบข้อความแจ้งเตือน Executive Digest
-    const thaiDateText = bangkokDate.toLocaleDateString('th-TH', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
+    const thaiDateText = dateInfo.thaiDateStr;
 
     let msg = `🌅 <b>[สรุปประจำวัน 08:00 น.] หนังสือรอเกษียณสั่งการ</b>\n`;
-    msg += `🏫 <b>${settings.school_name || 'โรงเรียน'} (ประจำวันที่ ${thaiDateText})</b>\n\n`;
+
+    msg += `🏫 <b>${escapeHtml(settings.school_name || 'โรงเรียน')} (ประจำวันที่ ${thaiDateText})</b>\n\n`;
     msg += `⚠️ <b>เรียน ผอ.รร. ขณะนี้มีหนังสือรับเข้าคงค้างรอเกษียณสั่งการทั้งหมด ${totalCount} ฉบับ:</b>\n\n`;
 
     const inlineButtons: any[] = [];
@@ -150,9 +161,10 @@ export default async function handler(req: any, res?: any): Promise<any> {
     pendingDocs.forEach((doc, idx) => {
       const emoji = urgencyEmoji(doc.urgency);
       const docNumStr = doc.doc_number || (idx + 1).toString();
-      msg += `${idx + 1}. ${emoji} <b>เรื่อง:</b> ${doc.subject || '-'}\n`;
-      msg += `   • <b>จาก:</b> ${doc.from_agency || '-'}\n`;
-      msg += `   • <b>เลขรับ:</b> ${docNumStr}\n`;
+      msg += `${idx + 1}. ${emoji} <b>เรื่อง:</b> ${escapeHtml(doc.subject || '-')}\n`;
+      msg += `   • <b>จาก:</b> ${escapeHtml(doc.from_agency || '-')}\n`;
+      msg += `   • <b>เลขรับ:</b> ${escapeHtml(docNumStr)}\n`;
+
 
       if (doc.file_url) {
         msg += `   📄 <a href="${doc.file_url}">เปิดดูต้นฉบับ</a>`;
@@ -221,8 +233,9 @@ export default async function handler(req: any, res?: any): Promise<any> {
       sent: sentCount,
       totalPendingCount: totalCount,
       displayedCount: pendingDocs.length,
-      timestamp: bangkokDate.toISOString()
+      timestamp: new Date().toISOString()
     }, 200);
+
 
   } catch (err: any) {
     console.error('[DIRECTOR-REMINDER] Error:', err);

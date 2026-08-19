@@ -141,7 +141,8 @@ export default function TaskManagement() {
       .eq('id', selectedTask.id);
 
     if (!error) {
-      const msg = `\n🏁 ผอ. ตรวจรับงานแล้ว\nเรื่อง: ${selectedTask.incoming_docs.subject}\nความเห็น ผอ.: ${feedbackText || 'รับทราบผลการปฏิบัติงาน'}\n\nขอบคุณสำหรับการปฏิบัติหน้าที่ครับ`;
+      const msg = `\n🏁 ผอ. ตรวจรับงานแล้ว\nเรื่อง: ${selectedTask.incoming_docs?.subject ?? '-'}\nความเห็น ผอ.: ${feedbackText || 'รับทราบผลการปฏิบัติงาน'}\n\nขอบคุณสำหรับการปฏิบัติหน้าที่ครับ`;
+
       
       // 1. ส่งแจ้งเตือนเข้ากลุ่มไลน์หลักของโรงเรียน
       await sendLineNotification(msg);
@@ -361,7 +362,7 @@ export default function TaskManagement() {
                          {task.status === 'pending' && (
                            <button 
                             onClick={() => {
-                              const msg = `\n📥 รับทราบการมอบหมายงาน\nเรื่อง: ${task.incoming_docs.subject}\nผู้ปฏิบัติ: ${task.teachers.prefix}${task.teachers.first_name}\n\nขณะนี้กำลังเริ่มดำเนินการครับ`;
+                              const msg = `\n📥 รับทราบการมอบหมายงาน\nเรื่อง: ${task.incoming_docs?.subject ?? '-'}\nผู้ปฏิบัติ: ${task.teachers?.prefix ?? ''}${task.teachers?.first_name ?? '-'}\n\nขณะนี้กำลังเริ่มดำเนินการครับ`;
                               updateStatus(task.id, 'acknowledged', msg);
                             }}
                              className="w-full py-4 bg-brand-primary text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-green-100 hover:bg-green-700 transition-all active:scale-95 mb-2"
