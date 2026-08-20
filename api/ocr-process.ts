@@ -90,17 +90,48 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
   });
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Content-Type': 'application/json'
+};
+
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ message: 'Method not allowed' }), { status: 405 });
+  // 1. รองรับ CORS Preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  // ตอบกลับ 200 OK ทันที ป้องกัน timeout
-  const immediateResponse = new Response(JSON.stringify({ ok: true, message: 'กำลังประมวลผล OCR และความจำ RAG ในพื้นหลัง...' }), { status: 200 });
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ message: 'Method not allowed' }), { 
+      status: 405, 
+      headers: corsHeaders 
+    });
+  }
 
-  const body = await req.json() as any;
+  // 2. ปลอดภัยในการ Parse Request Body
+  let body: any = {};
+  try {
+    if (typeof req.json === 'function') {
+      body = await req.json();
+    } else if ((req as any).body) {
+      body = (req as any).body;
+    }
+  } catch (e) {
+    console.warn('[OCR PROCESS] Body parsing warning:', e);
+  }
 
-  waitUntil((async () => {
+  // ตอบกลับ 200 OK ทันที ป้องกัน client timeout
+  const immediateResponse = new Response(JSON.stringify({ 
+    ok: true, 
+    message: 'กำลังประมวลผล OCR และความจำ RAG ในพื้นหลัง...' 
+  }), { 
+    status: 200, 
+    headers: corsHeaders 
+  });
+
+  const processTask = async () => {
     const { docId, fileUrl } = body || {};
     if (!docId || !fileUrl) return;
 
@@ -330,7 +361,14 @@ ${extractedText.substring(0, 4000)}
         console.error('[OCR ALERT ERROR]', alertErr);
       }
     }
-  })());
+  };
+
+  try {
+    waitUntil(processTask());
+  } catch (waitUntilErr) {
+    console.warn('[OCR PROCESS] waitUntil fallback:', waitUntilErr);
+    processTask().catch(e => console.error('[DETACHED OCR TASK ERROR]', e));
+  }
 
   return immediateResponse;
 }
