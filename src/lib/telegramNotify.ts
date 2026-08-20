@@ -1,6 +1,6 @@
 import { supabase, getActiveSchoolProfile } from './supabase';
 
-function getVercelBaseUrl(): string {
+export function getVercelBaseUrl(): string {
   let vercelBaseUrl = '';
   const isWebUrl = typeof window !== 'undefined' && 
                     window.location && 

@@ -9,6 +9,20 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Helper: แปลง URL ของ Google Drive ให้เป็น Direct Download Link สำหรับดาวน์โหลด Binary */
+function getDirectDownloadUrl(url: string): string {
+  if (!url) return '';
+  if (url.includes('drive.google.com')) {
+    const match1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    const match2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    const fileId = match1?.[1] || match2?.[1];
+    if (fileId) {
+      return `https://drive.google.com/uc?export=download&id=${fileId}`;
+    }
+  }
+  return url;
+}
+
 function getSupabase() {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
@@ -99,12 +113,11 @@ export default async function handler(req: Request): Promise<Response> {
       // 1. ดึงข้อมูล Settings & Teachers
       const { data: settings } = await supabase
         .from('settings')
-
         .select('school_name, telegram_bot_token, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year, google_vision_api_key')
         .single();
 
       if (!settings) return;
-      const rawApiKey = settings.ai_cowork_api_key || settings.gemini_api_key || '';
+      const rawApiKey = settings.ai_cowork_api_key || settings.gemini_api_key || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
       const apiKey = rawApiKey.split(',')[0].trim();
       botToken = settings.telegram_bot_token;
 
@@ -120,11 +133,12 @@ export default async function handler(req: Request): Promise<Response> {
       let extractedText = '';
       let inlineImageData: { mimeType: string, data: string } | undefined = undefined;
 
-      const fileRes = await fetch(fileUrl);
+      const directDownloadUrl = getDirectDownloadUrl(fileUrl);
+      const fileRes = await fetch(directDownloadUrl);
       if (fileRes.ok) {
         const arrayBuffer = await fileRes.arrayBuffer();
         const base64Data = Buffer.from(arrayBuffer).toString('base64');
-        const isPdf = fileUrl.toLowerCase().endsWith('.pdf');
+        const isPdf = fileUrl.toLowerCase().endsWith('.pdf') || (fileRes.headers.get('content-type') || '').includes('pdf');
         const mimeType = isPdf ? 'application/pdf' : 'image/jpeg';
 
         // ใช้ Cloud Vision API หากมี Key

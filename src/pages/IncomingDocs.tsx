@@ -4,7 +4,7 @@ import { getAccurateNextSequence } from '../lib/docSequence';
 import { uploadFileToDrive, deleteFileFromDrive, uploadToSupabase, deleteFromSupabase } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage, sendBulkFlexCarousel } from '../lib/lineNotify';
-import { sendTelegramNotification } from '../lib/telegramNotify';
+import { sendTelegramNotification, getVercelBaseUrl } from '../lib/telegramNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
 import Modal from '../components/Modal';
@@ -513,7 +513,8 @@ export default function IncomingDocs() {
 
       // สั่งประมวลผล OCR สกัดกำหนดการ & ความจำ RAG ในพื้นหลังทันที
       if (insertedDoc?.id && file_url) {
-        fetch('/api/ocr-process', {
+        const vercelUrl = getVercelBaseUrl();
+        fetch(`${vercelUrl}/api/ocr-process`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ docId: insertedDoc.id, fileUrl: file_url })
@@ -989,7 +990,8 @@ export default function IncomingDocs() {
                         <button onClick={async () => {
                           alert('🤖 เริ่มต้นกระบวนการสแกนอ่านเอกสาร สกัดกำหนดการ และแนะผู้รับงานอัตโนมัติเรียบร้อยแล้วค่ะ! ชบาจะส่งแจ้งเตือนทาง Telegram เมื่อสแกนเสร็จสิ้นนะคะ 🌸');
                           try {
-                            await fetch('/api/ocr-process', {
+                            const vercelUrl = getVercelBaseUrl();
+                            await fetch(`${vercelUrl}/api/ocr-process`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ docId: doc.id, fileUrl: doc.file_url })
