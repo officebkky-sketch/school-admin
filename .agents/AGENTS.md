@@ -44,6 +44,48 @@
                       process.env.SUPABASE_ANON_KEY;
   ```
 
+### Rule F — Cross-Platform Client & Vercel API Integration (Electron Desktop & Web)
+1. **มาตรฐานการเรียก API จากฝั่ง Client (`src/**/*.tsx`, `src/**/*.ts`)**:
+   - **ห้าม** ใช้ Relative Path เช่น `fetch('/api/...')` โดยตรงเด็ดขาด เพราะเมื่อรันบนโปรแกรม Desktop (Electron) จะชี้ไปที่ `localhost` ทำให้เรียก API ไม่ติด
+   - **ต้อง** ใช้ `getVercelBaseUrl()` นำหน้าเสมอ เช่น:
+     ```typescript
+     const vercelUrl = getVercelBaseUrl();
+     await fetch(`${vercelUrl}/api/ocr-process`, { ... });
+     ```
+2. **มาตรฐาน CORS ในทุก Serverless API (`api/*.ts`)**:
+   - ทุก API endpoint ที่รับ Request จาก Client ต้องมี CORS Headers และรองรับ HTTP `OPTIONS` Preflight เสมอ:
+     ```typescript
+     const corsHeaders = {
+       'Access-Control-Allow-Origin': '*',
+       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+       'Content-Type': 'application/json'
+     };
+
+     if (req.method === 'OPTIONS') {
+       return new Response(null, { status: 204, headers: corsHeaders });
+     }
+     ```
+
+### Rule G — Google Drive Binary Download Conversion
+- เมื่อฟังก์ชันใน `api/*.ts` ต้องดาวน์โหลดไฟล์เอกสารเพื่อนำมาทำ OCR หรือประมวลผล PDF/รูปภาพ:
+  - **ห้าม** `fetch(fileUrl)` ตรง ๆ กับลิงก์ Google Drive Preview (`drive.google.com/file/d/.../view`) เพราะจะได้หน้า HTML แทนที่จะเป็นไฟล์ Binary
+  - **ต้อง** แปลงเป็น Direct Download Link ก่อนเสมอ:
+    ```typescript
+    function getDirectDownloadUrl(url: string): string {
+      if (!url) return '';
+      if (url.includes('drive.google.com')) {
+        const match1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        const match2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        const fileId = match1?.[1] || match2?.[1];
+        if (fileId) {
+          return `https://drive.google.com/uc?export=download&id=${fileId}`;
+        }
+      }
+      return url;
+    }
+    ```
+
 ---
 
 ## 📌 ข้อมูลและประวัติการพัฒนา (Development History)
