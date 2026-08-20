@@ -1,21 +1,47 @@
+declare const process: any;
 import { createClient } from '@supabase/supabase-js';
 import { isNonWorkingDay, getThaiDateInfo } from './_utils/thaiHolidays';
 
-// ── Helper: ส่งข้อความ Telegram ──────────────────────────────────────────────
-async function sendTelegram(token: string, chatId: number, text: string, replyMarkup?: any) {
+// ── Helper: ส่งข้อความ Telegram พร้อม Fallback Plain Text ─────────────────────
+async function sendTelegram(token: string, chatId: number | string, text: string, replyMarkup?: any): Promise<boolean> {
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
         text,
         parse_mode: 'HTML',
+        disable_web_page_preview: true,
         reply_markup: replyMarkup
       })
     });
+
+    if (res.ok) return true;
+
+    const errBody = await res.json().catch(() => ({})) as any;
+    console.error('[DEADLINE-REMINDER] Telegram API error:', errBody);
+
+    if (errBody?.description && (errBody.description.includes('entities') || errBody.description.includes('HTML') || errBody.description.includes('bad request'))) {
+      const plainText = text.replace(/<\/?[^>]+(>|$)/g, '');
+      const retryRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: plainText,
+          disable_web_page_preview: true,
+          reply_markup: replyMarkup
+        })
+      });
+      return retryRes.ok;
+    }
+
+    return false;
   } catch (err) {
-    console.error('[DEADLINE-REMINDER] sendTelegram error:', err);
+    console.error('[DEADLINE-REMINDER] sendTelegram network error:', err);
+    return false;
   }
 }
 
@@ -61,16 +87,16 @@ function escapeHtml(str: string): string {
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req: Request): Promise<Response> {
-  // ✅ ตรวจสอบ Authorization Header (Vercel ส่ง CRON_SECRET มาให้ตรวจ)
+  // ✅ ตรวจสอบ Authorization Header / Secret Key
   const authHeader = req.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const url = new URL(req.url || 'http://localhost');
+  const querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
+  const isForce = url.searchParams.get('force') === 'true';
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
-
-  // ดึง query params (ถ้ามี) สำหรับตรวจสอบการบังคับรัน (Manual Trigger)
-  const url = new URL(req.url || 'http://localhost');
-  const isForce = url.searchParams.get('force') === 'true';
 
   // ✅ ตรวจสอบวันทำงาน (ข้ามเสาร์-อาทิตย์ และวันหยุดนักขัตฤกษ์ไทย)
   const dateInfo = getThaiDateInfo();
@@ -86,12 +112,18 @@ export default async function handler(req: Request): Promise<Response> {
     }), { status: 200 });
   }
 
-
   try {
     // ── 1. ดึง settings ของทุกโรงเรียน ────────────────────────────────────────
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return new Response(JSON.stringify({ error: 'Missing Supabase credentials' }), { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
 
     const { data: allSettings } = await supabase
       .from('settings')

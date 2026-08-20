@@ -35,17 +35,27 @@ function getThaiDateStr(): string {
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req: Request): Promise<Response> {
-  // ✅ ตรวจสอบ Authorization Header
+  // ✅ ตรวจสอบ Authorization Header / Secret Key
   const authHeader = req.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const url = new URL(req.url || 'http://localhost');
+  const querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
   try {
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return new Response(JSON.stringify({ error: 'Missing Supabase credentials' }), { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
 
     // 1. ดึง settings
     const { data: settings } = await supabase

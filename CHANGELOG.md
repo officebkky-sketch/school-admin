@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1] - 2026-08-20
+### Fixed & Enhanced
+- **แก้ปัญหาระบบแจ้งเตือนงานค้างเกษียณยามเช้า (Director Morning Digest)**:
+  - แก้ไข `api/director-pending-reminder.ts` ให้ตรงตาม **Rule A** (Web Standard Fetch API Handler) สำหรับ Vercel Serverless
+  - ปรับระบบส่งแจ้งเตือนให้ส่งเข้า **กลุ่มเสนอหนังสือ (Proposal Group)** เป็นช่องทางหลักควบคู่กับแชทส่วนตัวของ ผอ. โดยไม่ถูกข้าม
+  - เพิ่ม **HTML Entity Parsing Fallback** ถอดแท็กเป็น Plain Text อัตโนมัติเมื่อ Telegram API เกิดข้อผิดพลาดด้านการจัดรูปแบบ
+  - ปรับปรุงการเข้ากันได้ของ Environment Variables (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`) ในทุก API Crons (`deadline-reminder.ts`, `weekly-backup.ts`, `trigger-test.ts`)
+
 ## [1.3.0] - 2026-08-19
 ### Added
 - **ระบบคลังความรู้ระเบียบราชการและคู่มือปฏิบัติงาน (RAG Knowledge Base)**:
