@@ -34,22 +34,31 @@ function getThaiDateStr(): string {
 }
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
-export default async function handler(req: Request): Promise<Response> {
-  // ✅ ตรวจสอบ Authorization Header / Secret Key
-  const authHeader = req.headers.get('authorization');
+export default async function handler(req: Request | any, res?: any): Promise<Response | void> {
   const cronSecret = process.env.CRON_SECRET;
-  const url = new URL(req.url || 'http://localhost');
-  const querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
+  const authHeader = typeof req?.headers?.get === 'function'
+    ? req.headers.get('authorization')
+    : (req?.headers?.authorization || req?.headers?.Authorization);
+
+  let querySecret = req?.query?.secret || req?.query?.key;
+  if (!querySecret) {
+    try {
+      const url = new URL(req?.url || '/', 'http://localhost');
+      querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
+    } catch { /* ignore */ }
+  }
 
   if (cronSecret && authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+    if (res?.status) return res.status(401).json({ error: 'Unauthorized' });
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
   try {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-    
+
     if (!supabaseUrl || !supabaseKey) {
+      if (res?.status) return res.status(500).json({ error: 'Missing Supabase credentials' });
       return new Response(JSON.stringify({ error: 'Missing Supabase credentials' }), { status: 500 });
     }
 
@@ -65,77 +74,74 @@ export default async function handler(req: Request): Promise<Response> {
       .maybeSingle();
 
     if (!settings || !settings.telegram_bot_token) {
-      return new Response(JSON.stringify({ error: 'No bot token configured' }), { status: 400 });
+      const payload = { error: 'No bot token configured' };
+      if (res?.status) return res.status(400).json(payload);
+      return new Response(JSON.stringify(payload), { status: 400 });
     }
 
     const botToken = settings.telegram_bot_token;
-    const schoolName = settings.school_name || 'สถานศึกษา';
+    const schoolName = settings.school_name || 'โรงเรียน';
+    const thaiDate = getThaiDateStr();
 
-    // 2. ดึงข้อมูลตารางหลักทั้งหมดมาสำรองข้อมูล
-    const tablesToBackup = [
+    // 2. ดึงข้อมูลตารางสำคัญ
+    const backupData: Record<string, any[]> = {};
+    const tables = [
       'settings',
       'profiles',
-      'teachers',
       'incoming_docs',
       'outgoing_docs',
-      'orders',
       'memos',
-      'utilities',
-      'procurement_projects',
-      'service_area_students'
+      'orders',
+      'students',
+      'inventory_items'
     ];
 
-    const backupPayload: Record<string, any> = {
-      backup_version: '1.0',
-      exported_at: new Date().toISOString(),
-      school_name: schoolName,
-      data: {}
-    };
-
     let totalRecords = 0;
-
-    for (const table of tablesToBackup) {
+    for (const table of tables) {
       try {
         const { data, error } = await supabase.from(table).select('*');
         if (!error && data) {
-          backupPayload.data[table] = data;
+          backupData[table] = data;
           totalRecords += data.length;
         } else {
-          backupPayload.data[table] = [];
+          backupData[table] = [];
         }
       } catch {
-        backupPayload.data[table] = [];
+        backupData[table] = [];
       }
     }
 
-    // 3. แปลงเป็น JSON แล้วอัดบีบไฟล์ด้วย gzip (.json.gz)
-    const jsonString = JSON.stringify(backupPayload, null, 2);
-    const jsonBuffer = Buffer.from(jsonString, 'utf-8');
-    const gzipBuffer = zlib.gzipSync(jsonBuffer);
+    // 3. บีบอัดข้อมูลเป็น Gzip JSON
+    const jsonString = JSON.stringify({
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      school_name: schoolName,
+      total_records: totalRecords,
+      data: backupData
+    }, null, 2);
 
-    const thaiDateStr = getThaiDateStr();
-    const fileName = `backup_${schoolName.replace(/\s+/g, '_')}_${thaiDateStr}.json.gz`;
+    const rawBuffer = Buffer.from(jsonString, 'utf-8');
+    const gzipBuffer = zlib.gzipSync(rawBuffer);
 
     const sizeKb = (gzipBuffer.length / 1024).toFixed(1);
-    const rawSizeKb = (jsonBuffer.length / 1024).toFixed(1);
+    const rawSizeKb = (rawBuffer.length / 1024).toFixed(1);
+    const fileName = `backup_${thaiDate}.json.gz`;
 
-    const caption = `💾 <b>สำรองข้อมูลระบบสารบรรณประจำสัปดาห์</b>\n` +
+    const caption = `💾 <b>สำรองข้อมูลอัตโนมัติประจำสัปดาห์</b>\n` +
       `🏫 <b>${schoolName}</b>\n` +
-      `📅 <b>วันที่:</b> ${thaiDateStr}\n` +
-      `📊 <b>จำนวนข้อมูลทั้งหมด:</b> ${totalRecords} รายการ\n` +
-      `📦 <b>ขนาดไฟล์ (.json.gz):</b> ${sizeKb} KB (บีบอัดจาก ${rawSizeKb} KB)\n\n` +
-      `🔐 <i>โปรดเก็บรักษาไฟล์นี้ไว้ในที่ปลอดภัย สำหรับกู้คืนข้อมูลระบบในอนาคต</i>`;
+      `📅 <b>ประจำวันที่:</b> ${thaiDate}\n` +
+      `📊 <b>จำนวนข้อมูลรวม:</b> ${totalRecords} รายการ\n` +
+      `📦 <b>ขนาดไฟล์:</b> ${sizeKb} KB (จาก ${rawSizeKb} KB)\n` +
+      `🔒 <i>ไฟล์ถูกบีบอัดแบบ GZIP (.json.gz) เก็บรักษาเพื่อความปลอดภัย</i>`;
 
-    // 4. ดึงรายชื่อ Admin และ Director เพื่อส่งไฟล์สำรองข้อมูลส่วนตัว
+    // 4. ค้นหาผู้รับ
+    const recipientChatIds: Set<number> = new Set();
     const { data: admins } = await supabase
       .from('profiles')
-      .select('telegram_chat_id, role, full_name')
-      .in('role', ['admin', 'director'])
-      .not('telegram_chat_id', 'is', null);
+      .select('telegram_chat_id, role')
+      .or('role.eq.admin,role.eq.director');
 
-    const recipientChatIds = new Set<number>();
-
-    if (admins && admins.length > 0) {
+    if (admins) {
       for (const admin of admins) {
         if (admin.telegram_chat_id) {
           const cid = parseInt(admin.telegram_chat_id.trim());
@@ -144,7 +150,6 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    // หากไม่มี Telegram ID ของ ผอ./Admin ให้ส่งเข้ากลุ่มส่วนกลางเป็น fallback
     if (recipientChatIds.size === 0 && settings.telegram_group_id) {
       const centralGroupId = settings.telegram_group_id.split('|')[0]?.trim();
       if (centralGroupId) {
@@ -160,7 +165,7 @@ export default async function handler(req: Request): Promise<Response> {
       await new Promise(r => setTimeout(r, 500));
     }
 
-    return new Response(JSON.stringify({
+    const payload = {
       success: true,
       sent_to_users: sentCount,
       file_name: fileName,
@@ -168,10 +173,14 @@ export default async function handler(req: Request): Promise<Response> {
       raw_size_kb: rawSizeKb,
       total_records: totalRecords,
       timestamp: new Date().toISOString()
-    }), { status: 200 });
+    };
+
+    if (res?.status) return res.status(200).json(payload);
+    return new Response(JSON.stringify(payload), { status: 200 });
 
   } catch (err: any) {
     console.error('[WEEKLY-BACKUP] Error:', err);
+    if (res?.status) return res.status(500).json({ error: err.message });
     return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 }

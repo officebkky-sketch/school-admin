@@ -1,47 +1,109 @@
-import { createClient } from '@supabase/supabase-js';
-import { getThaiDateInfo, isNonWorkingDay } from './_utils/thaiHolidays';
-import directorPendingHandler from './director-pending-reminder';
-import deadlineReminderHandler from './deadline-reminder';
-import weeklyBackupHandler from './weekly-backup';
-
 declare const process: any;
+import { createClient } from '@supabase/supabase-js';
 
-/**
- * Helper ดึง Auth Secret จาก Header หรือ Query Parameter
- */
-function verifySecret(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return true; // หากยังไม่ได้ตั้ง CRON_SECRET ใน env อนุญาตให้รันได้สำหรับการทดสอบ
+// ── Thai Public Holidays Inline Helper (Self-Contained for Vercel Lambdas) ──
+const THAI_PUBLIC_HOLIDAYS: Record<string, string> = {
+  '2025-01-01': 'วันขึ้นปีใหม่', '2025-02-12': 'วันมาฆบูชา', '2025-04-06': 'วันจักรี',
+  '2025-04-07': 'วันหยุดชดเชยวันจักรี', '2025-04-13': 'วันสงกรานต์', '2025-04-14': 'วันสงกรานต์',
+  '2025-04-15': 'วันสงกรานต์', '2025-04-16': 'วันหยุดชดเชยวันสงกรานต์', '2025-05-04': 'วันฉัตรมงคล',
+  '2025-05-05': 'วันหยุดชดเชยวันฉัตรมงคล', '2025-05-09': 'วันพืชมงคล', '2025-05-11': 'วันวิสาขบูชา',
+  '2025-05-12': 'วันหยุดชดเชยวันวิสาขบูชา', '2025-06-02': 'วันหยุดพิเศษ', '2025-06-03': 'วันเฉลิมฯ พระราชินี',
+  '2025-07-10': 'วันอาสาฬหบูชา', '2025-07-11': 'วันเข้าพรรษา', '2025-07-28': 'วันเฉลิมฯ ร.10',
+  '2025-08-11': 'วันหยุดพิเศษ', '2025-08-12': 'วันแม่แห่งชาติ', '2025-10-13': 'วันนวมินทรมหาราช',
+  '2025-10-23': 'วันปิยมหาราช', '2025-12-05': 'วันพ่อแห่งชาติ', '2025-12-10': 'วันรัฐธรรมนูญ',
+  '2025-12-31': 'วันสิ้นปี',
+  '2026-01-01': 'วันขึ้นปีใหม่', '2026-01-02': 'วันหยุดพิเศษ', '2026-03-03': 'วันมาฆบูชา',
+  '2026-04-06': 'วันจักรี', '2026-04-13': 'วันสงกรานต์', '2026-04-14': 'วันสงกรานต์',
+  '2026-04-15': 'วันสงกรานต์', '2026-05-04': 'วันฉัตรมงคล', '2026-05-13': 'วันพืชมงคล',
+  '2026-05-31': 'วันวิสาขบูชา', '2026-06-01': 'วันหยุดชดเชยวันวิสาขบูชา', '2026-06-03': 'วันเฉลิมฯ พระราชินี',
+  '2026-07-28': 'วันเฉลิมฯ ร.10', '2026-07-29': 'วันอาสาฬหบูชา', '2026-07-30': 'วันเข้าพรรษา',
+  '2026-08-12': 'วันแม่แห่งชาติ', '2026-10-13': 'วันนวมินทรมหาราช', '2026-10-23': 'วันปิยมหาราช',
+  '2026-12-05': 'วันพ่อแห่งชาติ', '2026-12-07': 'วันหยุดชดเชยวันพ่อแห่งชาติ', '2026-12-10': 'วันรัฐธรรมนูญ',
+  '2026-12-31': 'วันสิ้นปี',
+  '2027-01-01': 'วันขึ้นปีใหม่', '2027-02-21': 'วันมาฆบูชา', '2027-02-22': 'วันหยุดชดเชยวันมาฆบูชา',
+  '2027-04-06': 'วันจักรี', '2027-04-13': 'วันสงกรานต์', '2027-04-14': 'วันสงกรานต์',
+  '2027-04-15': 'วันสงกรานต์', '2027-04-16': 'วันหยุดชดเชยวันสงกรานต์', '2027-05-04': 'วันฉัตรมงคล',
+  '2027-05-14': 'วันพืชมงคล', '2027-05-20': 'วันวิสาขบูชา', '2027-06-03': 'วันเฉลิมฯ พระราชินี',
+  '2027-07-18': 'วันอาสาฬหบูชา', '2027-07-19': 'วันหยุดชดเชยวันอาสาฬหบูชา', '2027-07-28': 'วันเฉลิมฯ ร.10',
+  '2027-08-12': 'วันแม่แห่งชาติ', '2027-10-13': 'วันนวมินทรมหาราช', '2027-10-23': 'วันปิยมหาราช',
+  '2027-10-25': 'วันหยุดชดเชยวันปิยมหาราช', '2027-12-05': 'วันพ่อแห่งชาติ', '2027-12-06': 'วันหยุดชดเชยวันพ่อแห่งชาติ',
+  '2027-12-10': 'วันรัฐธรรมนูญ', '2027-12-31': 'วันสิ้นปี'
+};
 
-  const authHeader = req.headers.get('authorization');
-  if (authHeader && authHeader === `Bearer ${cronSecret}`) return true;
+const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 
-  const url = new URL(req.url || 'http://localhost');
-  const querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
-  if (querySecret && querySecret === cronSecret) return true;
+function getThaiDateInfo(dateObj?: Date | string) {
+  let targetDate: Date;
+  if (!dateObj) targetDate = new Date();
+  else if (typeof dateObj === 'string') targetDate = new Date(dateObj.includes('T') ? dateObj : `${dateObj}T00:00:00+07:00`);
+  else targetDate = dateObj;
 
-  return false;
+  const bangkokDateStr = targetDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const [yearStr, monthStr, dayStr] = bangkokDateStr.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+
+  const bkkDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  const dayOfWeek = bkkDate.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const isoDateStr = bangkokDateStr;
+  const holidayName = THAI_PUBLIC_HOLIDAYS[isoDateStr];
+  const isHoliday = !!holidayName;
+  const isWorkingDay = !isWeekend && !isHoliday;
+  const thaiYear = year + 543;
+  const thaiMonthName = THAI_MONTHS[month - 1] || '';
+  const thaiDateStr = `${day} ${thaiMonthName} ${thaiYear}`;
+
+  return { isHoliday, holidayName, isWeekend, isWorkingDay, thaiDateStr, isoDateStr, dayOfWeek };
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  // 1. ตรวจสอบสิทธิ์ความปลอดภัย
-  if (!verifySecret(req)) {
-    return new Response(JSON.stringify({
-      success: false,
-      error: 'Unauthorized: กรุณาระบุ Secret Key ผ่าน Authorization Header หรือ ?secret=...'
-    }), { 
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
+function isNonWorkingDay(dateObj?: Date | string) {
+  const info = getThaiDateInfo(dateObj);
+  if (info.isWeekend) {
+    const dayNames = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
+    return { isNonWorking: true, reason: `วันหยุดสุดสัปดาห์ (${dayNames[info.dayOfWeek]})` };
+  }
+  if (info.isHoliday) {
+    return { isNonWorking: true, reason: `วันหยุดราชการ (${info.holidayName})` };
+  }
+  return { isNonWorking: false };
+}
+
+export default async function handler(req: Request | any, res?: any): Promise<Response | void> {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = typeof req?.headers?.get === 'function'
+    ? req.headers.get('authorization')
+    : (req?.headers?.authorization || req?.headers?.Authorization);
+
+  let querySecret = req?.query?.secret || req?.query?.key;
+  let force = req?.query?.force === 'true' || req?.query?.force === true;
+  let action = req?.query?.action;
+  let testDate = req?.query?.date;
+
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost:3000';
+  const proto = req?.headers?.['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
+  const baseUrl = `${proto}://${host}`;
+
+  if (!action) {
+    try {
+      const url = new URL(req?.url || '/', baseUrl);
+      action = url.searchParams.get('action') || 'status';
+      if (!force) force = url.searchParams.get('force') === 'true';
+      if (!testDate) testDate = url.searchParams.get('date') || undefined;
+      if (!querySecret) querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
+    } catch {
+      action = 'status';
+    }
   }
 
-  const url = new URL(req.url || 'http://localhost');
-  const action = url.searchParams.get('action') || 'status';
-  const force = url.searchParams.get('force') === 'true';
-  const testDate = url.searchParams.get('date'); // เช่น ?date=2026-08-12
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+    const payload = { error: 'Unauthorized' };
+    if (res?.status) return res.status(401).json(payload);
+    return new Response(JSON.stringify(payload), { status: 401 });
+  }
 
   try {
-    // ── Action: ตรวจสอบสถานะวันและระบบ (check-holiday / status) ───────────────
     if (action === 'status' || action === 'check-holiday') {
       const dateInfo = getThaiDateInfo(testDate || undefined);
       const nonWorking = isNonWorkingDay(testDate || undefined);
@@ -54,7 +116,9 @@ export default async function handler(req: Request): Promise<Response> {
 
       if (supabaseUrl && supabaseKey) {
         try {
-          const supabase = createClient(supabaseUrl, supabaseKey);
+          const supabase = createClient(supabaseUrl, supabaseKey, {
+            auth: { persistSession: false, autoRefreshToken: false }
+          });
           const { data: settings } = await supabase.from('settings').select('school_name, telegram_bot_token').maybeSingle();
           if (settings) {
             schoolName = settings.school_name || 'ไม่ได้ระบุชื่อ';
@@ -67,7 +131,7 @@ export default async function handler(req: Request): Promise<Response> {
         }
       }
 
-      return new Response(JSON.stringify({
+      const payload = {
         success: true,
         action: 'status',
         serverTimeBangkok: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
@@ -77,113 +141,51 @@ export default async function handler(req: Request): Promise<Response> {
           schoolName,
           hasTelegramToken,
           pendingDocsCount
-        },
-        availableActions: [
-          { action: 'director-digest', description: 'ทดสอบส่ง Executive Morning Digest หา ผอ. (รองรับ ?force=true)' },
-          { action: 'deadline-reminder', description: 'ทดสอบส่งการแจ้งเตือนหนังสือใกล้ครบกำหนด (รองรับ ?force=true)' },
-          { action: 'weekly-backup', description: 'ทดสอบการสำรองข้อมูลรายสัปดาห์' },
-          { action: 'check-holiday', description: 'ตรวจสอบวันหยุดไทย (รองรับ ?date=YYYY-MM-DD)' }
-        ]
-      }, null, 2), {
+        }
+      };
+
+      if (res?.status) return res.status(200).json(payload);
+      return new Response(JSON.stringify(payload, null, 2), {
         status: 200,
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     }
 
-    // ── Action: Director Pending Reminder (Director Morning Digest) ───────────
     if (action === 'director-digest' || action === 'director-pending-reminder') {
-      const cronSecret = process.env.CRON_SECRET || 'manual-trigger';
-      const syntheticReq = new Request(
-        `${url.origin}/api/director-pending-reminder?force=${force ? 'true' : 'false'}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${cronSecret}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const res = await directorPendingHandler(syntheticReq);
-      const data = await res.json().catch(() => ({}));
-      return new Response(JSON.stringify({
-        success: true,
+      const targetUrl = `${baseUrl}/api/director-pending-reminder?force=${force ? 'true' : 'false'}${cronSecret ? `&secret=${cronSecret}` : ''}`;
+      const fetchHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (cronSecret) fetchHeaders['Authorization'] = `Bearer ${cronSecret}`;
+
+      const subRes = await fetch(targetUrl, { method: 'GET', headers: fetchHeaders });
+      const data = await subRes.json().catch(() => ({ statusText: subRes.statusText }));
+
+      const payload = {
+        success: subRes.ok,
         triggeredAction: 'director-digest',
+        targetUrl,
+        statusCode: subRes.status,
         forceBypassHoliday: force,
         result: data
-      }, null, 2), {
-        status: res.status,
+      };
+
+      if (res?.status) return res.status(subRes.status).json(payload);
+      return new Response(JSON.stringify(payload, null, 2), {
+        status: subRes.status,
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
     }
 
-    // ── Action: Deadline Reminder ─────────────────────────────────────────────
-    if (action === 'deadline-reminder') {
-      const cronSecret = process.env.CRON_SECRET || 'manual-trigger';
-      const syntheticReq = new Request(
-        `${url.origin}/api/deadline-reminder?force=${force ? 'true' : 'false'}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${cronSecret}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const res = await deadlineReminderHandler(syntheticReq);
-      const data = await res.json().catch(() => ({}));
-      return new Response(JSON.stringify({
-        success: true,
-        triggeredAction: 'deadline-reminder',
-        forceBypassHoliday: force,
-        result: data
-      }, null, 2), {
-        status: res.status,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
-      });
-    }
-
-    // ── Action: Weekly Database Backup ────────────────────────────────────────
-    if (action === 'weekly-backup') {
-      const cronSecret = process.env.CRON_SECRET || 'manual-trigger';
-      const syntheticReq = new Request(
-        `${url.origin}/api/weekly-backup`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${cronSecret}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const res = await weeklyBackupHandler(syntheticReq);
-      const data = await res.json().catch(() => ({}));
-      return new Response(JSON.stringify({
-        success: true,
-        triggeredAction: 'weekly-backup',
-        result: data
-      }, null, 2), {
-        status: res.status,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
-      });
-    }
-
-    // Action ไม่ถูกต้อง
-    return new Response(JSON.stringify({
+    const payload = {
       success: false,
-      error: `ไม่พบ Action '${action}' กรุณาใช้ ?action=status, ?action=director-digest, ?action=deadline-reminder หรือ ?action=weekly-backup`
-    }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' }
-    });
+      error: `ไม่พบ Action '${action}' กรุณาใช้ ?action=status หรือ ?action=director-digest`
+    };
+    if (res?.status) return res.status(400).json(payload);
+    return new Response(JSON.stringify(payload), { status: 400 });
 
   } catch (err: any) {
     console.error('[TRIGGER TEST ERROR]', err);
-    return new Response(JSON.stringify({
-      success: false,
-      error: err.message || 'Internal Server Error'
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' }
-    });
+    const payload = { success: false, error: err.message || 'Internal Server Error' };
+    if (res?.status) return res.status(500).json(payload);
+    return new Response(JSON.stringify(payload), { status: 500 });
   }
 }

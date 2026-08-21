@@ -1,47 +1,90 @@
 declare const process: any;
 import { createClient } from '@supabase/supabase-js';
-import { isNonWorkingDay, getThaiDateInfo } from './_utils/thaiHolidays';
 
-// ── Helper: ส่งข้อความ Telegram พร้อม Fallback Plain Text ─────────────────────
-async function sendTelegram(token: string, chatId: number | string, text: string, replyMarkup?: any): Promise<boolean> {
-  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+// ── Thai Public Holidays Inline Helper (Self-Contained for Vercel Lambdas) ──
+const THAI_PUBLIC_HOLIDAYS: Record<string, string> = {
+  '2025-01-01': 'วันขึ้นปีใหม่', '2025-02-12': 'วันมาฆบูชา', '2025-04-06': 'วันจักรี',
+  '2025-04-07': 'วันหยุดชดเชยวันจักรี', '2025-04-13': 'วันสงกรานต์', '2025-04-14': 'วันสงกรานต์',
+  '2025-04-15': 'วันสงกรานต์', '2025-04-16': 'วันหยุดชดเชยวันสงกรานต์', '2025-05-04': 'วันฉัตรมงคล',
+  '2025-05-05': 'วันหยุดชดเชยวันฉัตรมงคล', '2025-05-09': 'วันพืชมงคล', '2025-05-11': 'วันวิสาขบูชา',
+  '2025-05-12': 'วันหยุดชดเชยวันวิสาขบูชา', '2025-06-02': 'วันหยุดพิเศษ', '2025-06-03': 'วันเฉลิมฯ พระราชินี',
+  '2025-07-10': 'วันอาสาฬหบูชา', '2025-07-11': 'วันเข้าพรรษา', '2025-07-28': 'วันเฉลิมฯ ร.10',
+  '2025-08-11': 'วันหยุดพิเศษ', '2025-08-12': 'วันแม่แห่งชาติ', '2025-10-13': 'วันนวมินทรมหาราช',
+  '2025-10-23': 'วันปิยมหาราช', '2025-12-05': 'วันพ่อแห่งชาติ', '2025-12-10': 'วันรัฐธรรมนูญ',
+  '2025-12-31': 'วันสิ้นปี',
+  '2026-01-01': 'วันขึ้นปีใหม่', '2026-01-02': 'วันหยุดพิเศษ', '2026-03-03': 'วันมาฆบูชา',
+  '2026-04-06': 'วันจักรี', '2026-04-13': 'วันสงกรานต์', '2026-04-14': 'วันสงกรานต์',
+  '2026-04-15': 'วันสงกรานต์', '2026-05-04': 'วันฉัตรมงคล', '2026-05-13': 'วันพืชมงคล',
+  '2026-05-31': 'วันวิสาขบูชา', '2026-06-01': 'วันหยุดชดเชยวันวิสาขบูชา', '2026-06-03': 'วันเฉลิมฯ พระราชินี',
+  '2026-07-28': 'วันเฉลิมฯ ร.10', '2026-07-29': 'วันอาสาฬหบูชา', '2026-07-30': 'วันเข้าพรรษา',
+  '2026-08-12': 'วันแม่แห่งชาติ', '2026-10-13': 'วันนวมินทรมหาราช', '2026-10-23': 'วันปิยมหาราช',
+  '2026-12-05': 'วันพ่อแห่งชาติ', '2026-12-07': 'วันหยุดชดเชยวันพ่อแห่งชาติ', '2026-12-10': 'วันรัฐธรรมนูญ',
+  '2026-12-31': 'วันสิ้นปี',
+  '2027-01-01': 'วันขึ้นปีใหม่', '2027-02-21': 'วันมาฆบูชา', '2027-02-22': 'วันหยุดชดเชยวันมาฆบูชา',
+  '2027-04-06': 'วันจักรี', '2027-04-13': 'วันสงกรานต์', '2027-04-14': 'วันสงกรานต์',
+  '2027-04-15': 'วันสงกรานต์', '2027-04-16': 'วันหยุดชดเชยวันสงกรานต์', '2027-05-04': 'วันฉัตรมงคล',
+  '2027-05-14': 'วันพืชมงคล', '2027-05-20': 'วันวิสาขบูชา', '2027-06-03': 'วันเฉลิมฯ พระราชินี',
+  '2027-07-18': 'วันอาสาฬหบูชา', '2027-07-19': 'วันหยุดชดเชยวันอาสาฬหบูชา', '2027-07-28': 'วันเฉลิมฯ ร.10',
+  '2027-08-12': 'วันแม่แห่งชาติ', '2027-10-13': 'วันนวมินทรมหาราช', '2027-10-23': 'วันปิยมหาราช',
+  '2027-10-25': 'วันหยุดชดเชยวันปิยมหาราช', '2027-12-05': 'วันพ่อแห่งชาติ', '2027-12-06': 'วันหยุดชดเชยวันพ่อแห่งชาติ',
+  '2027-12-10': 'วันรัฐธรรมนูญ', '2027-12-31': 'วันสิ้นปี'
+};
+
+const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+
+function getThaiDateInfo(dateObj?: Date | string) {
+  let targetDate: Date;
+  if (!dateObj) targetDate = new Date();
+  else if (typeof dateObj === 'string') targetDate = new Date(dateObj.includes('T') ? dateObj : `${dateObj}T00:00:00+07:00`);
+  else targetDate = dateObj;
+
+  const bangkokDateStr = targetDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const [yearStr, monthStr, dayStr] = bangkokDateStr.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+
+  const bkkDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  const dayOfWeek = bkkDate.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const isoDateStr = bangkokDateStr;
+  const holidayName = THAI_PUBLIC_HOLIDAYS[isoDateStr];
+  const isHoliday = !!holidayName;
+  const isWorkingDay = !isWeekend && !isHoliday;
+  const thaiYear = year + 543;
+  const thaiMonthName = THAI_MONTHS[month - 1] || '';
+  const thaiDateStr = `${day} ${thaiMonthName} ${thaiYear}`;
+
+  return { isHoliday, holidayName, isWeekend, isWorkingDay, thaiDateStr, isoDateStr, dayOfWeek };
+}
+
+function isNonWorkingDay(dateObj?: Date | string) {
+  const info = getThaiDateInfo(dateObj);
+  if (info.isWeekend) {
+    const dayNames = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
+    return { isNonWorking: true, reason: `วันหยุดสุดสัปดาห์ (${dayNames[info.dayOfWeek]})` };
+  }
+  if (info.isHoliday) {
+    return { isNonWorking: true, reason: `วันหยุดราชการ (${info.holidayName})` };
+  }
+  return { isNonWorking: false };
+}
+
+// ── Helper: ส่งข้อความ Telegram ──────────────────────────────────────────────
+async function sendTelegram(token: string, chatId: number, text: string, replyMarkup?: any) {
   try {
-    const res = await fetch(url, {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
         text,
         parse_mode: 'HTML',
-        disable_web_page_preview: true,
         reply_markup: replyMarkup
       })
     });
-
-    if (res.ok) return true;
-
-    const errBody = await res.json().catch(() => ({})) as any;
-    console.error('[DEADLINE-REMINDER] Telegram API error:', errBody);
-
-    if (errBody?.description && (errBody.description.includes('entities') || errBody.description.includes('HTML') || errBody.description.includes('bad request'))) {
-      const plainText = text.replace(/<\/?[^>]+(>|$)/g, '');
-      const retryRes = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: plainText,
-          disable_web_page_preview: true,
-          reply_markup: replyMarkup
-        })
-      });
-      return retryRes.ok;
-    }
-
-    return false;
   } catch (err) {
-    console.error('[DEADLINE-REMINDER] sendTelegram network error:', err);
-    return false;
+    console.error('[DEADLINE-REMINDER] sendTelegram error:', err);
   }
 }
 
@@ -64,7 +107,6 @@ function toThaiDate(isoDate: string): string {
 function daysUntil(isoDate: string): number {
   const now = new Date();
   const target = new Date(isoDate);
-  // เปรียบเทียบเฉพาะวันที่ (ไม่นับเวลา)
   const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
   const diff = targetDay.getTime() - nowDay.getTime();
@@ -86,38 +128,50 @@ function escapeHtml(str: string): string {
 }
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
-export default async function handler(req: Request): Promise<Response> {
-  // ✅ ตรวจสอบ Authorization Header / Secret Key
-  const authHeader = req.headers.get('authorization');
+export default async function handler(req: Request | any, res?: any): Promise<Response | void> {
   const cronSecret = process.env.CRON_SECRET;
-  const url = new URL(req.url || 'http://localhost');
-  const querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
-  const isForce = url.searchParams.get('force') === 'true';
+  const authHeader = typeof req?.headers?.get === 'function'
+    ? req.headers.get('authorization')
+    : (req?.headers?.authorization || req?.headers?.Authorization);
+
+  let querySecret = req?.query?.secret || req?.query?.key;
+  let isForce = req?.query?.force === 'true' || req?.query?.force === true;
+
+  if (!querySecret || !isForce) {
+    try {
+      const url = new URL(req?.url || '/', 'http://localhost');
+      if (!querySecret) querySecret = url.searchParams.get('secret') || url.searchParams.get('key');
+      if (!isForce) isForce = url.searchParams.get('force') === 'true';
+    } catch { /* ignore */ }
+  }
 
   if (cronSecret && authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+    if (res?.status) return res.status(401).json({ error: 'Unauthorized' });
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
-  // ✅ ตรวจสอบวันทำงาน (ข้ามเสาร์-อาทิตย์ และวันหยุดนักขัตฤกษ์ไทย)
+  // ตรวจสอบวันทำงาน (ข้ามเสาร์-อาทิตย์ และวันหยุดนักขัตฤกษ์ไทย)
   const dateInfo = getThaiDateInfo();
   const nonWorkingCheck = isNonWorkingDay();
 
   if (!isForce && nonWorkingCheck.isNonWorking) {
     console.log(`[DEADLINE-REMINDER] Skipped: ${nonWorkingCheck.reason}`);
-    return new Response(JSON.stringify({
+    const payload = {
       message: `Skipped: ${nonWorkingCheck.reason}`,
       date: dateInfo.thaiDateStr,
       isHoliday: dateInfo.isHoliday,
       holidayName: dateInfo.holidayName || null
-    }), { status: 200 });
+    };
+    if (res?.status) return res.status(200).json(payload);
+    return new Response(JSON.stringify(payload), { status: 200 });
   }
 
   try {
-    // ── 1. ดึง settings ของทุกโรงเรียน ────────────────────────────────────────
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
     
     if (!supabaseUrl || !supabaseKey) {
+      if (res?.status) return res.status(500).json({ error: 'Missing Supabase credentials' });
       return new Response(JSON.stringify({ error: 'Missing Supabase credentials' }), { status: 500 });
     }
 
@@ -130,7 +184,9 @@ export default async function handler(req: Request): Promise<Response> {
       .select('telegram_bot_token, telegram_group_id');
 
     if (!allSettings || allSettings.length === 0) {
-      return new Response(JSON.stringify({ message: 'No school settings found' }), { status: 200 });
+      const payload = { message: 'No school settings found' };
+      if (res?.status) return res.status(200).json(payload);
+      return new Response(JSON.stringify(payload), { status: 200 });
     }
 
     let totalSent = 0;
@@ -139,66 +195,49 @@ export default async function handler(req: Request): Promise<Response> {
       const { telegram_bot_token: botToken, telegram_group_id: rawGroupId } = setting;
       if (!botToken || !rawGroupId) continue;
 
-      // telegram_group_id เก็บรูปแบบ "centralId|proposalId"
-      // Deadline Reminder ใช้กลุ่มส่วนกลาง (ส่วนแรก)
       const centralGroupId = rawGroupId.split('|')[0]?.trim();
       if (!centralGroupId) continue;
       const groupIdNum = parseInt(centralGroupId);
       if (isNaN(groupIdNum)) continue;
 
-
-      // ── 2. ดึงหนังสือที่ action_deadline ภายใน 3 วัน ──────────────────────
       const today = new Date();
       const in3Days = new Date(today);
       in3Days.setDate(today.getDate() + 3);
+      const in3DaysStr = in3Days.toISOString().split('T')[0];
 
-      const { data: docs } = await supabase
+      const { data: dueDocs, error: docsError } = await supabase
         .from('incoming_docs')
         .select(`
           id,
           doc_number,
-          doc_sequence,
           subject,
           action_deadline,
           status,
-          suggested_assignee_id,
-          teachers:suggested_assignee_id (prefix, first_name, last_name)
+          assigned_to,
+          assigned_user:profiles!incoming_docs_assigned_to_fkey (
+            display_name
+          )
         `)
         .not('action_deadline', 'is', null)
-        .lte('action_deadline', in3Days.toISOString())
-        .neq('status', 'completed')
-        .neq('status', 'closed')
-        .order('action_deadline', { ascending: true })
-        .limit(10);
+        .lte('action_deadline', in3DaysStr)
+        .not('status', 'in', '("completed","cancelled")')
+        .order('action_deadline', { ascending: true });
 
-      if (!docs || docs.length === 0) continue;
+      if (docsError || !dueDocs || dueDocs.length === 0) continue;
 
-      // ── 3. สร้างข้อความแจ้งเตือน ───────────────────────────────────────────
-      for (const doc of docs) {
+      for (const doc of dueDocs) {
         const days = daysUntil(doc.action_deadline);
-
-        // ข้ามถ้าเกินกำหนดเกิน 1 วันแล้ว (แจ้งแค่ -1, 0, 1, 2, 3)
-        if (days < -1) continue;
-
-        const receiveNo = doc.doc_sequence
-          ? `${doc.doc_sequence}`
-          : (doc.doc_number || '-');
-
-        const teacher = (doc as any).teachers;
-        const teacherName = teacher
-          ? `${teacher.prefix || ''}${teacher.first_name} ${teacher.last_name}`
-          : 'ยังไม่ได้มอบหมาย';
-
+        const emoji = daysEmoji(days);
         const thaiDeadline = toThaiDate(doc.action_deadline);
-        const urgencyText = daysEmoji(days);
+        const teacherName = (doc.assigned_user as any)?.display_name || 'ไม่ระบุผู้รับผิดชอบ';
+        const receiveNo = doc.doc_number || '-';
 
-        let msg = `⏰ <b>แจ้งเตือน: ใกล้ครบกำหนดดำเนินการ</b>\n`;
-        msg += `${urgencyText}\n\n`;
+        let msg = `⏰ <b>แจ้งเตือนหนังสือใกล้ครบกำหนดปฏิบัติ</b>\n\n`;
+        msg += `📌 <b>สถานะกำหนดส่ง:</b> ${emoji}\n`;
         msg += `📄 <b>หนังสือเลขรับ:</b> ${escapeHtml(receiveNo)}\n`;
         msg += `📝 <b>เรื่อง:</b> ${escapeHtml(doc.subject || '-')}\n`;
         msg += `🗓 <b>กำหนดส่ง:</b> ${thaiDeadline}\n`;
         msg += `🧑‍🏫 <b>ผู้รับผิดชอบ:</b> ${escapeHtml(teacherName)}\n`;
-
 
         if (days <= 0) {
           msg += `\n❗ <b>กรุณาดำเนินการและอัปเดตสถานะในระบบด่วน!</b>`;
@@ -217,21 +256,22 @@ export default async function handler(req: Request): Promise<Response> {
 
         await sendTelegram(botToken, groupIdNum, msg, inlineButtons);
         totalSent++;
-
-        // หน่วงเวลาเล็กน้อยกัน Telegram rate limit
         await new Promise(r => setTimeout(r, 300));
       }
     }
 
     console.log(`[DEADLINE-REMINDER] ส่งแจ้งเตือนทั้งหมด ${totalSent} รายการ`);
-    return new Response(JSON.stringify({
+    const payload = {
       success: true,
       sent: totalSent,
       timestamp: new Date().toISOString()
-    }), { status: 200 });
+    };
+    if (res?.status) return res.status(200).json(payload);
+    return new Response(JSON.stringify(payload), { status: 200 });
 
   } catch (err: any) {
     console.error('[DEADLINE-REMINDER] Error:', err);
+    if (res?.status) return res.status(500).json({ error: err.message });
     return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 }
