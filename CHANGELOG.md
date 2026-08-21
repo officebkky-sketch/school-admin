@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2] - 2026-08-21
+### Fixed & Enhanced
+- **Vercel Serverless Dual-Runtime & Self-Contained Functions**:
+  - ปรับปรุง `api/director-pending-reminder.ts`, `api/deadline-reminder.ts`, `api/weekly-backup.ts`, และ `api/trigger-test.ts` ให้เป็น Self-Contained 100% (ฝัง Utility วันหยุดไทย ป้องกัน Lambda Bundling Error)
+  - รองรับทั้ง Node.js Serverless Runtime และ Edge Runtime อย่างเสถียร 100%
+  - เพิ่มระบบตรวจสอบและดึง Header/Query Param แบบปลอดภัย ครอบคลุมทั้ง Node.js `IncomingMessage` และ Web Standard `Request`
+  - ปรับปรุงการเชื่อมต่อ Environment Variables ให้รองรับทั้ง `SUPABASE_URL` / `VITE_SUPABASE_URL` และ `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SERVICE_KEY` / `VITE_SUPABASE_ANON_KEY`
+
 ## [1.3.1] - 2026-08-20
 ### Fixed & Enhanced
 - **แก้ปัญหาระบบแจ้งเตือนงานค้างเกษียณยามเช้า (Director Morning Digest)**:
