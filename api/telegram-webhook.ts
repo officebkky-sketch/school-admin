@@ -1854,10 +1854,15 @@ export default async function handler(req: any, res: any) {
         }
         const { data: doc } = await supabase.from('incoming_docs').select('action_deadline').eq('id', docId).single();
         if (doc) {
-          const currentDL = doc.action_deadline ? new Date(doc.action_deadline) : new Date();
-          currentDL.setDate(currentDL.getDate() + 3);
-          await supabase.from('incoming_docs').update({ action_deadline: currentDL.toISOString() }).eq('id', docId);
-          const thDate = currentDL.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+          // Bug fix: คำนวณวันที่ใหม่จาก date-only string เพื่อป้องกัน timezone offset
+          const currentDLStr = doc.action_deadline
+            ? doc.action_deadline.split('T')[0]   // ตัด timestamp ทิ้ง เหลือแค่ YYYY-MM-DD
+            : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+          const [y, m, d] = currentDLStr.split('-').map(Number);
+          const newDL = new Date(y, m - 1, d + 3); // บวก 3 วันแบบ local date ไม่ใช่ UTC
+          const newDLStr = `${newDL.getFullYear()}-${String(newDL.getMonth() + 1).padStart(2, '0')}-${String(newDL.getDate()).padStart(2, '0')}`;
+          await supabase.from('incoming_docs').update({ action_deadline: newDLStr }).eq('id', docId);
+          const thDate = new Date(`${newDLStr}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' });
           await answerCallbackQuery(botToken, callbackQuery.id, `⏰ เลื่อนกำหนดเป็น ${thDate} เรียบร้อยแล้วค่ะ`);
           await sendTelegramMessage(botToken, callbackChatId, `⏰ <b>เลื่อนกำหนดส่งเรียบร้อย</b>\n\nกำหนดส่งใหม่: <u>${thDate}</u>`);
         }

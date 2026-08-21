@@ -103,13 +103,19 @@ function toThaiDate(isoDate: string): string {
   }
 }
 
-// ── Helper: คำนวณจำนวนวันคงเหลือ ─────────────────────────────────────────────
-function daysUntil(isoDate: string): number {
+// ── Helper: ดึงวันที่ปัจจุบันในรูปแบบ YYYY-MM-DD ตามเวลาไทย (Bangkok) ──────────
+function getBangkokDateStr(offsetDays = 0): string {
   const now = new Date();
-  const target = new Date(isoDate);
-  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-  const diff = targetDay.getTime() - nowDay.getTime();
+  if (offsetDays) now.setDate(now.getDate() + offsetDays);
+  return now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); // en-CA → YYYY-MM-DD
+}
+
+// ── Helper: คำนวณจำนวนวันคงเหลือ (อิงเวลาไทย) ────────────────────────────────
+function daysUntil(isoDate: string): number {
+  const todayStr = getBangkokDateStr();
+  const today = new Date(`${todayStr}T00:00:00+07:00`);
+  const target = new Date(`${isoDate.split('T')[0]}T00:00:00+07:00`);
+  const diff = target.getTime() - today.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
 }
 
@@ -200,10 +206,8 @@ export default async function handler(req: Request | any, res?: any): Promise<Re
       const groupIdNum = parseInt(centralGroupId);
       if (isNaN(groupIdNum)) continue;
 
-      const today = new Date();
-      const in3Days = new Date(today);
-      in3Days.setDate(today.getDate() + 3);
-      const in3DaysStr = in3Days.toISOString().split('T')[0];
+      // ใช้วันที่ตามเวลาไทย (Bangkok) ป้องกัน 1-day offset บน Vercel UTC Server
+      const in3DaysStr = getBangkokDateStr(3);
 
       const { data: dueDocs, error: docsError } = await supabase
         .from('incoming_docs')
