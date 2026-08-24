@@ -485,7 +485,7 @@ export default function IncomingDocs() {
       const finalDocNum = formData.doc_number.trim() || docSeq.toString();
 
       const extraData = {
-        sender_doc_number: formData.sender_doc_number,
+        sender_doc_number: toArabic(formData.sender_doc_number), // แปลงเลขไทย→อารบิกก่อนบันทึก
         sender_doc_date: formData.sender_doc_date,
         proposal_summary: proposalData.summary,
         proposal_text: proposalData.proposal,

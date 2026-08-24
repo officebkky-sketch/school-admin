@@ -9,6 +9,12 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** แปลงเลขไทย → เลขอารบิก เพื่อ standardize เลขที่หนังสือก่อนบันทึกทุกครั้ง */
+function toArabicNumerals(str: string): string {
+  if (!str) return str;
+  return str.replace(/[๐-๙]/g, d => '๐๑๒๓๔๕๖๗๘๙'.indexOf(d).toString());
+}
+
 /** Helper: แปลง URL ของ Google Drive ให้เป็น Direct Download Link สำหรับดาวน์โหลด Binary */
 function getDirectDownloadUrl(url: string): string {
   if (!url) return '';
@@ -158,7 +164,10 @@ export default async function handler(req: Request): Promise<Response> {
         .select('id, prefix, first_name, last_name, position, department')
         .eq('status', 'active');
 
-      const teachersListStr = (teachers || []).map((t: any) => `- ID: ${t.id} | ชื่อ: ${t.prefix || ''}${t.first_name} ${t.last_name} | ตำแหน่ง: ${t.position || '-'} | ฝ่าย: ${t.department || '-'}`).join('\n');
+      // ย่อรายชื่อครูให้สั้น เพื่อไม่กินพื้นที่ context จนตัดเนื้อหาเอกสาร
+      const teachersListStr = (teachers || []).map((t: any) =>
+        `- ${t.prefix || ''}${t.first_name} ${t.last_name} (ฝ่าย: ${t.department || 'ไม่ระบุ'})`
+      ).join('\n');
 
       // 2. ดาวน์โหลดไฟล์เอกสารเพื่อนำมาทำ OCR
       let extractedText = '';
@@ -212,24 +221,25 @@ export default async function handler(req: Request): Promise<Response> {
 จากเอกสารราชการไทยด้านล่างนี้ ให้สกัดข้อมูลสำคัญแล้วตอบกลับเฉพาะโครงสร้าง JSON ดังต่อไปนี้เท่านั้น (ห้ามพิมพ์ข้อความอื่นนอก JSON):
 
 {
-  "doc_number": "เลขที่หนังสือ (ถ้ามี)",
-  "subject": "ชื่อเรื่องหนังสือ",
-  "from_agency": "หน่วยงานผู้ส่ง",
+  "doc_number": "เลขที่หนังสือของผู้ส่ง เช่น ศธ 04225/2666 (ถ้าไม่มีใส่ null)",
+  "subject": "ชื่อเรื่องหนังสือ (ให้สกัดจากส่วน 'เรื่อง:' เท่านั้น ห้ามใช้ชื่อหน่วยงานหรือหัวกระดาษ)",
+  "from_agency": "ชื่อหน่วยงานผู้ส่ง (สกัดจาก 'จาก:' หรือหัวจดหมาย)",
   "doc_date": "วันที่หนังสือ (รูปแบบ YYYY-MM-DD ถ้าไม่ทราบใส่ null)",
-  "urgency": "ปกติ หรือ ด่วน หรือ ด่วนที่สุด",
-  "summary": "สรุปสาระสำคัญของหนังสือ 2-3 บรรทัด",
+  "urgency": "ปกติ หรือ ด่วน หรือ ด่วนที่สุด (ให้เดาจากเนื้อหา ห้ามใส่ null)",
+  "summary": "สรุปสาระสำคัญของหนังสือ 2-3 ประโยค (ให้สรุปเสมอ ห้ามใส่ null)",
   "action_deadline": "วันที่ต้องส่งงาน/หมดเขตดำเนินการ (รูปแบบ YYYY-MM-DDTHH:mm:ssZ ถ้าไม่มีให้ใส่ null)",
-  "suggested_assignee_id": "เลือก ID ของครูจากรายชื่อด้านล่างที่เหมาะสมที่สุดในการรับมอบหมายงานนี้ (ถ้าไม่แน่ใจใส่ null)"
+  "suggested_assignee_name": "ชื่อ-นามสกุลครูจากรายชื่อด้านล่างที่เหมาะสมที่สุด (ให้เดาจากเนื้อหา อย่าใส่ null โดยไม่จำเป็น)",
+  "suggested_assignee_dept": "ฝ่าย/กลุ่มสาระที่ควรรับผิดชอบงานนี้ เช่น วิชาการ, กิจการนักเรียน, งบประมาณ (ให้เดาจากเนื้อหาเสมอ)"
 }
 
 รายชื่อครูและบุคลากรในโรงเรียน:
 ${teachersListStr}
 
 เนื้อหาเอกสาร:
-${extractedText.substring(0, 4000)}
+${extractedText.substring(0, 5000)}
       `;
 
-      const aiAnalysisRaw = await callGemini("คุณคือผู้ช่วยสกัดข้อมูลและมอบหมายงานสารบรรณโรงเรียน", analysisPrompt, apiKey);
+      const aiAnalysisRaw = await callGemini("คุณคือผู้ช่วยสกัดข้อมูลและมอบหมายงานสารบรรณโรงเรียน ให้ตอบเป็น JSON เท่านั้น ห้ามอธิบายเพิ่มเติม", analysisPrompt, apiKey);
 
       let parsedInfo: any = {};
       try {
@@ -239,8 +249,36 @@ ${extractedText.substring(0, 4000)}
         console.error('[OCR PROCESS] JSON parse error:', e);
       }
 
-      // 4. ดึงข้อมูลเดิมของ incoming_docs เพื่ออัปเดต remark โดยไม่ทับเลขที่รับของโรงเรียน (doc_number)
-      const { data: currentDoc } = await supabase.from('incoming_docs').select('remark').eq('id', docId).single();
+      // Phase 2: Fuzzy Matching 3 ชั้น หาครูที่ตรงจาก suggested_assignee_name / dept
+      let matchedTeacher: any = null;
+      if (teachers && teachers.length > 0) {
+        const suggestedName = (parsedInfo.suggested_assignee_name || '').toLowerCase().trim();
+        const suggestedDept = (parsedInfo.suggested_assignee_dept || '').toLowerCase().trim();
+
+        // ชั้น 1: ชื่อ/นามสกุล fuzzy match
+        if (suggestedName) {
+          matchedTeacher = teachers.find((t: any) => {
+            const firstName = (t.first_name || '').toLowerCase();
+            const lastName = (t.last_name || '').toLowerCase();
+            const fullName = `${t.prefix || ''}${t.first_name} ${t.last_name}`.toLowerCase();
+            return fullName.includes(suggestedName) ||
+                   suggestedName.includes(firstName) ||
+                   suggestedName.includes(lastName);
+          }) || null;
+        }
+
+        // ชั้น 2: Department keyword match (fallback)
+        if (!matchedTeacher && suggestedDept) {
+          matchedTeacher = teachers.find((t: any) => {
+            const dept = (t.department || '').toLowerCase();
+            return dept && (suggestedDept.includes(dept) || dept.includes(suggestedDept));
+          }) || null;
+        }
+      }
+
+      // 4. ดึงข้อมูลเดิมของ incoming_docs (รวม doc_number เลขรับ, subject, from_agency เพื่อตรวจสอบก่อนทับ)
+      const { data: currentDoc } = await supabase.from('incoming_docs')
+        .select('remark, subject, from_agency, doc_number').eq('id', docId).single();
       let existingRemarkObj: any = {};
       if (currentDoc?.remark) {
         try {
@@ -252,22 +290,47 @@ ${extractedText.substring(0, 4000)}
         }
       }
 
-      if (parsedInfo.doc_number) existingRemarkObj.sender_doc_number = parsedInfo.doc_number;
-      if (parsedInfo.summary) existingRemarkObj.proposal_summary = parsedInfo.summary;
+      // Phase 4: Merge remark อย่างปลอดภัย — OCR เป็น fallback เท่านั้น
+      // sender_doc_number: ทับเฉพาะเมื่อว่าง, แปลงเลขไทย→อารบิกทุกครั้ง
+      if (parsedInfo.doc_number) {
+        const arabicDocNum = toArabicNumerals(parsedInfo.doc_number);
+        if (!existingRemarkObj.sender_doc_number) {
+          existingRemarkObj.sender_doc_number = arabicDocNum;
+        } else {
+          // มีค่าแล้ว → เก็บ OCR ไว้ใน key แยก ไม่ทับของเดิม
+          existingRemarkObj.ocr_doc_number = arabicDocNum;
+        }
+      }
+
+      // proposal_summary: ห้ามทับ — เก็บ AI summary ใน ai_summary แยก
+      if (parsedInfo.summary) {
+        existingRemarkObj.ai_summary = parsedInfo.summary;
+        if (!existingRemarkObj.proposal_summary) {
+          existingRemarkObj.proposal_summary = parsedInfo.summary;
+        }
+      }
 
       const updatePayload: any = {
         extracted_text: extractedText,
         auto_processed_at: new Date().toISOString(),
+        ai_status: 'success',
         remark: JSON.stringify(existingRemarkObj)
       };
 
       // หมายเหตุ: ไม่ทับ doc_number (เลขที่รับของโรงเรียน) ด้วย parsedInfo.doc_number
-      if (parsedInfo.subject) updatePayload.subject = parsedInfo.subject;
-      if (parsedInfo.from_agency) updatePayload.from_agency = parsedInfo.from_agency;
+      // subject: ทับเฉพาะเมื่อว่างหรือเป็น default fallback ที่ผู้ใช้ไม่ได้กรอก
+      if (parsedInfo.subject && (!currentDoc?.subject || currentDoc.subject === 'หนังสือรับ' || currentDoc.subject === '-' || currentDoc.subject === '')) {
+        updatePayload.subject = parsedInfo.subject;
+      }
+      // from_agency: ทับเฉพาะเมื่อว่าง
+      if (parsedInfo.from_agency && (!currentDoc?.from_agency || currentDoc.from_agency === '-' || currentDoc.from_agency === '')) {
+        updatePayload.from_agency = parsedInfo.from_agency;
+      }
       if (parsedInfo.doc_date) updatePayload.doc_date = parsedInfo.doc_date;
       if (parsedInfo.urgency) updatePayload.urgency = parsedInfo.urgency;
       if (parsedInfo.action_deadline) updatePayload.action_deadline = parsedInfo.action_deadline;
-      if (parsedInfo.suggested_assignee_id) updatePayload.suggested_assignee_id = parsedInfo.suggested_assignee_id;
+      // ใช้ matched teacher ID จาก fuzzy matching แทน suggested_assignee_id เดิม
+      if (matchedTeacher) updatePayload.suggested_assignee_id = matchedTeacher.id;
 
       await supabase
         .from('incoming_docs')
@@ -291,37 +354,67 @@ ${extractedText.substring(0, 4000)}
 
       // 6. แจ้งเตือนเข้า Telegram ผอ. / กลุ่ม พร้อมเสนอสกัดตารางงาน & ผู้รับมอบหมาย
       if (botToken) {
-        let suggestedTeacherName = 'ไม่ระบุ';
-        if (parsedInfo.suggested_assignee_id && teachers) {
-          const matchedT = teachers.find((t: any) => t.id === parsedInfo.suggested_assignee_id);
-          if (matchedT) {
-            suggestedTeacherName = `${matchedT.prefix || ''}${matchedT.first_name} ${matchedT.last_name}`;
-          }
-        }
+        // Phase 3: คำนวณ AI confidence score
+        let aiConfidence = 0;
+        if (parsedInfo.doc_number) aiConfidence++;
+        if (parsedInfo.subject) aiConfidence++;
+        if (parsedInfo.summary) aiConfidence++;
+        if (parsedInfo.action_deadline) aiConfidence++;
+        if (matchedTeacher) aiConfidence++;
+        const totalFields = 5;
 
+        // ใช้ matchedTeacher จาก fuzzy matching แทนการ find UUID
+        const suggestedTeacherName = matchedTeacher
+          ? `${matchedTeacher.prefix || ''}${matchedTeacher.first_name} ${matchedTeacher.last_name}`
+          : '';
+
+        // ชื่อเรื่องที่แสดงใน notification: ใช้ค่าที่ผู้ใช้กรอก (currentDoc) ก่อน แล้วค่อย fallback
+        const displaySubject = updatePayload.subject || currentDoc?.subject || parsedInfo.subject || 'ไม่ระบุ';
+        // เนื้อหาที่เสนอ: ใช้ proposal_summary ที่ผู้ใช้กรอก (ก่อน AI ทับ)
+        const proposalSummary = existingRemarkObj.proposal_summary || '';
 
         let notifyMsg = `📄 <b>สแกนอ่านหนังสือรับสำเร็จเรียบร้อย!</b>\n\n`;
-        notifyMsg += `<b>เรื่อง:</b> ${escapeHtml(docSubject)}\n`;
-        notifyMsg += `<b>เลขที่หนังสือ:</b> ${escapeHtml(parsedInfo.doc_number || '-')}\n`;
-        if (parsedInfo.summary) notifyMsg += `<b>สรุปสาระสำคัญ:</b> "${escapeHtml(parsedInfo.summary)}"\n`;
+        // เลขรับในสารบรรณ (เลขที่โรงเรียนออกเอง)
+        notifyMsg += `📌 <b>เลขรับที่:</b> <code>${escapeHtml(currentDoc?.doc_number || '-')}</code>\n`;
+        notifyMsg += `<b>เรื่อง:</b> ${escapeHtml(displaySubject)}\n`;
+        notifyMsg += `<b>เลขที่หนังสือ (ผู้ส่ง):</b> ${escapeHtml(toArabicNumerals(parsedInfo.doc_number || '') || '-')}\n`;
+        // เนื้อหาที่เสนอ (proposal_summary ที่ผู้ใช้กรอกตอนรับหนังสือ)
+        if (proposalSummary) {
+          notifyMsg += `📝 <b>เนื้อหาที่เสนอ:</b> ${escapeHtml(proposalSummary)}\n`;
+        }
+        notifyMsg += `\n`;
+        // แสดง summary เสมอ ไม่ซ่อน
+        notifyMsg += `<b>สรุปสาระสำคัญ (AI):</b> ${parsedInfo.summary ? `"${escapeHtml(parsedInfo.summary)}"` : '<i>(วิเคราะห์ไม่ได้)</i>'}\n`;
+        // แสดง deadline เสมอ ไม่ซ่อน
         if (parsedInfo.action_deadline) {
           const deadlineDate = new Date(parsedInfo.action_deadline).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
           notifyMsg += `⏰ <b>กำหนดการดำเนินการ:</b> <u>${deadlineDate}</u>\n`;
+        } else {
+          notifyMsg += `⏰ <b>กำหนดการดำเนินการ:</b> <i>(ไม่พบในเอกสาร)</i>\n`;
         }
-        notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <b>${escapeHtml(suggestedTeacherName)}</b>\n`;
-
+        // แสดงครูที่แนะนำพร้อมเหตุผล
+        if (suggestedTeacherName) {
+          notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <b>${escapeHtml(suggestedTeacherName)}</b>\n`;
+        } else if (parsedInfo.suggested_assignee_dept) {
+          notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <i>(ไม่พบในรายชื่อ — ฝ่ายที่ควรรับ: ${escapeHtml(parsedInfo.suggested_assignee_dept)})</i>\n`;
+        } else {
+          notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <i>(กรุณาเลือกด้วยตนเอง)</i>\n`;
+        }
+        notifyMsg += `\n🤖 <i>AI วิเคราะห์ได้ ${aiConfidence}/${totalFields} ฟิลด์</i>`;
 
         const inlineButtons: any[] = [];
-        if (parsedInfo.suggested_assignee_id) {
+        // ปุ่ม ✅ มอบหมายทันที: แสดงเฉพาะเมื่อ fuzzy match สำเร็จ
+        if (matchedTeacher) {
           inlineButtons.push([{
-            text: `✅ มอบหมายครู ${suggestedTeacherName} ทันที`,
-            callback_data: `action=smart_assign_confirm&doc_id=${docId}&t_id=${parsedInfo.suggested_assignee_id}`
+            text: `✅ มอบหมาย ${suggestedTeacherName} ทันที`,
+            callback_data: `action=smart_assign_confirm&doc_id=${docId}&t_id=${matchedTeacher.id}`
           }]);
         }
         inlineButtons.push([{
           text: `✍️ เลือกครูท่านอื่น / ระบุคำสั่งเอง`,
           callback_data: `action=start_assign&id=${docId}`
         }]);
+
 
         // ส่งให้ ผอ. ส่วนตัว
         const { data: directors } = await supabase.from('profiles').select('telegram_chat_id').eq('role', 'director');
