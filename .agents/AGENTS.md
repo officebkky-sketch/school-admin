@@ -86,6 +86,46 @@
     }
     ```
 
+### Rule H — Deployment Pipeline & Vercel Production Target
+- **Production URL จริงของโปรเจกต์:** `https://school-admin-psi.vercel.app/` (Vercel Scope/Team: `officebkky-school-admin`)
+- **Git Repository:** `officebkky-sketch/school-admin` (Branch: `multischool`)
+- **❌ ห้าม** ใช้คำสั่ง `npx vercel --prod` หรือ `vercel deploy` จาก CLI โดยตรงเด็ดขาด เพราะบัญชี CLI ในเครื่องอาจผูกกับ Scope อื่น (`hourmir2-3686`) ทำให้ Deploy ผิดโปรเจกต์
+- **✅ วิธี Deploy ที่ถูกต้องเสมอ:**
+  ```bash
+  git add <files>
+  git commit -m "..."
+  git push origin multischool
+  ```
+  แล้วให้ GitHub Integration ของ Vercel (`officebkky-school-admin`) Build & Deploy ขึ้น Production อัตโนมัติ
+
+### Rule I — OCR Smart Assignment & Data Protection Guidelines
+1. **Fallback-Only Overwrite Policy — ห้าม OCR ทับข้อมูลที่ผู้ใช้กรอก:**
+   - `api/ocr-process.ts` ทำหน้าที่เป็นตัวเสริม (Enricher/Fallback) เท่านั้น
+   - **ห้าม** เขียนทับฟิลด์ต่อไปนี้หากมีค่าอยู่แล้วในฐานข้อมูล:
+     - `subject` — ทับได้เฉพาะเมื่อเป็นค่าว่าง, `'-'`, หรือ `'หนังสือรับ'` (default fallback)
+     - `from_agency` — ทับได้เฉพาะเมื่อว่าง
+     - `remark.proposal_summary` — **ห้ามทับเด็ดขาด** ให้ AI summary เก็บใน `remark.ai_summary` แทน
+     - `remark.sender_doc_number` — ทับได้เฉพาะเมื่อว่าง ถ้ามีค่าแล้วให้เก็บ OCR result ใน `remark.ocr_doc_number`
+
+2. **Arabic Numerals Invariant — แปลงเลขไทยเป็นอารบิกทุกครั้ง:**
+   - เลขที่หนังสือผู้ส่ง (`sender_doc_number`) ต้องผ่านฟังก์ชัน `toArabicNumerals()` / `toArabic()` เสมอ ทั้งฝั่ง Frontend (ตอน INSERT) และ Backend OCR (ตอน UPDATE)
+   ```typescript
+   function toArabicNumerals(str: string): string {
+     if (!str) return str;
+     return str.replace(/[๐-๙]/g, d => '๐๑๒๓๔๕๖๗๘๙'.indexOf(d).toString());
+   }
+   ```
+
+3. **Fuzzy Name Matching over UUID for AI Prompts:**
+   - ใน Prompt ที่ขอให้ Gemini แนะนำครูผู้รับงาน **ห้ามขอผลลัพธ์เป็น UUID** เพราะ AI มักตอบผิดรูปแบบ
+   - ให้ขอเป็น `suggested_assignee_name` (ชื่อ-นามสกุล) และ `suggested_assignee_dept` (ฝ่าย/กลุ่มสาระ)
+   - จากนั้นใช้ Fuzzy Matching ในโค้ด (ชั้น 1: ชื่อ/นามสกุล → ชั้น 2: department) เพื่อหา UUID ที่ถูกต้อง
+
+4. **Telegram OCR Notification Standard — แสดงข้อมูลครบเสมอ:**
+   - ข้อความแจ้งเตือน OCR ต้องแสดงทุกฟิลด์โดยไม่ซ่อน ถ้าไม่มีค่าให้แสดง `(วิเคราะห์ไม่ได้)` / `(ไม่พบในเอกสาร)` แทนการปล่อยว่าง
+   - ฟิลด์บังคับที่ต้องแสดงเสมอ: เลขรับที่ (`doc_number`), เรื่อง, เลขที่ผู้ส่ง, เนื้อหาที่เสนอ (`proposal_summary`), สรุป AI, กำหนดส่ง, ครูที่แนะนำ, AI confidence score (`🤖 AI วิเคราะห์ได้ X/5 ฟิลด์`)
+   - ปุ่ม `✅ มอบหมายทันที` แสดงเฉพาะเมื่อ Fuzzy Match สำเร็จเท่านั้น (มี `matchedTeacher`)
+
 ---
 
 ## 📌 ข้อมูลและประวัติการพัฒนา (Development History)
