@@ -69,6 +69,34 @@
   2. ไฟล์ `.env` คีย์ `VITE_APP_VERSION`
   3. ค่าเริ่มต้นสำรอง (Fallback Value) ในโค้ดแสดงผล ได้แก่ `src/App.tsx` (บรรทัดแสดงผล Version ของ Sidebar) และ `src/pages/Settings.tsx` (บรรทัดแสดงผลเวอร์ชันปัจจุบันในเมนูเกี่ยวกับระบบ) เพื่อป้องกันหน้าจอแสดงเลขรุ่นสับสนไม่ตรงกับประวัติประวัติการปรับปรุง (Changelog) ล่าสุด
 
+### 7) การแก้ปัญหา Vercel Function Timeout + ข้อควรระวัง Multi-School
+- **สาเหตุ**: `vercel.json` ไม่มี `maxDuration` → Vercel ใช้ default timeout ต่ำ (~10-15 วินาที) ฟังก์ชันหนัก เช่น `telegram-webhook`, `line-webhook`, `ocr-process` จะถูก kill กลางคัน
+- **การแก้ไขที่ถูกต้อง**: ใช้ **wildcard pattern เดียว** เพิ่ม `maxDuration` เข้าไปใน `api/**/*.ts` ที่มีอยู่แล้ว:
+  ```json
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "public/fonts/**",
+      "maxDuration": 60
+    }
+  }
+  ```
+- **⚠️ ข้อควรระวัง Multi-School**: ห้ามระบุ specific file pattern เช่น `"api/telegram-webhook.ts": { "maxDuration": 60 }` เพราะแต่ละโรงเรียนอาจมีไฟล์ใน `api/` ไม่เท่ากัน หรือไม่ได้เปิดใช้ครบทุกระบบ → Vercel จะ deploy fail ทันทีด้วย error: `"The pattern doesn't match any Serverless Functions inside the api directory"`
+- **Vercel Hobby Plan Limits (ตรวจสอบแล้ว ส.ค. 2569)**:
+  - `maxDuration` สูงสุด: **300 วินาที** (5 นาที)
+  - Cron jobs: สูงสุด 100 job/project
+  - Cron **frequency**: รันได้ **วันละ 1 ครั้งเท่านั้น** — หากตั้งถี่กว่านี้ (เช่น ทุกชั่วโมง) deployment จะล้มเหลวทันที
+
+### 8) Git Remote & Branch Structure ของระบบ Multi-School
+- Remote `origin` → `officebkky-sketch/school-admin` (โรงเรียน 1)
+- Remote `school2` → `wtkpl2office-sudo/school-admin` (โรงเรียน 2)
+- **Branch หลักที่ Vercel ทั้ง 2 โรงเรียน track**: `multischool` (ไม่ใช่ `main`)
+- การส่งโค้ดขึ้นระบบ:
+  ```bash
+  git push origin multischool   # โรงเรียน 1
+  git push school2 multischool  # โรงเรียน 2
+  ```
+- หาก push ไปยัง `school2` ติดปัญหา Permission Denied ให้ใช้วิธี **Sync Fork** จากหน้า GitHub Web UI แทน
+
 ---
 
 ### 📅 บันทึกแผนงานล่าสุด
