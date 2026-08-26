@@ -2,6 +2,25 @@
   "functions": {
     "api/**/*.ts": {
       "includeFiles": "public/fonts/**"
+    },
+    "api/telegram-webhook.ts": {
+      "includeFiles": "public/fonts/**",
+      "maxDuration": 60
+    },
+    "api/ocr-process.ts": {
+      "maxDuration": 60
+    },
+    "api/deadline-reminder.ts": {
+      "maxDuration": 60
+    },
+    "api/director-pending-reminder.ts": {
+      "maxDuration": 60
+    },
+    "api/weekly-backup.ts": {
+      "maxDuration": 60
+    },
+    "api/line-webhook.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
