@@ -90,6 +90,31 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** แปลงรูปแบบวันที่เป็น DD-MM-YYYY (พ.ศ.) เช่น 27-08-2569 */
+function toDMYString(dateInput?: string | null): string {
+  if (!dateInput) return '-';
+  try {
+    const clean = String(dateInput).trim();
+    if (!clean) return '-';
+    const match = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = match[2].padStart(2, '0');
+      const day = match[3].padStart(2, '0');
+      const thaiYear = year < 2400 ? year + 543 : year;
+      return `${day}-${month}-${thaiYear}`;
+    }
+    const d = new Date(clean.includes('T') ? clean : `${clean}T00:00:00+07:00`);
+    if (isNaN(d.getTime())) return clean;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear() < 2400 ? d.getFullYear() + 543 : d.getFullYear();
+    return `${day}-${month}-${year}`;
+  } catch {
+    return dateInput;
+  }
+}
+
 /** อัปโหลดไฟล์จาก Telegram (Photo/Document) ไปยัง Google Drive (และ Supabase Storage เป็นส่วนสำรอง) */
 async function uploadTelegramFileToSupabase(botToken: string, fileId: string, customExt?: string, supabase?: any, settings?: any): Promise<string> {
   try {
@@ -1166,7 +1191,7 @@ export default async function handler(req: any, res: any) {
         const { data: doc } = await supabase.from('incoming_docs').select('action_deadline').eq('id', docId).single();
         let instructionText = 'มอบดำเนินการตามภารกิจ';
         if (doc?.action_deadline) {
-          const dlStr = new Date(doc.action_deadline).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+          const dlStr = toDMYString(doc.action_deadline);
           instructionText = `มอบดำเนินการ (กำหนดส่งภายในวันที่ ${dlStr})`;
         }
 
@@ -2235,6 +2260,251 @@ export default async function handler(req: any, res: any) {
     // ── 6. คำสั่งการขอเลขหนังสือ และการรับหนังสือผ่าน Telegram ──
     const docYearNum = parseInt(currentYear, 10) || (new Date().getFullYear() + 543);
     const textTrimmed = (rawText || '').trim();
+
+    // ── 6.1 คำสั่งสำหรับ ผอ. / ผู้บริหาร: ขอหนังสือรอเกษียณ ──
+    if (
+      textTrimmed === '/รอเกษียณ' ||
+      textTrimmed === '/ขอหนังสือรอเกษียณ' ||
+      textTrimmed === '/pending' ||
+      textTrimmed.startsWith('/รอเกษียณ') ||
+      textTrimmed.startsWith('/ขอหนังสือรอเกษียณ')
+    ) {
+      if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
+        await sendTelegramMessage(botToken, chatId, '❌ ขออภัยค่ะ คำสั่งดูหนังสือรอเกษียณสงวนสิทธิ์เฉพาะผู้อำนวยการและผู้ดูแลระบบเท่านั้นค่ะ 🌸');
+        return res.status(200).json({ ok: true });
+      }
+
+      const { data: pendingDocs, count: totalPending } = await supabase
+        .from('incoming_docs')
+        .select('id, doc_number, subject, from_agency, urgency, doc_date, file_url, attachment_urls, remark, action_deadline, created_at', { count: 'exact' })
+        .in('status', ['pending', 'waiting_proposal'])
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      const count = totalPending || (pendingDocs ? pendingDocs.length : 0);
+
+      if (!pendingDocs || pendingDocs.length === 0 || count === 0) {
+        await sendTelegramMessage(botToken, chatId, `🎉 <b>ยอดเยี่ยมมากค่ะ!</b>\n\nขณะนี้ไม่มีหนังสือรับเข้าคงค้างรอเกษียณสั่งการเลยค่ะ ผอ. สามารถพักผ่อนได้สบายใจเลยนะคะ 🌸✨`);
+        return res.status(200).json({ ok: true });
+      }
+
+      let msg = `📬 <b>รายการหนังสือรอเกษียณสั่งการ (${count} ฉบับ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+      const inlineButtons: any[] = [];
+
+      pendingDocs.forEach((doc: any, idx: number) => {
+        const uBadge = doc.urgency === 'ด่วนที่สุด' ? '🔴 <b>[ด่วนที่สุด]</b>' : doc.urgency === 'ด่วนมาก' ? '🟠 <b>[ด่วนมาก]</b>' : doc.urgency === 'ด่วน' ? '🟡 <b>[ด่วน]</b>' : '🟢 <b>[ปกติ]</b>';
+        const docNum = doc.doc_number || (idx + 1).toString();
+        
+        let summaryText = '';
+        try {
+          const rObj = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
+          summaryText = rObj.proposal_summary || rObj.ai_summary || '';
+        } catch {}
+
+        msg += `${idx + 1}. ${uBadge} <b>เรื่อง:</b> <b>${escapeHtml(doc.subject || '-')}</b>\n`;
+        msg += `   • <b>เลขรับ:</b> <code>${escapeHtml(docNum)}</code> | <b>จาก:</b> ${escapeHtml(doc.from_agency || '-')}\n`;
+        
+        if (summaryText) {
+          msg += `   ✨ <b>สาระสำคัญ:</b> <i>"${escapeHtml(summaryText.slice(0, 120))}${summaryText.length > 120 ? '...' : ''}"</i>\n`;
+        }
+
+        if (doc.action_deadline) {
+          const dl = toDMYString(doc.action_deadline);
+          msg += `   ⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${dl}</u>\n`;
+        }
+
+        if (doc.file_url) {
+          msg += `   📄 <a href="${doc.file_url}">เปิดดูต้นฉบับ</a>`;
+        }
+
+        let atts: string[] = [];
+        if (Array.isArray(doc.attachment_urls)) atts = doc.attachment_urls.filter(Boolean);
+        else if (typeof doc.attachment_urls === 'string') {
+          try { atts = JSON.parse(doc.attachment_urls).filter(Boolean); } catch {}
+        }
+        if (atts.length > 0) {
+          msg += ` | 📎 <b>ไฟล์แนบ:</b> `;
+          atts.forEach((url, i) => { msg += `<a href="${url}">[แนบ ${i + 1}]</a> `; });
+        }
+        msg += `\n\n`;
+
+        if (inlineButtons.length < 5) {
+          inlineButtons.push([{
+            text: `✍️ สั่งการเรื่อง ${docNum}`,
+            callback_data: `action=start_assign&id=${doc.id}`
+          }]);
+        }
+      });
+
+      if (count > 10) {
+        msg += `📌 <i>และยังมีหนังสือรอเกษียณอีก ${count - 10} ฉบับในระบบ...</i>\n\n`;
+      }
+      msg += `💡 <i>กดปุ่มสั่งการด้านล่างข้อความเพื่อดำเนินการได้ทันทีค่ะ 🌸</i>`;
+
+      await sendTelegramMessage(botToken, chatId, msg, { inline_keyboard: inlineButtons });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ── 6.2 คำสั่งสำหรับคุณครู: เช็คภาระงานที่ค้างอยู่ ──
+    if (
+      textTrimmed === '/งานค้าง' ||
+      textTrimmed === '/งานของฉัน' ||
+      textTrimmed === '/mytasks' ||
+      textTrimmed.startsWith('/งานค้าง') ||
+      textTrimmed.startsWith('/งานของฉัน')
+    ) {
+      let teacherId = '';
+      if (profileLinked.email) {
+        const { data: tData } = await supabase
+          .from('teachers')
+          .select('id, prefix, first_name, last_name')
+          .eq('email', profileLinked.email)
+          .maybeSingle();
+        if (tData) teacherId = tData.id;
+      }
+
+      if (!teacherId) {
+        const { data: tData } = await supabase
+          .from('teachers')
+          .select('id, prefix, first_name, last_name')
+          .ilike('first_name', `%${profileLinked.display_name || ''}%`)
+          .maybeSingle();
+        if (tData) teacherId = tData.id;
+      }
+
+      if (!teacherId) {
+        await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ชบาไม่พบข้อมูลบัญชีครูที่ผูกกับ Telegram ของท่าน (อีเมล: ${profileLinked.email || 'ไม่ระบุ'}) ค่ะ กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบข้อมูลนะคะ 🌸`);
+        return res.status(200).json({ ok: true });
+      }
+
+      const { data: assignments } = await supabase
+        .from('doc_assignments')
+        .select('id, instruction, status, created_at, incoming_docs(id, subject, doc_number, file_url, attachment_urls, action_deadline, urgency)')
+        .eq('assignee_id', teacherId)
+        .in('status', ['pending', 'acknowledged'])
+        .order('created_at', { ascending: false });
+
+      if (!assignments || assignments.length === 0) {
+        await sendTelegramMessage(botToken, chatId, `🎉 <b>ยอดเยี่ยมมากค่ะ คุณครู${profileLinked.display_name || ''}!</b>\n\nคุณครูไม่มีภาระงานค้างในระบบเลยค่ะ ทุกงานเสร็จสมบูรณ์เรียบร้อยแล้วค่ะ 🌸✨`);
+        return res.status(200).json({ ok: true });
+      }
+
+      let msg = `📋 <b>รายการงานที่ได้รับมอบหมาย (${assignments.length} งาน)</b>\n`;
+      msg += `👤 <b>ถึงคุณครู:</b> ${escapeHtml(profileLinked.display_name || 'คุณครู')}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+      const inlineButtons: any[] = [];
+
+      assignments.forEach((asg: any, idx: number) => {
+        const doc = asg.incoming_docs || {};
+        const statusBadge = asg.status === 'acknowledged' ? '🟡 [รับทราบแล้ว/รอดำเนินการ]' : '🔴 [งานใหม่/ยังไม่รับทราบ]';
+        
+        let deadlineStr = 'ไม่ระบุ';
+        let deadlineEmoji = '🟢';
+        if (doc.action_deadline) {
+          const dlDate = new Date(doc.action_deadline);
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const diffDays = Math.round((dlDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (diffDays < 0) deadlineEmoji = '🔴 <b>[เลยกำหนดส่งแล้ว!]</b>';
+          else if (diffDays === 0) deadlineEmoji = '🟠 <b>[ครบกำหนดวันนี้!]</b>';
+          else if (diffDays === 1) deadlineEmoji = '🟠 <b>[ครบกำหนดพรุ่งนี้!]</b>';
+          else if (diffDays <= 3) deadlineEmoji = `🟡 <b>[อีก ${diffDays} วัน]</b>`;
+          else deadlineEmoji = `🟢 [อีก ${diffDays} วัน]`;
+
+          deadlineStr = `${toDMYString(doc.action_deadline)} (${deadlineEmoji})`;
+        }
+
+        msg += `${idx + 1}. ${statusBadge}\n`;
+        msg += `   • <b>เรื่อง:</b> <b>${escapeHtml(doc.subject || '-')}</b>\n`;
+        msg += `   • <b>เลขรับ:</b> <code>${escapeHtml(doc.doc_number || '-')}</code>\n`;
+        msg += `   • <b>คำสั่งการ ผอ.:</b> <i>"${escapeHtml(asg.instruction || 'โปรดดำเนินการตามหนังสือ')}"</i>\n`;
+        msg += `   • <b>กำหนดส่ง:</b> ${deadlineStr}\n`;
+
+        if (doc.file_url) {
+          msg += `   📄 <a href="${doc.file_url}">เปิดดูเอกสารสั่งการ</a>`;
+        }
+
+        let atts: string[] = [];
+        if (Array.isArray(doc.attachment_urls)) atts = doc.attachment_urls.filter(Boolean);
+        else if (typeof doc.attachment_urls === 'string') {
+          try { atts = JSON.parse(doc.attachment_urls).filter(Boolean); } catch {}
+        }
+        if (atts.length > 0) {
+          msg += ` | 📎 <b>ไฟล์แนบ:</b> `;
+          atts.forEach((url, i) => { msg += `<a href="${url}">[แนบ ${i + 1}]</a> `; });
+        }
+        msg += `\n\n`;
+
+        if (inlineButtons.length < 5) {
+          if (asg.status === 'pending') {
+            inlineButtons.push([{
+              text: `✅ รับทราบงานเรื่อง ${doc.doc_number || idx + 1}`,
+              callback_data: `action=acknowledge&id=${asg.id}`
+            }]);
+          } else {
+            inlineButtons.push([{
+              text: `📝 รายงานผลเรื่อง ${doc.doc_number || idx + 1}`,
+              callback_data: `action=report&id=${asg.id}`
+            }]);
+          }
+        }
+      });
+
+      msg += `💡 <i>คุณครูสามารถกดปุ่ม "📝 รายงานผล" ด้านล่างเพื่อส่งผลงานหรือรูปภาพรายงาน ผอ. ได้ทันทีค่ะ 🌸</i>`;
+      await sendTelegramMessage(botToken, chatId, msg, { inline_keyboard: inlineButtons });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ── 6.3 คำสั่งภาพรวมสถานะงานทั้งโรงเรียน: สำหรับ ผอ. และ แอดมิน ──
+    if (
+      textTrimmed === '/สถานะงาน' ||
+      textTrimmed === '/สรุปงาน' ||
+      textTrimmed === '/ภาพรวมงาน' ||
+      textTrimmed.startsWith('/สถานะงาน') ||
+      textTrimmed.startsWith('/สรุปงาน')
+    ) {
+      if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
+        await sendTelegramMessage(botToken, chatId, '❌ ขออภัยค่ะ คำสั่งนี้สำหรับผู้อำนวยการและผู้ดูแลระบบเท่านั้นค่ะ 🌸');
+        return res.status(200).json({ ok: true });
+      }
+
+      const [pendingDocsRes, inProgressRes, completedRes] = await Promise.all([
+        supabase.from('incoming_docs').select('id', { count: 'exact', head: true }).in('status', ['pending', 'waiting_proposal']),
+        supabase.from('doc_assignments').select('id, status, incoming_docs(action_deadline)').in('status', ['pending', 'acknowledged']),
+        supabase.from('doc_assignments').select('id', { count: 'exact', head: true }).in('status', ['completed', 'closed'])
+      ]);
+
+      const pendingRetireCount = pendingDocsRes.count || 0;
+      const inProgressAssignments = inProgressRes.data || [];
+      const completedCount = completedRes.count || 0;
+
+      let overdueCount = 0;
+      const today = new Date();
+      today.setHours(0,0,0,0);
+
+      inProgressAssignments.forEach((asg: any) => {
+        const dl = asg.incoming_docs?.action_deadline;
+        if (dl) {
+          const dlDate = new Date(dl);
+          if (dlDate.getTime() < today.getTime()) overdueCount++;
+        }
+      });
+
+      let overviewMsg = `📊 <b>สรุปสถานะงานสารบรรณ (${settings?.school_name || 'โรงเรียน'})</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+      overviewMsg += `📬 <b>หนังสือรอ ผอ. เกษียณสั่งการ:</b> <b>${pendingRetireCount}</b> ฉบับ ${pendingRetireCount > 0 ? '⚠️' : '✅'}\n`;
+      overviewMsg += `⏳ <b>งานอยู่ระหว่างครูดำเนินการ:</b> <b>${inProgressAssignments.length}</b> งาน\n`;
+      if (overdueCount > 0) {
+        overviewMsg += `🔴 <b>งานที่เกินกำหนดส่ง (Overdue):</b> <b>${overdueCount}</b> งาน ⚠️\n`;
+      } else {
+        overviewMsg += `🟢 <b>งานเกินกำหนดส่ง:</b> ไม่มี (ตรงตามกำหนดทั้งหมด)\n`;
+      }
+      overviewMsg += `✅ <b>งานที่ปิดเสร็จสมบูรณ์แล้ว:</b> <b>${completedCount}</b> งาน\n\n`;
+      overviewMsg += `💡 <i>พิมพ์ <code>/รอเกษียณ</code> เพื่อดูรายการหนังสือรอสั่งการ หรือพิมพ์ <code>/ขอเลขส่ง</code> เพื่อออกเลขหนังสือส่งค่ะ 🌸</i>`;
+
+      await sendTelegramMessage(botToken, chatId, overviewMsg);
+      return res.status(200).json({ ok: true });
+    }
 
     if (
       textTrimmed.startsWith('/ขอเลข') ||

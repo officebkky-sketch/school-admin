@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
 import { sendTelegramNotification } from '../lib/telegramNotify';
 import { generateAIDraft } from '../lib/aiService';
+import { formatDateDMY } from '../lib/dateUtils';
 import Modal from '../components/Modal';
 import { DocVerificationBadge, DocVerificationCard } from '../components/DocVerificationCard';
 
@@ -750,7 +751,7 @@ export default function Memos() {
                 <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="font-bold text-slate-800 text-sm">{doc.memo_number}</div>
-                    <div className="text-[10px] text-slate-400">{doc.memo_date}</div>
+                    <div className="text-[10px] text-slate-400">{formatDateDMY(doc.memo_date)}</div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-slate-700">{doc.subject}</div>

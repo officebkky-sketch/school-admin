@@ -128,7 +128,36 @@ function urgencyEmoji(urgency?: string): string {
 /** HTML escape ป้องกัน XSS/400 Error ใน Telegram HTML mode */
 function escapeHtml(str: string): string {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** แปลงรูปแบบวันที่เป็น DD-MM-YYYY (พ.ศ.) */
+function toDMYString(dateInput?: string | null): string {
+  if (!dateInput) return '-';
+  try {
+    const clean = String(dateInput).trim();
+    if (!clean) return '-';
+    const match = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = match[2].padStart(2, '0');
+      const day = match[3].padStart(2, '0');
+      const thaiYear = year < 2400 ? year + 543 : year;
+      return `${day}-${month}-${thaiYear}`;
+    }
+    const d = new Date(clean.includes('T') ? clean : `${clean}T00:00:00+07:00`);
+    if (isNaN(d.getTime())) return clean;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear() < 2400 ? d.getFullYear() + 543 : d.getFullYear();
+    return `${day}-${month}-${year}`;
+  } catch {
+    return dateInput;
+  }
 }
 
 /** Helper: แปลง attachment_urls ให้เป็น string[] เสมอ */
@@ -221,7 +250,7 @@ export default async function handler(req: Request | any, res?: any): Promise<Re
     // ✅ 4. ดึงรายการหนังสือรับเข้าที่ยังรอการเกษียณสั่งการ (status = pending หรือ waiting_proposal)
     const { data: pendingDocs, count: totalPending, error: docsErr } = await supabase
       .from('incoming_docs')
-      .select('id, doc_number, subject, from_agency, urgency, doc_date, file_url, attachment_urls, created_at', { count: 'exact' })
+      .select('id, doc_number, subject, from_agency, urgency, doc_date, file_url, attachment_urls, remark, action_deadline, created_at', { count: 'exact' })
       .in('status', ['pending', 'waiting_proposal'])
       .order('created_at', { ascending: false })
       .limit(10);
@@ -259,12 +288,27 @@ export default async function handler(req: Request | any, res?: any): Promise<Re
 
     const inlineButtons: any[] = [];
 
-    pendingDocs.forEach((doc, idx) => {
+    pendingDocs.forEach((doc: any, idx: number) => {
       const emoji = urgencyEmoji(doc.urgency);
       const docNumStr = doc.doc_number || (idx + 1).toString();
-      msg += `${idx + 1}. ${emoji} <b>เรื่อง:</b> ${escapeHtml(doc.subject || '-')}\n`;
-      msg += `   • <b>จาก:</b> ${escapeHtml(doc.from_agency || '-')}\n`;
-      msg += `   • <b>เลขรับ:</b> ${escapeHtml(docNumStr)}\n`;
+      
+      let summaryText = '';
+      try {
+        const rObj = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
+        summaryText = rObj.proposal_summary || rObj.ai_summary || '';
+      } catch {}
+
+      msg += `${idx + 1}. ${emoji} <b>เรื่อง:</b> <b>${escapeHtml(doc.subject || '-')}</b>\n`;
+      msg += `   • <b>จาก:</b> ${escapeHtml(doc.from_agency || '-')} | <b>เลขรับ:</b> <code>${escapeHtml(docNumStr)}</code>\n`;
+
+      if (summaryText) {
+        msg += `   ✨ <b>สาระสำคัญ:</b> <i>"${escapeHtml(summaryText.slice(0, 100))}${summaryText.length > 100 ? '...' : ''}"</i>\n`;
+      }
+
+      if (doc.action_deadline) {
+        const dl = toDMYString(doc.action_deadline);
+        msg += `   ⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${dl}</u>\n`;
+      }
 
       if (doc.file_url) {
         msg += `   📄 <a href="${doc.file_url}">เปิดดูต้นฉบับ</a>`;

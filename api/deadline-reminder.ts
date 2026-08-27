@@ -236,17 +236,17 @@ export default async function handler(req: Request | any, res?: any): Promise<Re
         const teacherName = (doc.assigned_user as any)?.display_name || 'ไม่ระบุผู้รับผิดชอบ';
         const receiveNo = doc.doc_number || '-';
 
-        let msg = `⏰ <b>แจ้งเตือนหนังสือใกล้ครบกำหนดปฏิบัติ</b>\n\n`;
+        let msg = `⏰ <b>แจ้งเตือนหนังสือใกล้ครบกำหนดปฏิบัติ</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
         msg += `📌 <b>สถานะกำหนดส่ง:</b> ${emoji}\n`;
-        msg += `📄 <b>หนังสือเลขรับ:</b> ${escapeHtml(receiveNo)}\n`;
-        msg += `📝 <b>เรื่อง:</b> ${escapeHtml(doc.subject || '-')}\n`;
-        msg += `🗓 <b>กำหนดส่ง:</b> ${thaiDeadline}\n`;
-        msg += `🧑‍🏫 <b>ผู้รับผิดชอบ:</b> ${escapeHtml(teacherName)}\n`;
+        msg += `📄 <b>เลขรับ:</b> <code>${escapeHtml(receiveNo)}</code>\n`;
+        msg += `📝 <b>เรื่อง:</b> <b>${escapeHtml(doc.subject || '-')}</b>\n`;
+        msg += `🗓 <b>กำหนดส่ง:</b> <u>${thaiDeadline}</u>\n`;
+        msg += `🧑‍🏫 <b>ผู้รับผิดชอบ:</b> <b>${escapeHtml(teacherName)}</b>\n`;
 
         if (days <= 0) {
-          msg += `\n❗ <b>กรุณาดำเนินการและอัปเดตสถานะในระบบด่วน!</b>`;
+          msg += `\n❗ <b>กรุณาดำเนินการและอัปเดตสถานะในระบบด่วนค่ะ 🌸</b>`;
         } else {
-          msg += `\n⚠️ <b>กรุณาดำเนินการให้ทันกำหนดครับ</b>`;
+          msg += `\n⚠️ <b>กรุณาดำเนินการให้ทันตามกำหนดเวลานะคะ 🌸</b>`;
         }
 
         const inlineButtons = {

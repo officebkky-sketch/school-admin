@@ -7,6 +7,7 @@ import { sendLineNotification, sendInteractiveFlexMessage, sendBulkFlexCarousel 
 import { sendTelegramNotification, getVercelBaseUrl } from '../lib/telegramNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
+import { formatDateDMY } from '../lib/dateUtils';
 import Modal from '../components/Modal';
 import { DocVerificationBadge, DocVerificationCard } from '../components/DocVerificationCard';
 
@@ -98,6 +99,12 @@ export default function IncomingDocs() {
   const [isAttachModalOpen, setIsAttachModalOpen] = useState(false);
   const [selectedDocToAttach, setSelectedDocToAttach] = useState<any>(null);
   const [attachFile, setAttachFile] = useState<File | null>(null);
+
+  // AI Auto-Scan State
+  const [isScanningAI, setIsScanningAI] = useState(false);
+  const [aiConfidence, setAiConfidence] = useState<{ count: number; total: number } | null>(null);
+  const [suggestedTeacherId, setSuggestedTeacherId] = useState<string>('');
+  const [suggestedTeacherName, setSuggestedTeacherName] = useState<string>('');
 
   useEffect(() => { 
     fetchDocs(); 
@@ -511,19 +518,28 @@ export default function IncomingDocs() {
       if (error) throw error;
       const insertedDoc = insertedDocs?.[0];
 
-      // สั่งประมวลผล OCR สกัดกำหนดการ & ความจำ RAG ในพื้นหลังทันที
+      // สั่งประมวลผล OCR สกัดความจำ RAG ในพื้นหลังแบบ silent (ไม่ส่งแจ้งเตือน Telegram ซ้ำซ้อน)
       if (insertedDoc?.id && file_url) {
         const vercelUrl = getVercelBaseUrl();
         fetch(`${vercelUrl}/api/ocr-process`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ docId: insertedDoc.id, fileUrl: file_url })
+          body: JSON.stringify({ docId: insertedDoc.id, fileUrl: file_url, silent: true })
         }).catch(err => console.error('[AUTO OCR TRIGGER ERROR]', err));
       }
 
       let lineNotifyStatus = '';
       if (!isHolding) {
-        const regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
+        // 1. ส่งการแจ้งเตือนทาง LINE Interactive Flex Message
+        let regMsg = `เรื่อง: ${formData.subject}\nจาก: ${formData.from_agency}\nเลขที่รับ: ${finalDocNum}`;
+        if (proposalData.summary) {
+          regMsg += `\n\nสรุป: ${proposalData.summary}`;
+        }
+        if (formData.action_deadline) {
+          const dlStr = formatDateDMY(formData.action_deadline);
+          regMsg += `\n⏰ กำหนดส่ง/จัดงาน: ${dlStr}`;
+        }
+
         const regActions: any[] = [
           { label: '📄 ดูต้นฉบับหนังสือ', type: 'uri' as const, uri: file_url }
         ];
@@ -559,25 +575,61 @@ export default function IncomingDocs() {
           lineNotifyStatus = ' แต่ไม่สามารถส่งแจ้งเตือน LINE ได้ (กรุณาเสนอหนังสือแบบกลุ่มแทน)';
         }
 
-        // ส่งแจ้งเตือนข่าวสารเข้ากลุ่ม Telegram
+        // 2. ส่งการแจ้งเตือนทาง Telegram (Unified Rich Card พร้อมสรุป AI, กำหนดการ และไฟล์แนบครบถ้วน)
         let telegramNotifyStatus = '';
         try {
-          let telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>จาก</b>: ${formData.from_agency}\n• <b>เลขที่รับ</b>: ${finalDocNum}\n\n📄 <a href="${file_url}">เปิดดูต้นฉบับหนังสือ</a>`;
-          
+          const urgencyBadge = formData.urgency === 'ด่วนที่สุด' 
+            ? '🔴 <b>[ด่วนที่สุด]</b>' 
+            : formData.urgency === 'ด่วนมาก' 
+              ? '🟠 <b>[ด่วนมาก]</b>' 
+              : formData.urgency === 'ด่วน' 
+                ? '🟡 <b>[ด่วน]</b>' 
+                : '🟢 <b>[ปกติ]</b>';
+
+          let telegramMsg = `📥 <b>เสนอหนังสือราชการเข้าใหม่ (รอเกษียณสั่งการ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+          telegramMsg += `${urgencyBadge} 📌 <b>เลขรับที่:</b> <code>${finalDocNum}</code>\n`;
+          telegramMsg += `📋 <b>เรื่อง:</b> <b>${formData.subject}</b>\n`;
+          telegramMsg += `🏛️ <b>จาก:</b> ${formData.from_agency || '-'}\n`;
+          if (formData.sender_doc_number || formData.sender_doc_date) {
+            telegramMsg += `🔢 <b>เลขที่ผู้ส่ง:</b> <code>${formData.sender_doc_number || '-'}</code> ${formData.sender_doc_date ? `(ลงวันที่ ${formatDateDMY(formData.sender_doc_date)})` : ''}\n`;
+          }
+
+          if (proposalData.summary) {
+            telegramMsg += `\n✨ <b>สาระสำคัญ (เกษียณเสนอ):</b>\n<blockquote>${proposalData.summary}</blockquote>\n`;
+          }
+
+          if (formData.action_deadline) {
+            const dlStr = formatDateDMY(formData.action_deadline);
+            telegramMsg += `⏰ <b>กำหนดการ/ส่งงาน:</b> <u>${dlStr}</u>\n`;
+          }
+
+          if (suggestedTeacherName) {
+            telegramMsg += `🧑‍🏫 <b>ครูผู้รับงานที่แนะนำ:</b> <b>${suggestedTeacherName}</b>\n`;
+          }
+
+          telegramMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+          telegramMsg += `📄 <a href="${file_url}"><b>[เปิดดูต้นฉบับหนังสือนำ]</b></a>`;
+
           if (Array.isArray(att_urls) && att_urls.length > 0) {
-            telegramMsg += `\n📎 <b>ไฟล์แนบ:</b> `;
+            telegramMsg += `\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>\n`;
             att_urls.forEach((url: string, i: number) => {
-              telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+              telegramMsg += `   🔹 <a href="${url}">ไฟล์แนบที่ ${i + 1}</a>\n`;
             });
           }
 
-          const telegramReplyMarkup = {
-            inline_keyboard: [
-              [
-                { text: '✍️ เกษียณสั่งการ (Telegram)', callback_data: `action=start_assign&id=${insertedDoc?.id || ''}` }
-              ]
-            ]
-          };
+          const telegramInlineButtons: any[] = [];
+          if (suggestedTeacherId) {
+            telegramInlineButtons.push([{
+              text: `✅ มอบหมาย ${suggestedTeacherName} ทันที`,
+              callback_data: `action=smart_assign_confirm&doc_id=${insertedDoc?.id || ''}&t_id=${suggestedTeacherId}`
+            }]);
+          }
+          telegramInlineButtons.push([{
+            text: `✍️ เกษียณสั่งการ / มอบหมาย`,
+            callback_data: `action=start_assign&id=${insertedDoc?.id || ''}`
+          }]);
+
+          const telegramReplyMarkup = { inline_keyboard: telegramInlineButtons };
           await sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup);
           telegramNotifyStatus = ' และส่งแจ้งเตือน Telegram สำเร็จ ✅';
         } catch (tgErr: any) {
@@ -685,7 +737,6 @@ export default function IncomingDocs() {
   }
 
   function resetForm() {
-
     setFormData({ 
       doc_number: '', 
       from_agency: '', 
@@ -703,8 +754,11 @@ export default function IncomingDocs() {
     setAttachments([]);
     setAssignForm({ teacher_id: '', instruction: '', stamp_page: 1 });
     setIsHolding(false);
+    setIsScanningAI(false);
+    setAiConfidence(null);
+    setSuggestedTeacherId('');
+    setSuggestedTeacherName('');
   }
-
 
   const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -717,6 +771,75 @@ export default function IncomingDocs() {
   const extraPerms = profile?.extra_permissions || {};
   const hasAccess = isDirector || extraPerms.access_administrative;
 
+  async function performAIScan(fileToScan: File) {
+    if (!fileToScan) return;
+    setIsScanningAI(true);
+    try {
+      const { data: sets } = await supabase
+        .from('settings')
+        .select('gemini_api_key, ai_cowork_api_key')
+        .limit(1)
+        .maybeSingle();
+      const rawApiKey = sets?.ai_cowork_api_key || sets?.gemini_api_key || '';
+      const apiKey = rawApiKey.split(',')[0]?.trim();
+      if (!apiKey) {
+        console.warn('ยังไม่ได้ระบุ Gemini API Key ในการตั้งค่าระบบ');
+        return;
+      }
+      const buffer = await fileToScan.arrayBuffer();
+      const info = await summarizeDocument(buffer, apiKey);
+
+      let score = 0;
+      const total = 5;
+      if (info.doc_number) score++;
+      if (info.subject) score++;
+      if (info.summary && info.summary !== 'ไม่สามารถสรุปเนื้อหาได้') score++;
+      if (info.action_deadline) score++;
+
+      // แมตช์คุณครูที่แนะนำจากชื่อฝ่ายหรือตำแหน่ง
+      let matchedT: any = null;
+      if (info.suggested_assignee_dept && teachers.length > 0) {
+        const deptLower = info.suggested_assignee_dept.toLowerCase();
+        matchedT = teachers.find(t =>
+          (t.department && deptLower.includes(t.department.toLowerCase())) ||
+          (t.position && deptLower.includes(t.position.toLowerCase()))
+        );
+      }
+      if (matchedT) {
+        score++;
+        setSuggestedTeacherId(matchedT.id);
+        setSuggestedTeacherName(`${matchedT.prefix || ''}${matchedT.first_name} ${matchedT.last_name}`);
+      } else {
+        setSuggestedTeacherId('');
+        setSuggestedTeacherName('');
+      }
+
+      setAiConfidence({ count: score, total });
+
+      if (info.summary && info.summary !== 'ไม่สามารถสรุปเนื้อหาได้') {
+        setProposalData(prev => ({ ...prev, summary: info.summary }));
+      }
+      setFormData(prev => ({
+        ...prev,
+        sender_doc_number: info.doc_number || prev.sender_doc_number,
+        sender_doc_date: info.doc_date || prev.sender_doc_date,
+        from_agency: info.from_agency || prev.from_agency,
+        subject: info.subject || prev.subject,
+        urgency: info.urgency || prev.urgency,
+        action_deadline: info.action_deadline || prev.action_deadline
+      }));
+    } catch (err: any) {
+      console.warn('Auto AI Scan failed:', err);
+    } finally {
+      setIsScanningAI(false);
+    }
+  }
+
+  async function handleAISummary() {
+    if (!mainFile) { alert('กรุณาเลือกไฟล์หนังสือนำก่อน'); return; }
+    await performAIScan(mainFile);
+  }
+
   if (!hasAccess) {
     return (
       <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[40px] border border-slate-100 shadow-sm">
@@ -725,27 +848,6 @@ export default function IncomingDocs() {
         <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-1">กรุณาติดต่อผู้ดูแลระบบเพื่อขอสิทธิ์เข้าใช้งานโมดูลนี้</p>
       </div>
     );
-  }
-
-  async function handleAISummary() {
-    if (!mainFile) { alert('กรุณาเลือกไฟล์หนังสือนำก่อน'); return; }
-    setIsSaving(true);
-    try {
-      const { data: sets } = await supabase.from('settings').select('gemini_api_key').limit(1).maybeSingle();
-      const apiKey = sets?.gemini_api_key;
-      if (!apiKey) throw new Error('ยังไม่ได้ระบุ Gemini API Key');
-      const buffer = await mainFile.arrayBuffer();
-      const info = await summarizeDocument(buffer, apiKey);
-      setProposalData(prev => ({ ...prev, summary: info.summary }));
-      setFormData(prev => ({
-        ...prev,
-        sender_doc_number: info.doc_number || prev.sender_doc_number,
-        sender_doc_date: info.doc_date || prev.sender_doc_date,
-        from_agency: info.from_agency || prev.from_agency,
-        subject: info.subject || prev.subject
-      }));
-    } catch (err: any) { alert('AI ทำงานไม่สำเร็จ: ' + err.message); }
-    finally { setIsSaving(false); }
   }
 
   return (
@@ -927,7 +1029,7 @@ export default function IncomingDocs() {
                         </>
                       );
                     })()}
-                    <div className="text-[10px] text-slate-400 mt-0.5">{doc.doc_date}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{formatDateDMY(doc.doc_date)}</div>
                   </td>
                   <td className="px-6 py-4">
                     <p className="text-sm font-medium text-slate-700">{doc.subject}</p>
@@ -1042,9 +1144,9 @@ export default function IncomingDocs() {
       </div>
 
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="ลงรับหนังสือใหม่">
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="ลงรับหนังสือใหม่ (Smart Saraban)">
         <form onSubmit={handleSave} className="space-y-6">
-          <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200">
+          <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input 
                 type="checkbox" 
@@ -1059,6 +1161,92 @@ export default function IncomingDocs() {
             </label>
           </div>
 
+          {/* 1. ส่วนอัปโหลดเอกสาร (ย้ายขึ้นบนสุดเพื่อให้ AI สแกน Auto-fill ทันที) */}
+          {!isReserveMode && (
+            <div className="p-4 bg-gradient-to-r from-purple-50 via-indigo-50/40 to-blue-50/30 rounded-2xl border-2 border-purple-200/80 space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={16} className="text-purple-600 animate-pulse" />
+                  <h4 className="text-xs font-black text-purple-900 uppercase tracking-wide">1. อัปโหลดหนังสือนำ (AI Auto-Scan)</h4>
+                </div>
+                {isScanningAI ? (
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2.5 py-1 rounded-full animate-pulse flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin" /> ชบากำลังอ่านเอกสาร...
+                  </span>
+                ) : aiConfidence ? (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    ✨ AI สกัดสำเร็จ {aiConfidence.count}/{aiConfidence.total} ฟิลด์
+                  </span>
+                ) : null}
+              </div>
+
+              <label className={`block w-full p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer transition-all ${mainFile ? 'border-brand-primary bg-green-50/60 shadow-xs' : 'border-purple-300 bg-white hover:border-purple-500 hover:bg-purple-50/30'}`}>
+                <input 
+                  type="file" 
+                  accept=".pdf" 
+                  className="hidden" 
+                  onChange={e => {
+                    const f = e.target.files?.[0] || null;
+                    setMainFile(f);
+                    if (f) performAIScan(f);
+                  }} 
+                />
+                {mainFile ? (
+                  <div className="flex items-center justify-center gap-2 text-brand-primary font-bold text-sm">
+                    <FileText size={18} /> {mainFile.name}
+                    <span className="text-[10px] text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full ml-2">พร้อมตรวจทาน</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Upload size={24} className="mx-auto text-purple-400" />
+                    <span className="text-purple-700 text-xs font-bold block">ลากหรือคลิกเลือกไฟล์หนังสือนำ (PDF) เพื่อให้ AI สแกนเติมฟอร์มอัตโนมัติ</span>
+                    <span className="text-slate-400 text-[10px] block">ระบบจะสกัดเลขที่ วันที่ หน่วยงาน สรุป และกำหนดการให้อัตโนมัติ</span>
+                  </div>
+                )}
+              </label>
+
+              {/* แสดงผลการแนะครูผู้รับงาน */}
+              {suggestedTeacherName && (
+                <div className="p-2.5 bg-white/80 rounded-xl border border-purple-200 flex items-center justify-between text-xs">
+                  <span className="font-bold text-purple-900 flex items-center gap-1.5">
+                    🧑‍🏫 <b>AI แนะนำผู้รับผิดชอบ:</b> <span className="text-purple-700">{suggestedTeacherName}</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-md">ตรงตามฝ่าย</span>
+                </div>
+              )}
+
+              {/* เอกสารแนบเพิ่มเติม */}
+              <div className="space-y-2 pt-2 border-t border-purple-100">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                    <Paperclip size={12} className="text-blue-500" /> เอกสารแนบ / สิ่งที่ส่งมาด้วย
+                  </label>
+                  <span className="text-[10px] font-bold text-slate-400">{attachments.length}/4 ไฟล์</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {attachments.map((file, idx) => (
+                    <div key={idx} className="relative group p-2 bg-white border border-blue-200 rounded-xl flex items-center gap-2 overflow-hidden shadow-xs">
+                      <Paperclip size={14} className="text-blue-500 shrink-0" />
+                      <span className="text-[10px] font-bold text-blue-700 truncate">{file.name}</span>
+                      <button type="button" onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))} className="absolute right-1 top-1 p-1 bg-white rounded-md shadow-sm text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                  {attachments.length < 4 && (
+                    <label className="border-2 border-dashed border-slate-200 bg-white/60 rounded-xl flex items-center justify-center py-2.5 cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all group">
+                      <input type="file" className="hidden" multiple onChange={handleAddAttachment} />
+                      <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-500 flex items-center gap-1">
+                        <Paperclip size={12} /> เพิ่มไฟล์แนบ ({attachments.length + 1})
+                      </span>
+                    </label>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2. ข้อมูลการลงรับในระบบ */}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5 col-span-1">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เลขที่รับ</label>
@@ -1075,83 +1263,82 @@ export default function IncomingDocs() {
             </div>
           </div>
 
-          <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100/50 space-y-4">
-            <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest">ข้อมูลในหนังสือ (จากต้นฉบับ)</h4>
+          {/* 3. ข้อมูลในหนังสือ (จากต้นฉบับ) */}
+          <div className="bg-blue-50/40 p-4 rounded-2xl border border-blue-100 space-y-4">
+            <div className="flex justify-between items-center">
+              <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-widest">ข้อมูลในหนังสือ (จากต้นฉบับ)</h4>
+              {mainFile && (
+                <button type="button" onClick={handleAISummary} disabled={isScanningAI} className="flex items-center gap-1.5 text-[10px] font-bold text-purple-700 bg-white px-2.5 py-1 rounded-lg border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-xs disabled:opacity-50">
+                  <Sparkles size={12} /> {isScanningAI ? 'กำลังสแกน...' : 'สแกนซ้ำด้วย AI'}
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เลขที่หนังสือ</label>
+                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">เลขที่หนังสือ (ผู้ส่ง)</label>
                 <input type="text" className="w-full p-3 bg-white border rounded-xl font-medium" placeholder="เช่น ศธ 04225/..." value={formData.sender_doc_number} onChange={e => setFormData({...formData, sender_doc_number: e.target.value})} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">วันที่ในหนังสือ</label>
+                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">วันที่ในหนังสือ</label>
                 <input type="date" className="w-full p-3 bg-white border rounded-xl font-medium" value={formData.sender_doc_date} onChange={e => setFormData({...formData, sender_doc_date: e.target.value})} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 mt-2">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ความเร่งด่วน</label>
-                <select className="w-full p-3 bg-white border rounded-xl font-bold" value={formData.urgency} onChange={e => setFormData({...formData, urgency: e.target.value})}>
-                  <option value="ปกติ">ปกติ</option>
-                  <option value="ด่วน">ด่วน</option>
-                  <option value="ด่วนมาก">ด่วนมาก</option>
-                  <option value="ด่วนที่สุด">ด่วนที่สุด</option>
+                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">ความเร่งด่วน</label>
+                <select 
+                  className={`w-full p-3 bg-white border rounded-xl font-bold transition-all ${
+                    formData.urgency === 'ด่วนที่สุด' 
+                      ? 'border-red-400 text-red-700 bg-red-50/30' 
+                      : formData.urgency === 'ด่วนมาก' 
+                        ? 'border-orange-400 text-orange-700 bg-orange-50/30' 
+                        : formData.urgency === 'ด่วน' 
+                          ? 'border-amber-400 text-amber-700 bg-amber-50/30' 
+                          : 'border-slate-200 text-slate-700'
+                  }`} 
+                  value={formData.urgency} 
+                  onChange={e => setFormData({...formData, urgency: e.target.value})}
+                >
+                  <option value="ปกติ">🟢 ปกติ</option>
+                  <option value="ด่วน">🟡 ด่วน</option>
+                  <option value="ด่วนมาก">🟠 ด่วนมาก</option>
+                  <option value="ด่วนที่สุด">🔴 ด่วนที่สุด</option>
                 </select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-amber-600 uppercase ml-1">⏰ กำหนดส่งงาน (Deadline)</label>
-                <input type="date" className="w-full p-3 bg-white border border-amber-200 rounded-xl font-bold text-amber-800" value={formData.action_deadline} onChange={e => setFormData({...formData, action_deadline: e.target.value})} />
+                <label className="text-[10px] font-black text-amber-700 uppercase ml-1 flex items-center gap-1">
+                  ⏰ กำหนดส่งงาน / จัดงาน (Deadline)
+                </label>
+                <input type="date" className="w-full p-3 bg-white border-2 border-amber-300 rounded-xl font-bold text-amber-900 focus:ring-2 focus:ring-amber-200" value={formData.action_deadline} onChange={e => setFormData({...formData, action_deadline: e.target.value})} />
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">จากหน่วยงาน</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase ml-1">จากหน่วยงาน</label>
               <input type="text" className="w-full p-3 bg-white border rounded-xl font-medium" required value={formData.from_agency} onChange={e => setFormData({...formData, from_agency: e.target.value})} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">เรื่อง</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase ml-1">เรื่อง</label>
               <textarea className="w-full p-3 bg-white border rounded-xl font-medium" rows={2} required value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} />
             </div>
           </div>
 
+          {/* 4. สรุปสาระสำคัญ (เกษียณเสนอ) */}
           <div className="p-4 bg-brand-primary/5 rounded-2xl border border-brand-primary/10 space-y-4">
              <div className="flex justify-between items-center">
-                <h4 className="text-[10px] font-black text-brand-primary uppercase tracking-widest">สรุปสาระสำคัญ</h4>
-                <button type="button" onClick={handleAISummary} className="flex items-center gap-1.5 text-[10px] font-bold text-brand-primary bg-white px-2 py-1 rounded-lg border border-brand-primary/20 hover:bg-brand-primary hover:text-white transition-all shadow-xs">
-                  <Sparkles size={12} /> สแกนข้อมูลและสรุปด้วย AI
-                </button>
+                <h4 className="text-[10px] font-black text-brand-primary uppercase tracking-widest">สรุปสาระสำคัญ (เกษียณเสนอ)</h4>
              </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">สรุปสาระสำคัญ (เกษียณเสนอ)</label>
-                  <textarea className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium" rows={2} placeholder="สรุปโดยเจ้าหน้าที่..." value={proposalData.summary} onChange={e => setProposalData({...proposalData, summary: e.target.value})} />
+                  <label className="text-[10px] font-black text-slate-500 uppercase ml-1">สรุปสาระสำคัญ (จะพิมพ์ลงตรายาง)</label>
+                  <textarea className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:border-brand-primary" rows={2} placeholder="สรุปโดยเจ้าหน้าที่หรือ AI..." value={proposalData.summary} onChange={e => setProposalData({...proposalData, summary: e.target.value})} />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">ข้อความเสนอ</label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase ml-1">ข้อความเสนอ</label>
                   <input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold" value={proposalData.proposal} onChange={e => setProposalData({...proposalData, proposal: e.target.value})} />
                 </div>
              </div>
           </div>
 
-          <div className="space-y-4 pt-4 border-t">
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2"><Upload size={14} /> อัปโหลดเอกสาร (พักไฟล์ชั่วคราว)</p>
-             <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-600">1. หนังสือนำ / หนังสือสั่งการ</label>
-                <label className={`block w-full p-4 border-2 border-dashed rounded-2xl text-center cursor-pointer transition-all ${mainFile ? 'border-brand-primary bg-green-50' : 'border-slate-200 hover:border-brand-primary hover:bg-slate-50'}`}>
-                   <input type="file" className="hidden" onChange={e => setMainFile(e.target.files?.[0] || null)} />
-                   {mainFile ? <div className="flex items-center justify-center gap-2 text-brand-primary font-bold text-sm"><FileText size={18} /> {mainFile.name}</div> : <span className="text-slate-400 text-xs font-bold uppercase">เลือกไฟล์หนังสือนำ (PDF เท่านั้น)</span>}
-                </label>
-             </div>
-             <div className="space-y-3">
-                <div className="flex justify-between items-center"><label className="text-xs font-bold text-slate-600">2. เอกสารแนบ (ส่งเข้า Drive ทันที)</label><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{attachments.length}/4 ไฟล์</span></div>
-                <div className="grid grid-cols-2 gap-3">
-                   {attachments.map((file, idx) => (
-                     <div key={idx} className="relative group p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-2 overflow-hidden"><Paperclip size={14} className="text-blue-500 shrink-0" /><span className="text-[10px] font-bold text-blue-700 truncate">{file.name}</span><button type="button" onClick={() => setAttachments(attachments.filter((_, i) => i !== idx))} className="absolute right-1 top-1 p-1 bg-white rounded-md shadow-sm text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button></div>
-                   ))}
-                   {attachments.length < 4 && (
-                     <label className="border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center py-3 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all group"><input type="file" className="hidden" multiple onChange={handleAddAttachment} /><Paperclip size={16} className="text-slate-300 group-hover:text-blue-400" /></label>
-                   )}
-                </div>
-             </div>
-          </div>
           <div className="flex items-center gap-2.5 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
             <input 
               type="checkbox" 
@@ -1161,7 +1348,7 @@ export default function IncomingDocs() {
               className="w-5 h-5 text-brand-primary border-slate-300 rounded focus:ring-brand-primary/20 cursor-pointer"
             />
             <label htmlFor="isHolding" className="text-xs font-black text-slate-700 cursor-pointer select-none">
-              📥 พักหนังสือรอเสนอภายหลัง (ไม่ส่งแจ้งเตือน LINE ผอ. ทันที)
+              📥 พักหนังสือรอเสนอภายหลัง (ไม่ส่งแจ้งเตือน ผอ. ทันที)
             </label>
           </div>
 
@@ -1169,7 +1356,6 @@ export default function IncomingDocs() {
             {isSaving ? <Loader2 className="animate-spin" /> : <Save />} {isReserveMode ? 'บันทึกจองเลขหนังสือ' : (isHolding ? 'บันทึกและพักรอเสนอ' : 'บันทึกและเสนอ ผอ. ทันที')}
           </button>
         </form>
-
       </Modal>
 
       <Modal isOpen={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} title="เกษียณหนังสือและมอบหมายงาน">

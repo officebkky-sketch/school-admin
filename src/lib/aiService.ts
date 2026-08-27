@@ -342,6 +342,9 @@ export interface DocumentInfo {
   doc_date?: string;
   from_agency?: string;
   subject?: string;
+  urgency?: string;
+  action_deadline?: string;
+  suggested_assignee_dept?: string;
 }
 
 export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string): Promise<DocumentInfo> {
@@ -364,15 +367,18 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
 
       const apiVersions = ["v1beta", "v1"];
 
-      const prompt = `วิเคราะห์หนังสือราชการนี้และตอบกลับเป็น JSON format เท่านั้น โดยมีฟิลด์ดังนี้:
+      const prompt = `คุณคือผู้ช่วยงานสารบรรณโรงเรียน จงวิเคราะห์หนังสือราชการนี้และสกัดข้อมูลออกมาเป็น JSON format เท่านั้น โดยมีฟิลด์ดังนี้:
       {
-        "summary": "สรุปใจความสำคัญสั้นๆ 1-2 บรรทัด",
-        "doc_number": "เลขที่หนังสือที่ปรากฏในต้นฉบับ (เช่น ศธ 04xxx/xxx)",
+        "doc_number": "เลขที่หนังสือที่ปรากฏในต้นฉบับ เช่น ศธ 04xxx/xxx หรือ ที่ 29/2569",
         "doc_date": "วันที่ในหนังสือต้นฉบับในรูปแบบ YYYY-MM-DD (ค.ศ.)",
-        "from_agency": "ชื่อหน่วยงานเจ้าของหนังสือ",
-        "subject": "ชื่อเรื่องของหนังสือ"
+        "from_agency": "ชื่อหน่วยงานเจ้าของหนังสือ/ผู้ส่ง",
+        "subject": "ชื่อเรื่องของหนังสือ",
+        "urgency": "ปกติ หรือ ด่วน หรือ ด่วนมาก หรือ ด่วนที่สุด",
+        "summary": "สรุปสาระสำคัญสั้นๆ 1-2 ประโยค ระบุวัตถุประสงค์ เจตนา และสิ่งที่ต้องดำเนินการ (ห้ามตอบว่าไม่มีเนื้อหา ให้สรุปจากเจตนาของเรื่องเสมอ)",
+        "action_deadline": "วันที่ต้องส่งงาน/วันจัดกิจกรรม/หมดเขต ในรูปแบบ YYYY-MM-DD (ค.ศ.) หากไม่พบให้ใส่ null",
+        "suggested_assignee_dept": "ฝ่ายที่ควรรับผิดชอบ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน"
       }
-      หากหาข้อมูลใดไม่พบให้ใส่เป็น null หรือ string ว่าง`;
+      ตอบกลับเฉพาะ JSON ล้วนๆ ห้ามมีข้อความอื่นนอก JSON`;
 
       const maxAttempts = 3;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {

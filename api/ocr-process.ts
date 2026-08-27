@@ -138,7 +138,7 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   const processTask = async () => {
-    const { docId, fileUrl } = body || {};
+    const { docId, fileUrl, silent = false } = body || {};
     if (!docId || !fileUrl) return;
 
     let supabase: any = null;
@@ -221,15 +221,15 @@ export default async function handler(req: Request): Promise<Response> {
 จากเอกสารราชการไทยด้านล่างนี้ ให้สกัดข้อมูลสำคัญแล้วตอบกลับเฉพาะโครงสร้าง JSON ดังต่อไปนี้เท่านั้น (ห้ามพิมพ์ข้อความอื่นนอก JSON):
 
 {
-  "doc_number": "เลขที่หนังสือของผู้ส่ง เช่น ศธ 04225/2666 (ถ้าไม่มีใส่ null)",
-  "subject": "ชื่อเรื่องหนังสือ (ให้สกัดจากส่วน 'เรื่อง:' เท่านั้น ห้ามใช้ชื่อหน่วยงานหรือหัวกระดาษ)",
+  "doc_number": "เลขที่หนังสือของผู้ส่ง เช่น ศธ 04225/2666 หรือ ที่ 29/2569 (ถ้าไม่มีใส่ null)",
+  "subject": "ชื่อเรื่องหนังสือ (สกัดจากส่วน 'เรื่อง:' หรือสาระสำคัญของหนังสือ ห้ามใช้ชื่อหน่วยงานหรือหัวกระดาษ)",
   "from_agency": "ชื่อหน่วยงานผู้ส่ง (สกัดจาก 'จาก:' หรือหัวจดหมาย)",
   "doc_date": "วันที่หนังสือ (รูปแบบ YYYY-MM-DD ถ้าไม่ทราบใส่ null)",
-  "urgency": "ปกติ หรือ ด่วน หรือ ด่วนที่สุด (ให้เดาจากเนื้อหา ห้ามใส่ null)",
-  "summary": "สรุปสาระสำคัญของหนังสือ 2-3 ประโยค (ให้สรุปเสมอ ห้ามใส่ null)",
-  "action_deadline": "วันที่ต้องส่งงาน/หมดเขตดำเนินการ (รูปแบบ YYYY-MM-DDTHH:mm:ssZ ถ้าไม่มีให้ใส่ null)",
+  "urgency": "ปกติ หรือ ด่วน หรือ ด่วนมาก หรือ ด่วนที่สุด",
+  "summary": "สรุปสาระสำคัญของหนังสือ 1-2 ประโยค ระบุวัตถุประสงค์ เจตนา และสิ่งที่ต้องดำเนินการ (ห้ามตอบว่าไม่มีเนื้อหา ให้สรุปตามเจตนาของเรื่องเสมอ)",
+  "action_deadline": "วันที่ต้องส่งงาน/วันจัดกิจกรรม/หมดเขต (รูปแบบ YYYY-MM-DDTHH:mm:ssZ ถ้าไม่มีให้ใส่ null)",
   "suggested_assignee_name": "ชื่อ-นามสกุลครูจากรายชื่อด้านล่างที่เหมาะสมที่สุด (ให้เดาจากเนื้อหา อย่าใส่ null โดยไม่จำเป็น)",
-  "suggested_assignee_dept": "ฝ่าย/กลุ่มสาระที่ควรรับผิดชอบงานนี้ เช่น วิชาการ, กิจการนักเรียน, งบประมาณ (ให้เดาจากเนื้อหาเสมอ)"
+  "suggested_assignee_dept": "ฝ่าย/กลุ่มสาระที่ควรรับผิดชอบงานนี้ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน"
 }
 
 รายชื่อครูและบุคลากรในโรงเรียน:
@@ -352,8 +352,8 @@ ${extractedText.substring(0, 5000)}
         }, { onConflict: 'document_name' });
       }
 
-      // 6. แจ้งเตือนเข้า Telegram ผอ. / กลุ่ม พร้อมเสนอสกัดตารางงาน & ผู้รับมอบหมาย
-      if (botToken) {
+      // 6. แจ้งเตือนเข้า Telegram ผอ. / กลุ่ม (ข้ามเมื่อ silent = true เพื่อไม่ให้แจ้งเตือนซ้ำ)
+      if (botToken && !silent) {
         // Phase 3: คำนวณ AI confidence score
         let aiConfidence = 0;
         if (parsedInfo.doc_number) aiConfidence++;
@@ -439,7 +439,7 @@ ${extractedText.substring(0, 5000)}
       console.error('[OCR PROCESS ERROR]', err);
       try {
         await supabase.from('incoming_docs').update({ ai_status: 'failed' }).eq('id', docId);
-        if (botToken) {
+        if (botToken && !silent) {
           const { data: admins } = await supabase.from('profiles').select('telegram_chat_id').in('role', ['admin', 'director']);
           if (admins) {
             for (const adm of admins) {

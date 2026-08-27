@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import garuda3cm from '../assets/saraban/garuda-3cm.png';
 import { generateAIDraft } from '../lib/aiService';
+import { formatDateDMY } from '../lib/dateUtils';
 
 export default function OutgoingDocs() {
   const { user, profile } = useAuth();
@@ -946,7 +947,7 @@ ${userDetail}
                 <tr key={doc.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4">
                     <div className="font-bold text-slate-800 text-sm">{doc.doc_number}</div>
-                    <div className="text-[10px] text-slate-400">{doc.doc_date}</div>
+                    <div className="text-[10px] text-slate-400">{formatDateDMY(doc.doc_date)}</div>
                   </td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-700">
                     <div>{doc.subject}</div>
@@ -1068,7 +1069,7 @@ ${userDetail}
                   >
                     <div className="flex justify-between items-start mb-1">
                       <span className="text-[10px] font-black text-brand-primary uppercase tracking-widest">เลขที่รับ: {inc.doc_number}</span>
-                      <span className="text-[10px] font-bold text-slate-400">{inc.doc_date}</span>
+                      <span className="text-[10px] font-bold text-slate-400">{formatDateDMY(inc.doc_date)}</span>
                     </div>
                     <h4 className="text-sm font-bold text-slate-800 group-hover:text-brand-primary transition-colors">{inc.subject}</h4>
                     <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold">จาก: {inc.from_agency}</p>
