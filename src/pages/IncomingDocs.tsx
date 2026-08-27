@@ -683,27 +683,54 @@ export default function IncomingDocs() {
         carouselItems
       );
 
-      // ส่งแจ้งเตือน Telegram สำหรับการเสนอหลายฉบับพร้อมกัน (จัดรวมเป็นข้อความเดียวแบบมีปุ่มสั่งการแยก)
+      // ส่งแจ้งเตือน Telegram สำหรับการเสนอหลายฉบับพร้อมกัน (จัดรวมเป็นข้อความเดียวแบบมีปุ่มสั่งการแยก พร้อมสาระสำคัญและไฟล์แนบ)
       let telegramNotifyStatus = '';
       try {
-        let telegramMsg = `📥 <b>เสนอหนังสือรอเกษียณเข้าใหม่ (${docsToPropose.length} ฉบับ)</b>\n\n`;
+        let telegramMsg = `📥 <b>เสนอหนังสือราชการรอเกษียณเข้าใหม่ (${docsToPropose.length} ฉบับ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
         docsToPropose.forEach((doc, idx) => {
-          telegramMsg += `${idx + 1}. <b>เรื่อง</b>: ${doc.subject}\n• <b>จาก</b>: ${doc.from_agency || '-'}\n• <b>เลขที่รับ</b>: ${doc.doc_number}\n`;
+          let summaryText = '';
+          let senderDocNo = '';
+          let senderDocDate = '';
+          try {
+            const rObj = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
+            summaryText = rObj.proposal_summary || rObj.ai_summary || '';
+            senderDocNo = rObj.sender_doc_number || '';
+            senderDocDate = rObj.sender_doc_date || '';
+          } catch {}
+
+          const urgencyBadge = doc.urgency === 'ด่วนที่สุด' 
+            ? '🔴 <b>[ด่วนที่สุด]</b>' 
+            : doc.urgency === 'ด่วนมาก' 
+              ? '🟠 <b>[ด่วนมาก]</b>' 
+              : doc.urgency === 'ด่วน' 
+                ? '🟡 <b>[ด่วน]</b>' 
+                : '🟢 <b>[ปกติ]</b>';
+
+          telegramMsg += `${idx + 1}. ${urgencyBadge} <b>เรื่อง:</b> <b>${doc.subject}</b>\n`;
+          telegramMsg += `   • <b>เลขรับ:</b> <code>${doc.doc_number}</code> | <b>จาก:</b> ${doc.from_agency || '-'}\n`;
+          if (senderDocNo || senderDocDate) {
+            telegramMsg += `   • <b>เลขที่ผู้ส่ง:</b> <code>${senderDocNo || '-'}</code> ${senderDocDate ? `(ลงวันที่ ${formatDateDMY(senderDocDate)})` : ''}\n`;
+          }
+          if (summaryText) {
+            telegramMsg += `   ✨ <b>สาระสำคัญ:</b>\n<blockquote>${summaryText}</blockquote>\n`;
+          }
+          if (doc.action_deadline) {
+            telegramMsg += `   ⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${formatDateDMY(doc.action_deadline)}</u>\n`;
+          }
           if (doc.file_url) {
-            telegramMsg += `📄 <a href="${doc.file_url}">เปิดดูต้นฉบับหนังสือ</a>\n`;
+            telegramMsg += `   📄 <a href="${doc.file_url}"><b>[เปิดดูต้นฉบับ]</b></a>`;
           }
           const docAtts = Array.isArray(doc.attachment_urls)
             ? doc.attachment_urls
             : (() => { try { const p = JSON.parse(doc.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })();
 
           if (docAtts.length > 0) {
-            telegramMsg += `📎 <b>ไฟล์แนบ:</b> `;
+            telegramMsg += ` | 📎 <b>ไฟล์แนบ:</b> `;
             docAtts.forEach((url: string, i: number) => {
               telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
             });
-            telegramMsg += `\n`;
           }
-          telegramMsg += `\n`;
+          telegramMsg += `\n\n`;
         });
         
         const telegramReplyMarkup = {

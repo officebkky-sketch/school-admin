@@ -999,6 +999,85 @@ async function executeDocAssignment(
       await sendTelegramMessage(botToken, chatId, fallbackGroupMsg, teacherReplyMarkup);
     }
 
+    // ── 7. Auto-Next Document Queue: ส่งหนังสือฉบับถัดไปให้ ผอ. เกษียณสั่งการต่อทันที (Continuous Workflow) ──
+    try {
+      const { data: nextDocs, count: remainingCount } = await supabase
+        .from('incoming_docs')
+        .select('id, doc_number, subject, from_agency, urgency, doc_date, file_url, attachment_urls, remark, action_deadline, created_at', { count: 'exact' })
+        .in('status', ['pending', 'waiting_proposal'])
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      if (nextDocs && nextDocs.length > 0) {
+        const nextDoc = nextDocs[0];
+        const nextCount = (remainingCount || 1);
+        
+        const uBadge = nextDoc.urgency === 'ด่วนที่สุด' 
+          ? '🔴 <b>[ด่วนที่สุด]</b>' 
+          : nextDoc.urgency === 'ด่วนมาก' 
+            ? '🟠 <b>[ด่วนมาก]</b>' 
+            : nextDoc.urgency === 'ด่วน' 
+              ? '🟡 <b>[ด่วน]</b>' 
+              : '🟢 <b>[ปกติ]</b>';
+
+        let nextSummary = '';
+        let nextSenderNo = '';
+        let nextSenderDate = '';
+        try {
+          const rObj = typeof nextDoc.remark === 'object' ? nextDoc.remark : JSON.parse(nextDoc.remark || '{}');
+          nextSummary = rObj.proposal_summary || rObj.ai_summary || '';
+          nextSenderNo = rObj.sender_doc_number || '';
+          nextSenderDate = rObj.sender_doc_date || '';
+        } catch {}
+
+        let nextMsg = `📬 <b>[หนังสือรอเกษียณฉบับถัดไป] (ยังเหลืออีก ${nextCount} ฉบับในคิว)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+        nextMsg += `${uBadge} 📌 <b>เลขรับที่:</b> <code>${escapeHtml(nextDoc.doc_number || '-')}</code>\n`;
+        nextMsg += `📋 <b>เรื่อง:</b> <b>${escapeHtml(nextDoc.subject || '-')}</b>\n`;
+        nextMsg += `🏛️ <b>จาก:</b> ${escapeHtml(nextDoc.from_agency || '-')}\n`;
+
+        if (nextSenderNo || nextSenderDate) {
+          nextMsg += `🔢 <b>เลขที่ผู้ส่ง:</b> <code>${escapeHtml(nextSenderNo || '-')}</code> ${nextSenderDate ? `(ลงวันที่ ${toDMYString(nextSenderDate)})` : ''}\n`;
+        }
+
+        if (nextSummary) {
+          nextMsg += `\n✨ <b>สาระสำคัญ (เกษียณเสนอ):</b>\n<blockquote>${escapeHtml(nextSummary)}</blockquote>\n`;
+        }
+
+        if (nextDoc.action_deadline) {
+          nextMsg += `⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${toDMYString(nextDoc.action_deadline)}</u>\n`;
+        }
+
+        if (nextDoc.file_url) {
+          nextMsg += `\n━━━━━━━━━━━━━━━━━━━━\n📄 <a href="${nextDoc.file_url}"><b>[เปิดดูต้นฉบับหนังสือนำ]</b></a>`;
+        }
+
+        let nextAtts: string[] = [];
+        if (Array.isArray(nextDoc.attachment_urls)) nextAtts = nextDoc.attachment_urls.filter(Boolean);
+        else if (typeof nextDoc.attachment_urls === 'string') {
+          try { nextAtts = JSON.parse(nextDoc.attachment_urls).filter(Boolean); } catch {}
+        }
+        if (nextAtts.length > 0) {
+          nextMsg += `\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>\n`;
+          nextAtts.forEach((url, i) => {
+            nextMsg += `   🔹 <a href="${url}">ไฟล์แนบที่ ${i + 1}</a>\n`;
+          });
+        }
+
+        const nextButtons: any[] = [
+          [{
+            text: `✍️ เกษียณสั่งการเรื่องที่ ${nextDoc.doc_number || 'ถัดไป'}`,
+            callback_data: `action=start_assign&id=${nextDoc.id}`
+          }]
+        ];
+
+        await sendTelegramMessage(botToken, chatId, nextMsg, { inline_keyboard: nextButtons });
+      } else {
+        await sendTelegramMessage(botToken, chatId, `🎉 <b>ยอดเยี่ยมมากค่ะ ผอ.!</b>\n\nขณะนี้เกษียณสั่งการหนังสือครบทุกฉบับในคิวเรียบร้อยแล้วค่ะ พักผ่อนได้สบายใจเลยนะคะ 🌸✨`);
+      }
+    } catch (queueErr) {
+      console.warn('[AUTO NEXT QUEUE ERROR]', queueErr);
+    }
+
   } catch (err: any) {
     console.error('executeDocAssignment error:', err);
     await sendTelegramMessage(botToken, chatId, `❌ ดำเนินการไม่สำเร็จ: ${err.message}`);
