@@ -217,6 +217,22 @@ BEGIN
         CREATE POLICY "Public Upload for temp_docs bucket" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'temp_docs');
     END IF;
 END $$;
+
+-- 4. สร้างตารางคำสั่งโรงเรียน (orders) หากยังไม่มี
+CREATE TABLE IF NOT EXISTS orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_number TEXT,
+    subject TEXT,
+    issuer TEXT,
+    order_date DATE,
+    content TEXT,
+    sign_name TEXT,
+    sign_position TEXT,
+    committees JSONB DEFAULT '[]'::jsonb,
+    legal_refs JSONB DEFAULT '[]'::jsonb,
+    file_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
 `;
 
   const handleCopySql = () => {
@@ -236,7 +252,7 @@ END $$;
       { name: 'ตารางการตั้งค่าระบบ (settings)', description: 'ตรวจสอบแถวข้อมูลการตั้งค่าโรงเรียน', status: 'checking' },
       { name: 'ตารางทะเบียนนักเรียน (students)', description: 'ตรวจสอบการเข้าถึงและการนับข้อมูลนักเรียน', status: 'checking' },
       { name: 'โครงสร้าง Constraint นักเรียน', description: 'ตรวจสอบความพร้อมของคอลัมน์ student_id และ academic_year', status: 'checking' },
-      { name: 'ระบบงานสารบรรณ (4 ตารางหลัก)', description: 'ตรวจสอบ incoming_docs, outgoing_docs, memos, school_orders', status: 'checking' },
+      { name: 'ระบบงานสารบรรณ (4 ตารางหลัก)', description: 'ตรวจสอบ incoming_docs, outgoing_docs, memos, orders', status: 'checking' },
       { name: 'คลังจัดเก็บไฟล์ (Storage Buckets)', description: 'ตรวจสอบความพร้อมของ bucket system และ temp_docs', status: 'checking' },
     ];
     setDbHealthResults([...checks]);
@@ -279,38 +295,45 @@ END $$;
       setDbHealthResults([...checks]);
 
       // 4. Check document tables
-      const docTables = ['incoming_docs', 'outgoing_docs', 'memos', 'school_orders'];
+      const docTables = [
+        { key: 'incoming_docs', label: 'หนังสือรับ' },
+        { key: 'outgoing_docs', label: 'หนังสือส่ง' },
+        { key: 'memos', label: 'บันทึกข้อความ' },
+        { key: 'orders', label: 'คำสั่งโรงเรียน' },
+      ];
       const failedDocs: string[] = [];
       for (const t of docTables) {
-        const { error: tErr } = await supabase.from(t).select('id', { count: 'exact', head: true });
-        if (tErr) failedDocs.push(`${t} (${tErr.message})`);
+        const { error: tErr } = await supabase.from(t.key).select('id', { count: 'exact', head: true });
+        if (tErr) failedDocs.push(`${t.label} (${tErr.message})`);
       }
       if (failedDocs.length === 0) {
         checks[3].status = 'pass';
-        checks[3].detail = 'ตารางงานสารบรรณครบ 4 ตาราง พร้อมใช้งาน 100%';
+        checks[3].detail = 'ตารางงานสารบรรณครบ 4 ตาราง (หนังสือรับ, ส่ง, บันทึกข้อความ, คำสั่ง) พร้อมใช้งาน 100%';
       } else {
         checks[3].status = 'error';
         checks[3].detail = `พบปัญหาในตาราง: ${failedDocs.join(', ')}`;
       }
       setDbHealthResults([...checks]);
 
-      // 5. Check storage buckets
+      // 5. Check storage buckets via direct probe
       try {
-        const { data: buckets, error: bErr } = await supabase.storage.listBuckets();
-        if (bErr) {
+        const [sysProbe, tempProbe] = await Promise.all([
+          supabase.storage.from('system').list('', { limit: 1 }),
+          supabase.storage.from('temp_docs').list('', { limit: 1 })
+        ]);
+
+        const hasSystem = !sysProbe.error;
+        const hasTemp = !tempProbe.error;
+
+        if (hasSystem && hasTemp) {
+          checks[4].status = 'pass';
+          checks[4].detail = 'พบและเข้าถึง Bucket "system" และ "temp_docs" ครบถ้วน พร้อมใช้งาน 100%';
+        } else if (hasSystem || hasTemp) {
           checks[4].status = 'warning';
-          checks[4].detail = `ตรวจสอบสิทธิ์ bucket ไม่ผ่าน (${bErr.message}) หากอัปโหลดไฟล์ผ่าน ถือว่าทำงานได้ปกติ`;
+          checks[4].detail = `สถานะ Buckets: ${hasSystem ? 'system (พร้อม)' : 'system (ไม่พบ)'}, ${hasTemp ? 'temp_docs (พร้อม)' : 'temp_docs (ไม่พบ)'}`;
         } else {
-          const names = buckets.map(b => b.name);
-          const hasSystem = names.includes('system');
-          const hasTemp = names.includes('temp_docs');
-          if (hasSystem && hasTemp) {
-            checks[4].status = 'pass';
-            checks[4].detail = 'พบ Bucket "system" และ "temp_docs" ครบถ้วน';
-          } else {
-            checks[4].status = 'warning';
-            checks[4].detail = `พบ Bucket: ${names.join(', ') || 'ไม่มี'} (แนะนำให้รัน SQL สร้าง system และ temp_docs)`;
-          }
+          checks[4].status = 'warning';
+          checks[4].detail = 'ยังไม่พบ Bucket หรือสิทธิ์ Storage แนะนำให้รัน SQL ซ่อมแซมด้านล่าง';
         }
       } catch (e: any) {
         checks[4].status = 'warning';
