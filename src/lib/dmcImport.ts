@@ -61,7 +61,7 @@ export async function importDMCExcel(file: File, academicYear: string) {
         // Upsert by student_id and academic_year if possible, or just insert
         const { error } = await supabase
           .from('students')
-          .upsert(studentsToAdd, { onConflict: 'student_id, academic_year' }); // Need unique constraint on Supabase
+          .upsert(studentsToAdd, { onConflict: 'student_id,academic_year' });
 
         if (error) throw error;
 

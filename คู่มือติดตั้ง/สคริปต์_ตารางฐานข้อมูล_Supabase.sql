@@ -53,7 +53,8 @@ CREATE TABLE students (
   disadvantage_status TEXT,
   graduation_status TEXT,
   photo_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT students_student_id_academic_year_key UNIQUE (student_id, academic_year)
 );
 
 -- 3. Incoming Documents (หนังสือรับ)

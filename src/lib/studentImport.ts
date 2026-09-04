@@ -106,7 +106,7 @@ async function processAndUpload(jsonData: any[], academicYear: string) {
 
   const { error } = await supabase
     .from('students')
-    .upsert(studentsToAdd, { onConflict: 'student_id, academic_year' });
+    .upsert(studentsToAdd, { onConflict: 'student_id,academic_year' });
 
   if (error) throw error;
   return { count: studentsToAdd.length };

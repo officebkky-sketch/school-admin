@@ -58,6 +58,10 @@ export async function uploadFileToDrive(file: File, folder: string, customName: 
             })
           });
 
+          if (!response.ok) {
+            throw new Error(`Google Apps Script ส่งสถานะผิดพลาด HTTP ${response.status} (กรุณาตรวจสอบว่าตั้งค่าสิทธิ์ Web App เป็น Anyone และขนาดไฟล์ไม่เกินขีดจำกัด)`);
+          }
+
           const result = await response.json();
           if (result.status === 'success') {
             resolve(result.url);

@@ -56,7 +56,12 @@ function doPost(e) {
     
     // 4. บันทึกไฟล์ลงในโฟลเดอร์ และตั้งสิทธิ์แชร์ "ทุกคนที่มีลิงก์สามารถอ่านได้" (สำหรับเปิด PDF และส่งไลน์)
     var file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {
+      // หากเป็นอีเมลโดเมนโรงเรียนที่บล็อกการแชร์ไฟล์ออกนอกองค์กร จะไม่ทำให้ระบบล้มเหลว
+      Logger.log("Domain restricted sharing: " + shareErr.toString());
+    }
     
     // 5. ส่งลิงก์ไฟล์กลับไปยังแอป
     var fileUrl = file.getUrl();
@@ -73,6 +78,14 @@ function doPost(e) {
       message: 'GAS Error: ' + error.toString()
     });
   }
+}
+
+// รองรับการทดสอบเปิดผ่านเบราว์เซอร์ตรงๆ
+function doGet(e) {
+  return createJsonResponse({
+    status: 'success',
+    message: 'Google Apps Script Web App is active and ready! 🌸'
+  });
 }
 
 // ฟังก์ชันสร้างตัวตอบกลับ JSON ของ Google Apps Script

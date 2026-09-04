@@ -261,7 +261,7 @@ export default function Students() {
       });
 
       // 3. Upsert into DB
-      const { error: upsertErr } = await supabase.from('students').upsert(promotedData, { onConflict: 'student_id, academic_year' });
+      const { error: upsertErr } = await supabase.from('students').upsert(promotedData, { onConflict: 'student_id,academic_year' });
       if (upsertErr) throw upsertErr;
 
       alert(`เลื่อนชั้นนักเรียนสำเร็จจำนวน ${promotedData.length} รายการ`);

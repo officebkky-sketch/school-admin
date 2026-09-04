@@ -151,6 +151,8 @@ export default function Settings() {
           console.error(`Failed to migrate doc ID ${doc.id}:`, err);
         }
         setMigrationProgress(Math.round(((i + 1) / targetDocs.length) * 100));
+        // หน่วงเวลาเล็กน้อยเพื่อป้องกัน Google Apps Script Rate Limit / 504 Timeout
+        await new Promise(resolve => setTimeout(resolve, 600));
       }
 
       setMigrationStatus(`✅ โอนย้ายไฟล์เอกสารเก่าสำเร็จ ${successCount} จากทั้งหมด ${targetDocs.length} รายการแล้วค่ะ 🌸`);
