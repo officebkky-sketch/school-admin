@@ -56,3 +56,29 @@ export function validateThaiNationalId(id: string | number | undefined | null): 
     cleanId
   };
 }
+
+/**
+ * ปิดบังข้อมูลส่วนบุคคล (PDPA Masking) สำหรับการส่งข้อความแจ้งเตือนหรือแสดงผลในที่สาธารณะ
+ * - ปิดบังเลขบัตรประชาชน: 1-XXXX-XXXXX-XX-9
+ * - ปิดบังเบอร์โทรศัพท์: 081-XXX-4567
+ */
+export function maskPDPA(text: string): string {
+  if (!text) return '';
+  // Mask เลขบัตร ปชช. แบบมีขีด หรือไม่มีขีด 13 หลัก
+  let result = text.replace(/(\b[1-8])(\d{4})(\d{5})(\d{2})(\d\b)/g, '$1-XXXX-XXXXX-XX-$5');
+  result = result.replace(/(\b[1-8])-(\d{4})-(\d{5})-(\d{2})-(\d\b)/g, '$1-XXXX-XXXXX-XX-$5');
+  
+  // Mask เบอร์โทรศัพท์ 10 หลัก (เช่น 0812345678 หรือ 081-234-5678)
+  result = result.replace(/(\b0\d{2})[-]?(\d{3})[-]?(\d{4}\b)/g, '$1-XXX-$3');
+  return result;
+}
+
+/**
+ * จัดรูปแบบเลขบัตรประชาชนให้เป็นรูปแบบมาตรฐานราชการ: X-XXXX-XXXXX-XX-X
+ */
+export function formatThaiNationalId(id: string | number | undefined | null): string {
+  if (!id) return '';
+  const clean = String(id).replace(/\D/g, '');
+  if (clean.length !== 13) return String(id);
+  return `${clean[0]}-${clean.slice(1, 5)}-${clean.slice(5, 10)}-${clean.slice(10, 12)}-${clean[12]}`;
+}

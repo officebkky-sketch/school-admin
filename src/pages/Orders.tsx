@@ -24,7 +24,8 @@ import {
   Clock,
   Bot,
   Sparkles,
-  Paperclip
+  Paperclip,
+  QrCode
 } from 'lucide-react';
 import garuda3cm from '../assets/saraban/garuda-3cm.png';
 
@@ -51,6 +52,11 @@ export default function Orders() {
   const [selectedDocForAttach, setSelectedDocForAttach] = useState<any>(null);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [isAttaching, setIsAttaching] = useState(false);
+
+  // QR Code Verification State
+  const [selectedDocForQr, setSelectedDocForQr] = useState<any>(null);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [copiedQrLink, setCopiedQrLink] = useState(false);
 
   const [formData, setFormData] = useState({
     order_number: '',
@@ -165,6 +171,12 @@ export default function Orders() {
     const dateObj = new Date(data.order_date);
     const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
     const fullDate = `สั่ง ณ วันที่ ${toThaiNumerals(dateObj.getDate().toString())} เดือน ${thaiMonths[dateObj.getMonth()]} พ.ศ. ${toThaiNumerals((dateObj.getFullYear() + 543).toString())}`;
+
+    // Verification QR Code URL
+    const verifyUrl = data.file_url 
+      ? data.file_url 
+      : `${window.location.origin}/#/orders?order_number=${encodeURIComponent(data.order_number || '')}&year=${dateObj.getFullYear() + 543}`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(verifyUrl)}&format=svg`;
 
     const resolvedCommittees = (data.committees || []).map((c: any) => {
       const teach = teachers.find(t => t.id === c.teacher_id);
@@ -332,6 +344,27 @@ export default function Orders() {
               margin-left: -4.8cm;
               line-height: 1.5;
             }
+            .qr-stamp {
+              position: absolute;
+              top: 1.2cm;
+              right: 1.8cm;
+              text-align: center;
+              width: 2.2cm;
+            }
+            .qr-stamp img {
+              width: 1.6cm;
+              height: 1.6cm;
+              display: block;
+              margin: 0 auto;
+            }
+            .qr-stamp .qr-caption {
+              font-size: 8.5pt;
+              line-height: 1.1;
+              display: block;
+              color: #475569;
+              margin-top: 2px;
+              font-family: 'THSarabunIT๙', 'TH Sarabun New', sans-serif;
+            }
             @media print {
               body { background: white; }
               .page { margin: 0; box-shadow: none; width: 100%; height: 100%; }
@@ -348,6 +381,10 @@ export default function Orders() {
         <body>
           <button class="no-print-btn no-print" onclick="window.print()">🖨️ พิมพ์คำสั่ง</button>
           <div class="page">
+            <div class="qr-stamp">
+              <img src="${qrCodeUrl}" alt="QR Verification" />
+              <span class="qr-caption">สแกนตรวจคำสั่ง</span>
+            </div>
             <img src="${garuda3cm}" class="garuda" />
             <div class="header-title">คำสั่ง${data.issuer || ''}</div>
             <div class="order-info">ที่ ${toThaiNumerals(data.order_number)}</div>
@@ -1084,6 +1121,16 @@ ${groups.map(g => `<duty name="${g}">
                         <button onClick={() => { setSelectedOrderForApproval(doc); setDirectorDecision('อนุมัติ'); setDirectorOpinion(''); setIsApprovalModalOpen(true); }} className="p-2 text-green-500 hover:bg-green-50 rounded-lg transition-colors" title="พิจารณาอนุมัติ"><CheckCircle size={18} /></button>
                       )}
                       <button onClick={() => printOrder(doc)} className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-lg transition-colors" title="พิมพ์คำสั่ง"><Printer size={18} /></button>
+                      <button 
+                        onClick={() => {
+                          setSelectedDocForQr(doc);
+                          setIsQrModalOpen(true);
+                        }} 
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" 
+                        title="แสดง QR Code ตรวจสอบคำสั่ง"
+                      >
+                        <QrCode size={18} />
+                      </button>
                       {doc.file_url && <a href={doc.file_url} target="_blank" className="p-2 text-slate-400 hover:text-brand-primary"><ExternalLink size={18} /></a>}
                       <button onClick={() => handleDelete(doc.id)} className="p-2 text-slate-400 hover:text-red-500 transition-colors" title="ลบข้อมูล"><Trash2 size={18} /></button>
                     </div>
@@ -1383,6 +1430,53 @@ ${groups.map(g => `<duty name="${g}">
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal: QR Code ตรวจสอบเอกสารคำสั่ง */}
+      <Modal isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} title="📱 QR Code ตรวจสอบเอกสารคำสั่ง">
+        {selectedDocForQr && (() => {
+          const verifyUrl = selectedDocForQr.file_url 
+            ? selectedDocForQr.file_url 
+            : `${window.location.origin}/#/orders?verify=${encodeURIComponent(selectedDocForQr.id || selectedDocForQr.order_number)}`;
+          const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(verifyUrl)}&format=png`;
+
+          return (
+            <div className="space-y-6 text-center py-2">
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-left text-xs space-y-1">
+                <p className="font-bold text-slate-800">📌 เลขที่คำสั่ง: <span className="text-brand-primary">{selectedDocForQr.order_number}</span></p>
+                <p className="font-bold text-slate-700">📄 เรื่อง: {selectedDocForQr.subject}</p>
+                <p className="text-slate-500">📅 สั่ง ณ วันที่: {formatDateDMY(selectedDocForQr.order_date)}</p>
+              </div>
+
+              <div className="inline-block p-4 bg-white rounded-3xl border-2 border-slate-100 shadow-sm">
+                <img src={qrImgUrl} alt="QR Code" className="w-48 h-48 mx-auto rounded-xl" />
+                <p className="text-[11px] font-bold text-slate-400 mt-2">สแกนเพื่อเปิดเอกสารคำสั่งฉบับจริง</p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={verifyUrl} 
+                    className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 font-mono select-all outline-hidden" 
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(verifyUrl);
+                      setCopiedQrLink(true);
+                      setTimeout(() => setCopiedQrLink(false), 2500);
+                    }}
+                    className="shrink-0 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 active:scale-95 transition-all"
+                  >
+                    {copiedQrLink ? 'คัดลอกแล้ว!' : 'คัดลอกลิงก์'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );

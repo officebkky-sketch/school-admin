@@ -3,6 +3,7 @@ import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import fs from 'fs';
 import path from 'path';
+import { waitUntil } from '@vercel/functions';
 
 declare const process: any;
 declare const Buffer: any;
@@ -69,8 +70,12 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  try {
-    const events = req.body.events || [];
+  // ตอบกลับ 200 OK ทันทีเพื่อป้องกัน LINE Webhook Timeout และการ Retry ข้อความซ้ำ
+  res.status(200).json({ message: 'OK' });
+
+  waitUntil((async () => {
+    try {
+      const events = req.body.events || [];
     for (const event of events) {
       if (event.type === 'message' && event.message.type === 'text') {
         const userId = event.source.userId;
@@ -181,8 +186,10 @@ export default async function handler(req: any, res: any) {
         }
       }
     }
-  } catch (err) { console.error(err); }
-  return res.status(200).json({ message: 'OK' });
+  } catch (err) {
+    console.error('[LINE WEBHOOK ASYNC WORKFLOW ERROR]', err);
+  }
+  })());
 }
 
 
