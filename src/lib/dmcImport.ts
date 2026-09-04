@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
+import { validateThaiNationalId } from './validationUtils';
 
 export async function importDMCExcel(file: File, academicYear: string) {
   return new Promise((resolve, reject) => {
@@ -57,6 +58,16 @@ export async function importDMCExcel(file: File, academicYear: string) {
           graduation_status: row['สถานะจำหน่าย'] || 'ปกติ',
         }));
 
+        let validIdCount = 0;
+        let invalidIdCount = 0;
+        for (const s of studentsToAdd) {
+          if (validateThaiNationalId(s.national_id).isValid) {
+            validIdCount++;
+          } else {
+            invalidIdCount++;
+          }
+        }
+
         // Batch insert into Supabase
         // Upsert by student_id and academic_year if possible, or just insert
         const { error } = await supabase
@@ -65,7 +76,12 @@ export async function importDMCExcel(file: File, academicYear: string) {
 
         if (error) throw error;
 
-        resolve({ success: true, count: studentsToAdd.length });
+        resolve({ 
+          success: true, 
+          count: studentsToAdd.length,
+          validIdCount,
+          invalidIdCount
+        });
       } catch (err) {
         reject(err);
       }

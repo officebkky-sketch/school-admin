@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { supabase } from './supabase';
+import { validateThaiNationalId } from './validationUtils';
 
 export async function importStudentData(file: File, academicYear: string) {
   return new Promise((resolve, reject) => {
@@ -104,10 +105,24 @@ async function processAndUpload(jsonData: any[], academicYear: string) {
     graduation_status: row['สถานะจำหน่าย'] || 'ปกติ',
   }));
 
+  let validIdCount = 0;
+  let invalidIdCount = 0;
+  for (const s of studentsToAdd) {
+    if (validateThaiNationalId(s.national_id).isValid) {
+      validIdCount++;
+    } else {
+      invalidIdCount++;
+    }
+  }
+
   const { error } = await supabase
     .from('students')
     .upsert(studentsToAdd, { onConflict: 'student_id,academic_year' });
 
   if (error) throw error;
-  return { count: studentsToAdd.length };
+  return { 
+    count: studentsToAdd.length, 
+    validIdCount, 
+    invalidIdCount 
+  };
 }

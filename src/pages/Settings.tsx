@@ -11,7 +11,13 @@ import {
   Upload,
   Send,
   Sparkles,
-  Info
+  Info,
+  Database,
+  CheckCircle2,
+  AlertTriangle,
+  Copy,
+  Check,
+  RefreshCw
 } from 'lucide-react';
 
 export default function Settings() {
@@ -56,6 +62,16 @@ export default function Settings() {
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState('');
   const [migrationProgress, setMigrationProgress] = useState(0);
+
+  // Database Health Check State
+  const [dbHealthLoading, setDbHealthLoading] = useState(false);
+  const [dbHealthResults, setDbHealthResults] = useState<{
+    name: string;
+    description: string;
+    status: 'pending' | 'checking' | 'pass' | 'warning' | 'error';
+    detail?: string;
+  }[] | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
 
   useEffect(() => {
     fetchSettings();
@@ -160,6 +176,152 @@ export default function Settings() {
       setMigrationStatus(`❌ เกิดข้อผิดพลาดในการโอนย้าย: ${err.message}`);
     } finally {
       setIsMigrating(false);
+    }
+  };
+
+  const RECOMMENDED_SQL_FIX = `-- 🛠️ สคริปต์ซ่อมแซมและตั้งค่า Schema อัตโนมัติ (School Admin Multi-School)
+-- คัดลอกไปรันใน Supabase SQL Editor เพื่อรองรับระบบอย่างสมบูรณ์
+
+-- 1. สร้าง Unique Constraint สำหรับการนำเข้านักเรียนซ้ำตามปีการศึกษา
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'students_student_id_academic_year_key'
+    ) THEN
+        ALTER TABLE students ADD CONSTRAINT students_student_id_academic_year_key UNIQUE (student_id, academic_year);
+    END IF;
+END $$;
+
+-- 2. สร้าง Buckets ใน Supabase Storage
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('system', 'system', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('temp_docs', 'temp_docs', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- 3. กำหนดสิทธิ์ความปลอดภัย Storage RLS Policies
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Access for system bucket') THEN
+        CREATE POLICY "Public Access for system bucket" ON storage.objects FOR SELECT USING (bucket_id = 'system');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Upload for system bucket') THEN
+        CREATE POLICY "Public Upload for system bucket" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'system');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Access for temp_docs bucket') THEN
+        CREATE POLICY "Public Access for temp_docs bucket" ON storage.objects FOR SELECT USING (bucket_id = 'temp_docs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Upload for temp_docs bucket') THEN
+        CREATE POLICY "Public Upload for temp_docs bucket" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'temp_docs');
+    END IF;
+END $$;
+`;
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(RECOMMENDED_SQL_FIX);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  const handleRunDatabaseCheck = async () => {
+    setDbHealthLoading(true);
+    const checks: {
+      name: string;
+      description: string;
+      status: 'pending' | 'checking' | 'pass' | 'warning' | 'error';
+      detail?: string;
+    }[] = [
+      { name: 'ตารางการตั้งค่าระบบ (settings)', description: 'ตรวจสอบแถวข้อมูลการตั้งค่าโรงเรียน', status: 'checking' },
+      { name: 'ตารางทะเบียนนักเรียน (students)', description: 'ตรวจสอบการเข้าถึงและการนับข้อมูลนักเรียน', status: 'checking' },
+      { name: 'โครงสร้าง Constraint นักเรียน', description: 'ตรวจสอบความพร้อมของคอลัมน์ student_id และ academic_year', status: 'checking' },
+      { name: 'ระบบงานสารบรรณ (4 ตารางหลัก)', description: 'ตรวจสอบ incoming_docs, outgoing_docs, memos, school_orders', status: 'checking' },
+      { name: 'คลังจัดเก็บไฟล์ (Storage Buckets)', description: 'ตรวจสอบความพร้อมของ bucket system และ temp_docs', status: 'checking' },
+    ];
+    setDbHealthResults([...checks]);
+
+    try {
+      // 1. Check settings table
+      const { data: setRes, error: setErr } = await supabase.from('settings').select('id, school_name').limit(1);
+      if (setErr) {
+        checks[0].status = 'error';
+        checks[0].detail = `ข้อผิดพลาด: ${setErr.message}`;
+      } else if (!setRes || setRes.length === 0) {
+        checks[0].status = 'warning';
+        checks[0].detail = 'ยังไม่มีแถวข้อมูลการตั้งค่าโรงเรียน (ระบบต้องการ 1 row)';
+      } else {
+        checks[0].status = 'pass';
+        checks[0].detail = `พบข้อมูลโรงเรียน: ${setRes[0].school_name || 'พร้อมใช้งาน'}`;
+      }
+      setDbHealthResults([...checks]);
+
+      // 2. Check students table
+      const { count: stuCount, error: stuErr } = await supabase.from('students').select('*', { count: 'exact', head: true });
+      if (stuErr) {
+        checks[1].status = 'error';
+        checks[1].detail = `เข้าถึงตารางไม่ได้: ${stuErr.message}`;
+      } else {
+        checks[1].status = 'pass';
+        checks[1].detail = `เชื่อมต่อสำเร็จ (พบข้อมูลนักเรียน ${stuCount || 0} คน)`;
+      }
+      setDbHealthResults([...checks]);
+
+      // 3. Check students constraint & columns
+      const { error: colErr } = await supabase.from('students').select('student_id, academic_year').limit(1);
+      if (colErr) {
+        checks[2].status = 'error';
+        checks[2].detail = `ไม่พบคอลัมน์ที่จำเป็น: ${colErr.message}`;
+      } else {
+        checks[2].status = 'pass';
+        checks[2].detail = 'คอลัมน์ student_id และ academic_year พร้อมรองรับการอัปเดต';
+      }
+      setDbHealthResults([...checks]);
+
+      // 4. Check document tables
+      const docTables = ['incoming_docs', 'outgoing_docs', 'memos', 'school_orders'];
+      const failedDocs: string[] = [];
+      for (const t of docTables) {
+        const { error: tErr } = await supabase.from(t).select('id', { count: 'exact', head: true });
+        if (tErr) failedDocs.push(`${t} (${tErr.message})`);
+      }
+      if (failedDocs.length === 0) {
+        checks[3].status = 'pass';
+        checks[3].detail = 'ตารางงานสารบรรณครบ 4 ตาราง พร้อมใช้งาน 100%';
+      } else {
+        checks[3].status = 'error';
+        checks[3].detail = `พบปัญหาในตาราง: ${failedDocs.join(', ')}`;
+      }
+      setDbHealthResults([...checks]);
+
+      // 5. Check storage buckets
+      try {
+        const { data: buckets, error: bErr } = await supabase.storage.listBuckets();
+        if (bErr) {
+          checks[4].status = 'warning';
+          checks[4].detail = `ตรวจสอบสิทธิ์ bucket ไม่ผ่าน (${bErr.message}) หากอัปโหลดไฟล์ผ่าน ถือว่าทำงานได้ปกติ`;
+        } else {
+          const names = buckets.map(b => b.name);
+          const hasSystem = names.includes('system');
+          const hasTemp = names.includes('temp_docs');
+          if (hasSystem && hasTemp) {
+            checks[4].status = 'pass';
+            checks[4].detail = 'พบ Bucket "system" และ "temp_docs" ครบถ้วน';
+          } else {
+            checks[4].status = 'warning';
+            checks[4].detail = `พบ Bucket: ${names.join(', ') || 'ไม่มี'} (แนะนำให้รัน SQL สร้าง system และ temp_docs)`;
+          }
+        }
+      } catch (e: any) {
+        checks[4].status = 'warning';
+        checks[4].detail = 'ข้ามการตรวจ bucket เนื่องจากข้อจำกัดสิทธิ์ Client-side';
+      }
+      setDbHealthResults([...checks]);
+
+    } catch (err: any) {
+      console.error('Database check error:', err);
+    } finally {
+      setDbHealthLoading(false);
     }
   };
 
@@ -796,6 +958,133 @@ export default function Settings() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Section: Database Health Check & Diagnostics */}
+      <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden mb-8">
+        <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm">
+              <Database size={24} />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-800 text-lg uppercase tracking-tight">ตรวจสุขภาพฐานข้อมูล (Database Diagnostics)</h3>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Multi-School Schema Health & Readiness Tool</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleRunDatabaseCheck}
+            disabled={dbHealthLoading}
+            className="bg-emerald-600 text-white px-5 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-2 shadow-sm"
+          >
+            {dbHealthLoading ? (
+              <>
+                <Loader2 className="animate-spin" size={16} />
+                <span>กำลังวิเคราะห์...</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw size={16} />
+                <span>เริ่มตรวจสุขภาพฐานข้อมูล</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="p-8 space-y-6">
+          <p className="text-xs text-slate-500 font-bold leading-relaxed">
+            ระบบตรวจสอบความสมบูรณ์ของโครงสร้างฐานข้อมูล (Supabase Project) ของโรงเรียนนี้ เพื่อรับประกันว่าตารางหลัก, Constraint การนำเข้านักเรียน, และคลัง Storage พร้อมทำงานร่วมกับสถาปัตยกรรม Multi-School อย่างสมบูรณ์แบบ 🌸
+          </p>
+
+          {/* Results Checklist */}
+          {dbHealthResults && (
+            <div className="space-y-3">
+              <h4 className="font-black text-slate-800 text-xs uppercase tracking-wider text-slate-400">ผลการวิเคราะห์โครงสร้างฐานข้อมูล:</h4>
+              <div className="grid grid-cols-1 gap-3">
+                {dbHealthResults.map((item, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`p-4 rounded-2xl border flex items-start gap-3 transition-all ${
+                      item.status === 'pass' 
+                        ? 'bg-emerald-50/40 border-emerald-100 text-emerald-900' 
+                        : item.status === 'error'
+                        ? 'bg-rose-50/40 border-rose-100 text-rose-900'
+                        : item.status === 'warning'
+                        ? 'bg-amber-50/40 border-amber-100 text-amber-900'
+                        : 'bg-slate-50 border-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <div className="mt-0.5 shrink-0">
+                      {item.status === 'pass' && <CheckCircle2 className="text-emerald-600" size={18} />}
+                      {item.status === 'error' && <AlertTriangle className="text-rose-600" size={18} />}
+                      {item.status === 'warning' && <AlertTriangle className="text-amber-500" size={18} />}
+                      {item.status === 'checking' && <Loader2 className="animate-spin text-indigo-600" size={18} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <p className="font-black text-xs text-slate-800">{item.name}</p>
+                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                          item.status === 'pass' ? 'bg-emerald-100 text-emerald-700' :
+                          item.status === 'error' ? 'bg-rose-100 text-rose-700' :
+                          item.status === 'warning' ? 'bg-amber-100 text-amber-700' :
+                          'bg-indigo-100 text-indigo-700'
+                        }`}>
+                          {item.status === 'pass' ? 'ผ่าน' : item.status === 'error' ? 'ต้องแก้ไข' : item.status === 'warning' ? 'แจ้งเตือน' : 'กำลังตรวจ'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-bold mt-0.5">{item.description}</p>
+                      {item.detail && (
+                        <p className={`text-[11px] font-semibold mt-1 ${
+                          item.status === 'pass' ? 'text-emerald-700' :
+                          item.status === 'error' ? 'text-rose-700' :
+                          item.status === 'warning' ? 'text-amber-700' : 'text-slate-500'
+                        }`}>
+                          👉 {item.detail}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick SQL Fix Box */}
+          <div className="bg-slate-900 text-slate-100 p-6 rounded-3xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="font-black text-sm text-white flex items-center gap-2">
+                  <Database size={16} className="text-emerald-400" />
+                  สคริปต์ซ่อมแซมและปรับปรุง Schema สำหรับ Supabase
+                </h4>
+                <p className="text-xs text-slate-400 font-bold mt-0.5">
+                  หากพบข้อผิดพลาดด้าน Constraint นักเรียน หรือสิทธิ์ Storage สามารถคัดลอก SQL ด้านล่างไปกด Run ใน Supabase SQL Editor ได้ทันที
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopySql}
+                className="shrink-0 bg-emerald-500 text-slate-950 hover:bg-emerald-400 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider active:scale-95 transition-all flex items-center gap-2 shadow-sm"
+              >
+                {copiedSql ? (
+                  <>
+                    <Check size={14} className="text-slate-950 stroke-[3]" />
+                    <span>คัดลอกสำเร็จ!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={14} />
+                    <span>คัดลอกคำสั่ง SQL</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <pre className="bg-slate-950 p-4 rounded-2xl text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-48 scrollbar-thin border border-slate-800 leading-relaxed">
+              {RECOMMENDED_SQL_FIX}
+            </pre>
           </div>
         </div>
       </div>

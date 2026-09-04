@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { uploadFile } from '../lib/storage';
 import { importStudentData } from '../lib/studentImport';
+import { validateThaiNationalId } from '../lib/validationUtils';
 import Modal from '../components/Modal';
 import Papa from 'papaparse';
 import { 
@@ -199,7 +200,14 @@ export default function Students() {
     setIsSaving(true);
     try {
       const result: any = await importStudentData(selectedFile, importYear);
-      alert(`นำเข้าสำเร็จ ${result.count} รายการ`);
+      let msg = `✅ นำเข้าข้อมูลสำเร็จ ${result.count} รายการ`;
+      if (result.validIdCount !== undefined) {
+        msg += `\n• เลขบัตร ปชช. ถูกต้องตามสูตร Modulo 11: ${result.validIdCount} คน`;
+        if (result.invalidIdCount > 0) {
+          msg += `\n⚠️ พบเลขบัตรที่ไม่ตรงตามสูตรคำนวณ: ${result.invalidIdCount} คน (นำเข้าแล้ว โปรดตรวจเช็คความถูกต้องภายหลัง)`;
+        }
+      }
+      alert(msg);
       setIsImportModalOpen(false);
       setSelectedFile(null);
       fetchStudents();
@@ -622,8 +630,39 @@ export default function Students() {
                    <input type="text" className="w-full p-3.5 bg-white border border-slate-200 rounded-2xl font-bold focus:ring-2 focus:ring-brand-primary/20 outline-hidden" required value={formData.student_id} onChange={e => setFormData({...formData, student_id: e.target.value})} />
                  </div>
                  <div>
-                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">เลขบัตรประชาชน</label>
-                   <input type="text" className="w-full p-3.5 bg-white border border-slate-200 rounded-2xl font-bold focus:ring-2 focus:ring-brand-primary/20 outline-hidden" required value={formData.national_id} onChange={e => setFormData({...formData, national_id: e.target.value})} />
+                    <div className="flex justify-between items-center mb-1.5 ml-1">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">เลขบัตรประชาชน (13 หลัก)</label>
+                      {formData.national_id && (
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                          validateThaiNationalId(formData.national_id).isValid 
+                            ? 'bg-green-100 text-green-700' 
+                            : formData.national_id.length === 13 
+                              ? 'bg-red-100 text-red-600' 
+                              : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {validateThaiNationalId(formData.national_id).isValid 
+                            ? '✓ ถูกต้อง (Modulo 11)' 
+                            : formData.national_id.length === 13 
+                              ? '✕ เลขไม่ถูกต้อง' 
+                              : `${formData.national_id.length}/13`}
+                        </span>
+                      )}
+                    </div>
+                    <input 
+                      type="text" 
+                      maxLength={13}
+                      className={`w-full p-3.5 bg-white border rounded-2xl font-bold focus:ring-2 outline-hidden transition-all ${
+                        formData.national_id && formData.national_id.length === 13
+                          ? validateThaiNationalId(formData.national_id).isValid
+                            ? 'border-green-300 focus:ring-green-100 text-green-800'
+                            : 'border-red-300 focus:ring-red-100 text-red-700'
+                          : 'border-slate-200 focus:ring-brand-primary/20'
+                      }`} 
+                      required 
+                      value={formData.national_id} 
+                      onChange={e => setFormData({...formData, national_id: e.target.value.replace(/\D/g, '').slice(0, 13)})} 
+                      placeholder="กรอกเลข 13 หลัก"
+                    />
                  </div>
                </div>
             </div>
