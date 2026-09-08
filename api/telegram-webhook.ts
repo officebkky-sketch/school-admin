@@ -45,39 +45,57 @@ async function sendTelegramMessage(botToken: string, chatId: number, text: strin
   return sendTelegramMessageSingle(botToken, chatId, text, replyMarkup);
 }
 
-/** ฟังก์ชันสำหรับส่งข้อความเดี่ยวของ Telegram */
-async function sendTelegramMessageSingle(botToken: string, chatId: number, text: string, replyMarkup?: any) {
+/** ฟังก์ชันสำหรับส่งข้อความเดี่ยวของ Telegram พร้อม retry 429 และ fallback plain text */
+async function sendTelegramMessageSingle(botToken: string, chatId: number, text: string, replyMarkup?: any, attempt = 1): Promise<any> {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: text,
-      parse_mode: 'HTML',
-      reply_markup: replyMarkup
-    }),
-  });
-  if (!resp.ok) {
-    const err = await resp.json() as any;
-    console.error('[TELEGRAM SEND MESSAGE ERROR]', err);
-    
-    // หากพังเพราะ HTML formatting ให้ถอยกลับไปส่งแบบข้อความทั่วไป (Plain Text)
-    if (err?.description && (err.description.includes('entities') || err.description.includes('HTML') || err.description.includes('bad request'))) {
-      console.warn('[TELEGRAM FALLBACK] Sending plain text message because HTML parsing failed');
-      const plainText = text.replace(/<\/?[^>]+(>|$)/g, ""); // ล้าง HTML Tags ออก
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: plainText,
-          reply_markup: replyMarkup
-        }),
-      });
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({})) as any;
+      console.error(`[TELEGRAM SEND MESSAGE ERROR] HTTP ${resp.status}`, err);
+
+      // กรณี Rate Limit 429: ถ้า retry_after สั้น (<= 5 วิ) ให้รอแล้วลองส่งใหม่อัตโนมัติ
+      if (resp.status === 429 && attempt <= 2) {
+        const retryAfter = Number(err?.parameters?.retry_after || 3);
+        if (retryAfter <= 5) {
+          console.warn(`[TELEGRAM WEBHOOK] Rate limit 429 encountered, waiting ${retryAfter}s before retry (attempt ${attempt})...`);
+          await new Promise(r => setTimeout(r, (retryAfter * 1000) + 300));
+          return sendTelegramMessageSingle(botToken, chatId, text, replyMarkup, attempt + 1);
+        } else {
+          console.warn(`[TELEGRAM WEBHOOK] Rate limit 429 cooldown is too long (${retryAfter}s), skipping retry to prevent timeout.`);
+        }
+      }
+
+      // หากพังเพราะ HTML formatting ให้ถอยกลับไปส่งแบบข้อความทั่วไป (Plain Text)
+      if (err?.description && (err.description.includes('entities') || err.description.includes('HTML') || err.description.includes('bad request'))) {
+        console.warn('[TELEGRAM FALLBACK] Sending plain text message because HTML parsing failed');
+        const plainText = text.replace(/<\/?[^>]+(>|$)/g, ""); // ล้าง HTML Tags ออก
+        return fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: plainText,
+            reply_markup: replyMarkup
+          }),
+        });
+      }
     }
+    return resp;
+  } catch (fetchErr) {
+    console.error('[TELEGRAM FETCH EXCEPTION]', fetchErr);
+    return null;
   }
-  return resp;
 }
 
 /** ป้องกัน Telegram HTML injection: แปลงสัญลักษณ์พิเศษให้ปลอดภัยก่อนแทรกใน parse_mode HTML */
@@ -2863,21 +2881,73 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true });
     }
 
+    // ปรับแต่งคำสั่งให้เป็นมาตรฐาน (Standardize Command) รองรับทั้งมี slash '/' และไม่มี slash
+    let normCmd = textTrimmed;
+    if (normCmd.startsWith('จองเลข')) {
+      normCmd = normCmd.replace(/^จองเลข/, 'ขอเลข');
+    } else if (normCmd.startsWith('/จองเลข')) {
+      normCmd = normCmd.replace(/^\/จองเลข/, '/ขอเลข');
+    }
+    if (normCmd.startsWith('ดูเลขจอง')) {
+      normCmd = normCmd.replace(/^ดูเลขจอง/, 'เช็คเลขจอง');
+    } else if (normCmd.startsWith('/ดูเลขจอง')) {
+      normCmd = normCmd.replace(/^\/ดูเลขจอง/, '/เช็คเลขจอง');
+    }
+    if (!normCmd.startsWith('/')) {
+      const knownCommands = [
+        'ขอเลข', 'เช็คเลขจอง', 'แนบเอกสาร', 'แนบรับ', 'แนบหนังสือรับ',
+        'แนบส่ง', 'แนบหนังสือส่ง', 'แนบคำสั่ง', 'แนบบันทึก', 'แนบเมโม่',
+        'ยกเลิก', 'ลบเลขจอง'
+      ];
+      for (const kc of knownCommands) {
+        if (normCmd.startsWith(kc)) {
+          normCmd = `/${normCmd}`;
+          break;
+        }
+      }
+    }
+
     if (
-      textTrimmed.startsWith('/ขอเลข') ||
-      textTrimmed.startsWith('/เช็คเลขจอง') ||
-      textTrimmed.startsWith('/แนบเอกสาร') ||
-      textTrimmed.startsWith('/แนบรับ') ||
-      textTrimmed.startsWith('/แนบหนังสือรับ') ||
-      textTrimmed.startsWith('/แนบส่ง') ||
-      textTrimmed.startsWith('/แนบหนังสือส่ง') ||
-      textTrimmed.startsWith('/แนบคำสั่ง') ||
-      textTrimmed.startsWith('/แนบบันทึก') ||
-      textTrimmed.startsWith('/แนบเมโม่') ||
-      textTrimmed.startsWith('/ยกเลิก') ||
-      textTrimmed.startsWith('/ลบเลขจอง')
+      normCmd.startsWith('/ขอเลข') ||
+      normCmd.startsWith('/เช็คเลขจอง') ||
+      normCmd.startsWith('/แนบเอกสาร') ||
+      normCmd.startsWith('/แนบรับ') ||
+      normCmd.startsWith('/แนบหนังสือรับ') ||
+      normCmd.startsWith('/แนบส่ง') ||
+      normCmd.startsWith('/แนบหนังสือส่ง') ||
+      normCmd.startsWith('/แนบคำสั่ง') ||
+      normCmd.startsWith('/แนบบันทึก') ||
+      normCmd.startsWith('/แนบเมโม่') ||
+      normCmd.startsWith('/ยกเลิก') ||
+      normCmd.startsWith('/ลบเลขจอง')
     ) {
-      if (textTrimmed.startsWith('/เช็คเลขจอง')) {
+      // เมนูแนะนำวิธีการขอเลขหนังสือ หากพิมพ์เพียง /ขอเลข หรือ ขอเลข
+      if (normCmd.trim() === '/ขอเลข') {
+        const guideMsg = `📌 <b>คู่มือการขอ/จองเลขหนังสือผ่าน Telegram</b> 🌸\n━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `ท่านสามารถพิมพ์คำสั่งพร้อมชื่อเรื่องได้เลยค่ะ (ใส่เครื่องหมาย / หรือไม่ใส่ก็ได้):\n\n` +
+          `1️⃣ <b>บันทึกข้อความ:</b>\n` +
+          `   👉 <code>ขอเลขบันทึก [ชื่อเรื่อง]</code>\n` +
+          `   <i>ตัวอย่าง: ขอเลขบันทึก ขออนุมัติจัดโครงการพัฒนาวิชาการ</i>\n\n` +
+          `2️⃣ <b>หนังสือส่ง (ออกภายนอก):</b>\n` +
+          `   👉 <code>ขอเลขส่ง [ชื่อเรื่อง] ถึง [หน่วยงาน]</code>\n` +
+          `   <i>ตัวอย่าง: ขอเลขส่ง รายงานผลการประเมิน ถึง สพป.พัทลุง เขต 2</i>\n\n` +
+          `3️⃣ <b>คำสั่งโรงเรียน:</b>\n` +
+          `   👉 <code>ขอเลขคำสั่ง [ชื่อเรื่อง]</code>\n` +
+          `   <i>ตัวอย่าง: ขอเลขคำสั่ง แต่งตั้งคณะกรรมการตรวจรับพัสดุ</i>\n\n` +
+          `4️⃣ <b>หนังสือรับ (เข้าใหม่):</b>\n` +
+          `   👉 <code>ขอเลขรับ [ชื่อเรื่อง] จาก [หน่วยงาน]</code>\n` +
+          `   <i>ตัวอย่าง: ขอเลขรับ ประชาสัมพันธ์งานวิชาการ จาก สพฐ.</i>\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `📋 <b>คำสั่งเพิ่มเติม:</b>\n` +
+          `• <code>เช็คเลขจอง</code> — ดูรายการเลขหนังสือที่ท่านจองค้างไว้\n` +
+          `• <code>แนบเอกสาร [เลขที่]</code> — ส่งพร้อมไฟล์ PDF หรือรูปภาพเพื่อแนบเอกสาร\n` +
+          `• <code>ยกเลิกเลขจอง [เลขที่]</code> — ลบรายการจองที่ไม่ต้องการใช้งาน`;
+
+        await sendTelegramMessage(botToken, chatId, guideMsg);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (normCmd.startsWith('/เช็คเลขจอง')) {
         const [memoRes, outRes, ordRes, incRes] = await Promise.all([
           supabase.from('memos').select('memo_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true),
           supabase.from('outgoing_docs').select('doc_number, subject, created_at').eq('reserved_by_telegram_id', String(userTelegramId)).eq('is_reserved', true),
@@ -2886,13 +2956,13 @@ export default async function handler(req: any, res: any) {
         ]);
 
         const list: string[] = [];
-        (memoRes.data || []).forEach(m => list.push(`• <b>บันทึกข้อความ</b>: <code>${m.memo_number}</code> - ${m.subject}`));
-        (outRes.data || []).forEach(o => list.push(`• <b>หนังสือส่ง</b>: <code>${o.doc_number}</code> - ${o.subject}`));
-        (ordRes.data || []).forEach(r => list.push(`• <b>คำสั่งโรงเรียน</b>: <code>${r.order_number}</code> - ${r.subject}`));
-        (incRes.data || []).forEach(i => list.push(`• <b>หนังสือรับ</b>: <code>${i.doc_number}</code> - ${i.subject}`));
+        (memoRes.data || []).forEach(m => list.push(`• <b>บันทึกข้อความ</b>: <code>${escapeHtml(m.memo_number)}</code> - ${escapeHtml(m.subject || '-')}`));
+        (outRes.data || []).forEach(o => list.push(`• <b>หนังสือส่ง</b>: <code>${escapeHtml(o.doc_number)}</code> - ${escapeHtml(o.subject || '-')}`));
+        (ordRes.data || []).forEach(r => list.push(`• <b>คำสั่งโรงเรียน</b>: <code>${escapeHtml(r.order_number)}</code> - ${escapeHtml(r.subject || '-')}`));
+        (incRes.data || []).forEach(i => list.push(`• <b>หนังสือรับ</b>: <code>${escapeHtml(i.doc_number)}</code> - ${escapeHtml(i.subject || '-')}`));
 
         if (list.length === 0) {
-          await sendTelegramMessage(botToken, chatId, `🎉 คุณครู <b>${profileLinked.display_name || ''}</b> ไม่มีรายการเลขหนังสือที่จองค้างไว้เลยค่ะ 🌸`);
+          await sendTelegramMessage(botToken, chatId, `🎉 คุณครู <b>${escapeHtml(profileLinked.display_name || '')}</b> ไม่มีรายการเลขหนังสือที่จองค้างไว้เลยค่ะ 🌸`);
         } else {
           const resMsg = `📋 <b>รายการเลขหนังสือที่จองค้างไว้ (${list.length} รายการ)</b>\n\n${list.join('\n')}\n\n💡 <i>พิมพ์ <code>/แนบเอกสาร [เลขที่]</code> เพื่อแนบไฟล์ หรือ <code>/ยกเลิกเลขจอง [เลขที่]</code> เพื่อยกเลิกรายการจองค่ะ 🌸</i>`;
           await sendTelegramMessage(botToken, chatId, resMsg);
@@ -2901,22 +2971,22 @@ export default async function handler(req: any, res: any) {
       }
 
       if (
-        textTrimmed.startsWith('/ยกเลิกเลขจอง') ||
-        textTrimmed.startsWith('/ยกเลิกจอง') ||
-        textTrimmed.startsWith('/ลบเลขจอง') ||
-        textTrimmed.startsWith('/ยกเลิกรับ') ||
-        textTrimmed.startsWith('/ยกเลิกส่ง') ||
-        textTrimmed.startsWith('/ยกเลิกคำสั่ง') ||
-        textTrimmed.startsWith('/ยกเลิกบันทึก') ||
-        textTrimmed.startsWith('/ยกเลิกเมโม่')
+        normCmd.startsWith('/ยกเลิกเลขจอง') ||
+        normCmd.startsWith('/ยกเลิกจอง') ||
+        normCmd.startsWith('/ลบเลขจอง') ||
+        normCmd.startsWith('/ยกเลิกรับ') ||
+        normCmd.startsWith('/ยกเลิกส่ง') ||
+        normCmd.startsWith('/ยกเลิกคำสั่ง') ||
+        normCmd.startsWith('/ยกเลิกบันทึก') ||
+        normCmd.startsWith('/ยกเลิกเมโม่')
       ) {
         let typeHint = '';
-        if (textTrimmed.startsWith('/ยกเลิกรับ')) typeHint = 'incoming_docs';
-        else if (textTrimmed.startsWith('/ยกเลิกส่ง')) typeHint = 'outgoing_docs';
-        else if (textTrimmed.startsWith('/ยกเลิกคำสั่ง')) typeHint = 'orders';
-        else if (textTrimmed.startsWith('/ยกเลิกบันทึก') || textTrimmed.startsWith('/ยกเลิกเมโม่')) typeHint = 'memos';
+        if (normCmd.startsWith('/ยกเลิกรับ')) typeHint = 'incoming_docs';
+        else if (normCmd.startsWith('/ยกเลิกส่ง')) typeHint = 'outgoing_docs';
+        else if (normCmd.startsWith('/ยกเลิกคำสั่ง')) typeHint = 'orders';
+        else if (normCmd.startsWith('/ยกเลิกบันทึก') || normCmd.startsWith('/ยกเลิกเมโม่')) typeHint = 'memos';
 
-        const targetSeqStr = textTrimmed.replace(/^\/(ยกเลิกเลขจอง|ยกเลิกจอง|ลบเลขจอง|ยกเลิกรับ|ยกเลิกส่ง|ยกเลิกคำสั่ง|ยกเลิกบันทึก|ยกเลิกเมโม่)\s*/, '').trim();
+        const targetSeqStr = normCmd.replace(/^\/(ยกเลิกเลขจอง|ยกเลิกจอง|ลบเลขจอง|ยกเลิกรับ|ยกเลิกส่ง|ยกเลิกคำสั่ง|ยกเลิกบันทึก|ยกเลิกเมโม่)\s*/, '').trim();
         const targetSeq = parseInt(targetSeqStr, 10);
 
         if (isNaN(targetSeq)) {
@@ -2970,18 +3040,22 @@ export default async function handler(req: any, res: any) {
         const { error: delErr } = await supabase.from(target.table).delete().eq('id', target.id);
 
         if (delErr) {
-          await sendTelegramMessage(botToken, chatId, `❌ เกิดข้อผิดพลาดในการยกเลิกรายการจอง: ${delErr.message}`);
+          await sendTelegramMessage(botToken, chatId, `❌ เกิดข้อผิดพลาดในการยกเลิกรายการจอง: ${escapeHtml(delErr.message)}`);
           return res.status(200).json({ ok: true });
         }
 
-        await sendTelegramMessage(botToken, chatId, `🗑️ <b>ยกเลิกการจองเลขสำเร็จ!</b>\n\nทำการลบรายการจองเลขลำดับ <b>${targetSeq}</b> (เรื่อง: ${target.subject || '-'}) ออกจากระบบเรียบร้อยแล้วค่ะ สามารถพิมพ์ขอเลขใหม่ได้ทันทีค่ะ 🌸✨`);
+        await sendTelegramMessage(botToken, chatId, `🗑️ <b>ยกเลิกการจองเลขสำเร็จ!</b>\n\nทำการลบรายการจองเลขลำดับ <b>${targetSeq}</b> (เรื่อง: ${escapeHtml(target.subject || '-')}) ออกจากระบบเรียบร้อยแล้วค่ะ สามารถพิมพ์ขอเลขใหม่ได้ทันทีค่ะ 🌸✨`);
         return res.status(200).json({ ok: true });
       }
 
-      if (textTrimmed.startsWith('/ขอเลขบันทึก') || textTrimmed.startsWith('/ขอเลขเมโม่') || textTrimmed.startsWith('/ขอเลขmemo')) {
-        let subject = textTrimmed.replace(/^\/(ขอเลขบันทึก|ขอเลขเมโม่|ขอเลขmemo)\s*/, '').trim();
+      if (
+        normCmd.startsWith('/ขอเลขบันทึก') ||
+        normCmd.startsWith('/ขอเลขเมโม่') ||
+        normCmd.startsWith('/ขอเลขmemo')
+      ) {
+        let subject = normCmd.replace(/^\/(ขอเลขบันทึกข้อความ|ขอเลขบันทึก|ขอเลขเมโม่|ขอเลขmemo)\s*/, '').trim();
         if (!subject) {
-          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลขบันทึก ขออนุมัติจัดโครงการพัฒนาวิชาการ</code> ค่ะ 🌸`);
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>ขอเลขบันทึก ขออนุมัติจัดโครงการพัฒนาวิชาการ</code> ค่ะ 🌸`);
           return res.status(200).json({ ok: true });
         }
 
@@ -3003,18 +3077,18 @@ export default async function handler(req: any, res: any) {
         }]);
 
         if (error) {
-          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขบันทึกข้อความได้: ${error.message}`);
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขบันทึกข้อความได้: ${escapeHtml(error.message)}`);
           return res.status(200).json({ ok: true });
         }
 
-        const msg = `✅ <b>ขอเลขบันทึกข้อความสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่บันทึกข้อความ:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n👤 <b>ผู้ขอเลข:</b> ${profileLinked.display_name}\n\n💡 <i>เลขถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+        const msg = `✅ <b>ขอเลขบันทึกข้อความสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่บันทึกข้อความ:</b> <code>${escapeHtml(fullNumber)}</code>\n📄 <b>เรื่อง:</b> ${escapeHtml(subject)}\n👤 <b>ผู้ขอเลข:</b> ${escapeHtml(profileLinked.display_name || '-')}\n\n💡 <i>เลขถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
         await sendTelegramMessage(botToken, chatId, msg);
         return res.status(200).json({ ok: true });
       }
 
       // รองรับทั้ง /ขอเลขส่ง และ /ขอเลขหนังสือส่ง (alias)
-      if (textTrimmed.startsWith('/ขอเลขส่ง') || textTrimmed.startsWith('/ขอเลขหนังสือส่ง')) {
-        const payload = textTrimmed.replace(/^\/(ขอเลขหนังสือส่ง|ขอเลขส่ง)\s*/, '').trim();
+      if (normCmd.startsWith('/ขอเลขส่ง') || normCmd.startsWith('/ขอเลขหนังสือส่ง')) {
+        const payload = normCmd.replace(/^\/(ขอเลขหนังสือส่ง|ขอเลขส่ง)\s*/, '').trim();
         let subject = payload;
         let toAgency = 'หน่วยงานภายนอก';
 
@@ -3025,7 +3099,7 @@ export default async function handler(req: any, res: any) {
         }
 
         if (!subject) {
-          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลขส่ง แจ้งส่งรายงาน ถึง สพป.พัทลุง เขต 2</code> ค่ะ 🌸`);
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>ขอเลขส่ง แจ้งส่งรายงาน ถึง สพป.พัทลุง เขต 2</code> ค่ะ 🌸`);
           return res.status(200).json({ ok: true });
         }
 
@@ -3049,19 +3123,19 @@ export default async function handler(req: any, res: any) {
         }]);
 
         if (error) {
-          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขหนังสือส่งได้: ${error.message}`);
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขหนังสือส่งได้: ${escapeHtml(error.message)}`);
           return res.status(200).json({ ok: true });
         }
 
-        const msg = `✅ <b>ขอเลขหนังสือส่งสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่หนังสือส่ง:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n🏢 <b>ถึง:</b> ${toAgency}\n👤 <b>ผู้ขอเลข:</b> ${profileLinked.display_name}\n\n💡 <i>เลขหนังสือส่งถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+        const msg = `✅ <b>ขอเลขหนังสือส่งสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่หนังสือส่ง:</b> <code>${escapeHtml(fullNumber)}</code>\n📄 <b>เรื่อง:</b> ${escapeHtml(subject)}\n🏢 <b>ถึง:</b> ${escapeHtml(toAgency)}\n👤 <b>ผู้ขอเลข:</b> ${escapeHtml(profileLinked.display_name || '-')}\n\n💡 <i>เลขหนังสือส่งถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
         await sendTelegramMessage(botToken, chatId, msg);
         return res.status(200).json({ ok: true });
       }
 
-      if (textTrimmed.startsWith('/ขอเลขคำสั่ง')) {
-        let subject = textTrimmed.replace(/^\/ขอเลขคำสั่ง\s*/, '').trim();
+      if (normCmd.startsWith('/ขอเลขคำสั่ง')) {
+        let subject = normCmd.replace(/^\/ขอเลขคำสั่ง\s*/, '').trim();
         if (!subject) {
-          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องคำสั่งด้วยนะคะ เช่น <code>/ขอเลขคำสั่ง แต่งตั้งคณะทำงานพัฒนาโรงเรียน</code> ค่ะ 🌸`);
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องคำสั่งด้วยนะคะ เช่น <code>ขอเลขคำสั่ง แต่งตั้งคณะทำงานพัฒนาโรงเรียน</code> ค่ะ 🌸`);
           return res.status(200).json({ ok: true });
         }
 
@@ -3084,18 +3158,18 @@ export default async function handler(req: any, res: any) {
         }]);
 
         if (error) {
-          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขคำสั่งได้: ${error.message}`);
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขคำสั่งได้: ${escapeHtml(error.message)}`);
           return res.status(200).json({ ok: true });
         }
 
-        const msg = `✅ <b>ขอเลขคำสั่งโรงเรียนสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่คำสั่ง:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n👤 <b>ผู้ขอเลข:</b> ${profileLinked.display_name}\n\n💡 <i>เลขคำสั่งถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+        const msg = `✅ <b>ขอเลขคำสั่งโรงเรียนสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขที่คำสั่ง:</b> <code>${escapeHtml(fullNumber)}</code>\n📄 <b>เรื่อง:</b> ${escapeHtml(subject)}\n👤 <b>ผู้ขอเลข:</b> ${escapeHtml(profileLinked.display_name || '-')}\n\n💡 <i>เลขคำสั่งถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
         await sendTelegramMessage(botToken, chatId, msg);
         return res.status(200).json({ ok: true });
       }
 
       // รองรับทั้ง /ขอเลขรับ และ /ขอเลขหนังสือรับ (alias)
-      if (textTrimmed.startsWith('/ขอเลขรับ') || textTrimmed.startsWith('/ขอเลขหนังสือรับ')) {
-        const payload = textTrimmed.replace(/^\/(ขอเลขหนังสือรับ|ขอเลขรับ)\s*/, '').trim();
+      if (normCmd.startsWith('/ขอเลขรับ') || normCmd.startsWith('/ขอเลขหนังสือรับ')) {
+        const payload = normCmd.replace(/^\/(ขอเลขหนังสือรับ|ขอเลขรับ)\s*/, '').trim();
         let subject = payload;
         let fromAgency = 'หน่วยงานภายนอก';
 
@@ -3106,7 +3180,7 @@ export default async function handler(req: any, res: any) {
         }
 
         if (!subject) {
-          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>/ขอเลขรับ ประชาสัมพันธ์โครงการ จาก สพป.พัทลุง เขต 2</code> ค่ะ 🌸`);
+          await sendTelegramMessage(botToken, chatId, `⚠️ กรุณาระบุชื่อเรื่องด้วยนะคะ เช่น <code>ขอเลขรับ ประชาสัมพันธ์โครงการ จาก สพป.พัทลุง เขต 2</code> ค่ะ 🌸`);
           return res.status(200).json({ ok: true });
         }
 
@@ -3129,32 +3203,32 @@ export default async function handler(req: any, res: any) {
         }]);
 
         if (error) {
-          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขรับได้: ${error.message}`);
+          await sendTelegramMessage(botToken, chatId, `❌ ขออภัยค่ะ ไม่สามารถออกเลขรับได้: ${escapeHtml(error.message)}`);
           return res.status(200).json({ ok: true });
         }
 
-        const msg = `✅ <b>ขอเลขลงรับเอกสารสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขรับที่:</b> <code>${fullNumber}</code>\n📄 <b>เรื่อง:</b> ${subject}\n🏢 <b>จาก:</b> ${fromAgency}\n👤 <b>ผู้ลงรับ:</b> ${profileLinked.display_name}\n\n💡 <i>เลขรับถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
+        const msg = `✅ <b>ขอเลขลงรับเอกสารสำเร็จ! (สถานะ: จองเลข)</b>\n\n📌 <b>เลขรับที่:</b> <code>${escapeHtml(fullNumber)}</code>\n📄 <b>เรื่อง:</b> ${escapeHtml(subject)}\n🏢 <b>จาก:</b> ${escapeHtml(fromAgency)}\n👤 <b>ผู้ลงรับ:</b> ${escapeHtml(profileLinked.display_name || '-')}\n\n💡 <i>เลขรับถูกจองไว้ในระบบแล้ว สามารถส่งไฟล์ PDF มาแนบย้อนหลังได้ตลอดเวลาค่ะ 🌸</i>`;
         await sendTelegramMessage(botToken, chatId, msg);
         return res.status(200).json({ ok: true });
       }
 
       if (
-        textTrimmed.startsWith('/แนบเอกสาร') ||
-        textTrimmed.startsWith('/แนบรับ') ||
-        textTrimmed.startsWith('/แนบหนังสือรับ') ||
-        textTrimmed.startsWith('/แนบส่ง') ||
-        textTrimmed.startsWith('/แนบหนังสือส่ง') ||
-        textTrimmed.startsWith('/แนบคำสั่ง') ||
-        textTrimmed.startsWith('/แนบบันทึก') ||
-        textTrimmed.startsWith('/แนบเมโม่')
+        normCmd.startsWith('/แนบเอกสาร') ||
+        normCmd.startsWith('/แนบรับ') ||
+        normCmd.startsWith('/แนบหนังสือรับ') ||
+        normCmd.startsWith('/แนบส่ง') ||
+        normCmd.startsWith('/แนบหนังสือส่ง') ||
+        normCmd.startsWith('/แนบคำสั่ง') ||
+        normCmd.startsWith('/แนบบันทึก') ||
+        normCmd.startsWith('/แนบเมโม่')
       ) {
         let typeHint = '';
-        if (textTrimmed.startsWith('/แนบรับ') || textTrimmed.startsWith('/แนบหนังสือรับ')) typeHint = 'incoming_docs';
-        else if (textTrimmed.startsWith('/แนบส่ง') || textTrimmed.startsWith('/แนบหนังสือส่ง')) typeHint = 'outgoing_docs';
-        else if (textTrimmed.startsWith('/แนบคำสั่ง')) typeHint = 'orders';
-        else if (textTrimmed.startsWith('/แนบบันทึก') || textTrimmed.startsWith('/แนบเมโม่')) typeHint = 'memos';
+        if (normCmd.startsWith('/แนบรับ') || normCmd.startsWith('/แนบหนังสือรับ')) typeHint = 'incoming_docs';
+        else if (normCmd.startsWith('/แนบส่ง') || normCmd.startsWith('/แนบหนังสือส่ง')) typeHint = 'outgoing_docs';
+        else if (normCmd.startsWith('/แนบคำสั่ง')) typeHint = 'orders';
+        else if (normCmd.startsWith('/แนบบันทึก') || normCmd.startsWith('/แนบเมโม่')) typeHint = 'memos';
 
-        const targetSeqStr = textTrimmed.replace(/^\/(แนบเอกสาร|แนบรับ|แนบหนังสือรับ|แนบส่ง|แนบหนังสือส่ง|แนบคำสั่ง|แนบบันทึก|แนบเมโม่)\s*/, '').trim();
+        const targetSeqStr = normCmd.replace(/^\/(แนบเอกสาร|แนบรับ|แนบหนังสือรับ|แนบส่ง|แนบหนังสือส่ง|แนบคำสั่ง|แนบบันทึก|แนบเมโม่)\s*/, '').trim();
         const targetSeq = parseInt(targetSeqStr, 10);
 
         let uploadedUrl = '';
