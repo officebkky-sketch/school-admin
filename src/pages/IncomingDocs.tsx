@@ -534,6 +534,12 @@ export default function IncomingDocs() {
         }).catch(err => console.error('[AUTO OCR TRIGGER ERROR]', err));
       }
 
+      // ปิดหน้าต่าง Modal และรีเฟรชรายการหนังสือทันที เพื่อความรวดเร็วสูงสุด (Instant UI Response)
+      setIsModalOpen(false);
+      resetForm();
+      fetchDocs();
+      setIsSaving(false);
+
       let lineNotifyStatus = '';
       if (!isHolding) {
         // 1. ส่งการแจ้งเตือนทาง LINE Interactive Flex Message
@@ -568,103 +574,108 @@ export default function IncomingDocs() {
           color: '#1DB446' 
         });
 
-        try {
-          await sendInteractiveFlexMessage(
-            undefined, // ส่งเข้าไลน์กลุ่มที่กำหนดใน Settings
+        // 2. ส่งการแจ้งเตือนทาง Telegram (Unified Rich Card)
+        const urgencyBadge = formData.urgency === 'ด่วนที่สุด' 
+          ? '🔴 <b>[ด่วนที่สุด]</b>' 
+          : formData.urgency === 'ด่วนมาก' 
+            ? '🟠 <b>[ด่วนมาก]</b>' 
+            : formData.urgency === 'ด่วน' 
+              ? '🟡 <b>[ด่วน]</b>' 
+              : '🟢 <b>[ปกติ]</b>';
+
+        const safeFinalDocNum = escapeHtml(finalDocNum);
+        const safeSubject = escapeHtml(formData.subject || '-');
+        const safeFromAgency = escapeHtml(formData.from_agency || '-');
+        const safeSenderDocNo = escapeHtml(formData.sender_doc_number || '-');
+        const safeSummary = escapeHtml(proposalData.summary || '');
+        const safeSuggestedName = escapeHtml(suggestedTeacherName || '');
+
+        let telegramMsg = `📥 <b>เสนอหนังสือราชการเข้าใหม่ (รอเกษียณสั่งการ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+        telegramMsg += `${urgencyBadge} 📌 <b>เลขรับที่:</b> <code>${safeFinalDocNum}</code>\n`;
+        telegramMsg += `📋 <b>เรื่อง:</b> <b>${safeSubject}</b>\n`;
+        telegramMsg += `🏛️ <b>จาก:</b> ${safeFromAgency}\n`;
+        if (formData.sender_doc_number || formData.sender_doc_date) {
+          telegramMsg += `🔢 <b>เลขที่ผู้ส่ง:</b> <code>${safeSenderDocNo}</code> ${formData.sender_doc_date ? `(ลงวันที่ ${formatDateDMY(formData.sender_doc_date)})` : ''}\n`;
+        }
+
+        if (safeSummary) {
+          telegramMsg += `\n✨ <b>สาระสำคัญ (เกษียณเสนอ):</b>\n<blockquote>${safeSummary}</blockquote>\n`;
+        }
+
+        if (formData.action_deadline) {
+          const dlStr = formatDateDMY(formData.action_deadline);
+          telegramMsg += `⏰ <b>กำหนดการ/ส่งงาน:</b> <u>${dlStr}</u>\n`;
+        }
+
+        if (safeSuggestedName) {
+          telegramMsg += `🧑‍🏫 <b>ครูผู้รับงานที่แนะนำ:</b> <b>${safeSuggestedName}</b>\n`;
+        }
+
+        telegramMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
+        if (file_url) {
+          telegramMsg += `📄 <a href="${file_url}"><b>[เปิดดูต้นฉบับหนังสือนำ]</b></a>`;
+        }
+
+        if (Array.isArray(att_urls) && att_urls.length > 0) {
+          telegramMsg += `\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>\n`;
+          att_urls.forEach((url: string, i: number) => {
+            telegramMsg += `   🔹 <a href="${url}">ไฟล์แนบที่ ${i + 1}</a>\n`;
+          });
+        }
+
+        const telegramInlineButtons: any[] = [];
+        if (suggestedTeacherId) {
+          telegramInlineButtons.push([{
+            text: `✅ มอบหมาย ${safeSuggestedName} ทันที`,
+            callback_data: `action=smart_assign_confirm&doc_id=${insertedDoc?.id || ''}&t_id=${suggestedTeacherId}`
+          }]);
+        }
+        telegramInlineButtons.push([{
+          text: `✍️ เกษียณสั่งการ / มอบหมาย`,
+          callback_data: `action=start_assign&id=${insertedDoc?.id || ''}`
+        }]);
+
+        const telegramReplyMarkup = { inline_keyboard: telegramInlineButtons };
+
+        // ส่งคู่ขนานทั้ง LINE และ Telegram
+        const notifyTasks: Promise<any>[] = [
+          sendInteractiveFlexMessage(
+            undefined,
             '📥 เสนอหนังสือรอเกษียณ',
             regMsg,
             regActions
-          );
-          lineNotifyStatus = ' และเสนอผู้บริหารผ่าน LINE เรียบร้อยแล้ว';
-        } catch (lineErr) {
-          console.error('[LINE NOTIFY ERROR]', lineErr);
-          lineNotifyStatus = ' แต่ไม่สามารถส่งแจ้งเตือน LINE ได้ (กรุณาเสนอหนังสือแบบกลุ่มแทน)';
-        }
+          ).catch(e => ({ failed: true, channel: 'LINE', error: e })),
 
-        // 2. ส่งการแจ้งเตือนทาง Telegram (Unified Rich Card พร้อมสรุป AI, กำหนดการ และไฟล์แนบครบถ้วน)
-        let telegramNotifyStatus = '';
-        try {
-          const urgencyBadge = formData.urgency === 'ด่วนที่สุด' 
-            ? '🔴 <b>[ด่วนที่สุด]</b>' 
-            : formData.urgency === 'ด่วนมาก' 
-              ? '🟠 <b>[ด่วนมาก]</b>' 
-              : formData.urgency === 'ด่วน' 
-                ? '🟡 <b>[ด่วน]</b>' 
-                : '🟢 <b>[ปกติ]</b>';
+          sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup)
+            .catch(e => ({ failed: true, channel: 'Telegram', error: e }))
+        ];
 
-          const safeFinalDocNum = escapeHtml(finalDocNum);
-          const safeSubject = escapeHtml(formData.subject || '-');
-          const safeFromAgency = escapeHtml(formData.from_agency || '-');
-          const safeSenderDocNo = escapeHtml(formData.sender_doc_number || '-');
-          const safeSummary = escapeHtml(proposalData.summary || '');
-          const safeSuggestedName = escapeHtml(suggestedTeacherName || '');
-
-          let telegramMsg = `📥 <b>เสนอหนังสือราชการเข้าใหม่ (รอเกษียณสั่งการ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-          telegramMsg += `${urgencyBadge} 📌 <b>เลขรับที่:</b> <code>${safeFinalDocNum}</code>\n`;
-          telegramMsg += `📋 <b>เรื่อง:</b> <b>${safeSubject}</b>\n`;
-          telegramMsg += `🏛️ <b>จาก:</b> ${safeFromAgency}\n`;
-          if (formData.sender_doc_number || formData.sender_doc_date) {
-            telegramMsg += `🔢 <b>เลขที่ผู้ส่ง:</b> <code>${safeSenderDocNo}</code> ${formData.sender_doc_date ? `(ลงวันที่ ${formatDateDMY(formData.sender_doc_date)})` : ''}\n`;
+        const notifyResults = await Promise.allSettled(notifyTasks);
+        let lineOk = true;
+        let tgOk = true;
+        notifyResults.forEach(r => {
+          if (r.status === 'fulfilled' && (r.value as any)?.failed) {
+            if ((r.value as any).channel === 'LINE') lineOk = false;
+            if ((r.value as any).channel === 'Telegram') tgOk = false;
+          } else if (r.status === 'rejected') {
+            tgOk = false;
           }
+        });
 
-          if (safeSummary) {
-            telegramMsg += `\n✨ <b>สาระสำคัญ (เกษียณเสนอ):</b>\n<blockquote>${safeSummary}</blockquote>\n`;
-          }
+        let channelStatus = '';
+        if (lineOk && tgOk) channelStatus = ' (LINE และ Telegram สำเร็จ ✅)';
+        else if (lineOk) channelStatus = ' (LINE สำเร็จ)';
+        else if (tgOk) channelStatus = ' (Telegram สำเร็จ)';
 
-          if (formData.action_deadline) {
-            const dlStr = formatDateDMY(formData.action_deadline);
-            telegramMsg += `⏰ <b>กำหนดการ/ส่งงาน:</b> <u>${dlStr}</u>\n`;
-          }
-
-          if (safeSuggestedName) {
-            telegramMsg += `🧑‍🏫 <b>ครูผู้รับงานที่แนะนำ:</b> <b>${safeSuggestedName}</b>\n`;
-          }
-
-          telegramMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-          if (file_url) {
-            telegramMsg += `📄 <a href="${file_url}"><b>[เปิดดูต้นฉบับหนังสือนำ]</b></a>`;
-          }
-
-          if (Array.isArray(att_urls) && att_urls.length > 0) {
-            telegramMsg += `\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>\n`;
-            att_urls.forEach((url: string, i: number) => {
-              telegramMsg += `   🔹 <a href="${url}">ไฟล์แนบที่ ${i + 1}</a>\n`;
-            });
-          }
-
-          const telegramInlineButtons: any[] = [];
-          if (suggestedTeacherId) {
-            telegramInlineButtons.push([{
-              text: `✅ มอบหมาย ${safeSuggestedName} ทันที`,
-              callback_data: `action=smart_assign_confirm&doc_id=${insertedDoc?.id || ''}&t_id=${suggestedTeacherId}`
-            }]);
-          }
-          telegramInlineButtons.push([{
-            text: `✍️ เกษียณสั่งการ / มอบหมาย`,
-            callback_data: `action=start_assign&id=${insertedDoc?.id || ''}`
-          }]);
-
-          const telegramReplyMarkup = { inline_keyboard: telegramInlineButtons };
-          await sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup);
-          telegramNotifyStatus = ' และส่งแจ้งเตือน Telegram สำเร็จ ✅';
-        } catch (tgErr: any) {
-          console.error('[TELEGRAM NOTIFY ERROR]', tgErr);
-          telegramNotifyStatus = ` (Telegram ล้มเหลว: ${tgErr.message})`;
-        }
-
-        lineNotifyStatus += telegramNotifyStatus;
+        alert(`ลงรับหนังสือและเสนอผู้บริหารเรียบร้อยแล้ว${channelStatus}`);
       } else {
-        lineNotifyStatus = ' (พักรอเสนอผู้บริหารเรียบร้อย)';
+        alert('ลงรับหนังสือเรียบร้อยแล้ว (พักรอเสนอผู้บริหาร)');
       }
-      
-      setIsModalOpen(false);
-      resetForm();
-      fetchDocs();
-      alert(`ลงรับหนังสือเรียบร้อยแล้ว${lineNotifyStatus}`);
 
     } catch (err: any) {
       alert(`บันทึกไม่สำเร็จ: ${err.message}`);
-    } finally { setIsSaving(false); }
+      setIsSaving(false);
+    }
   }
 
   async function handleBulkPropose() {
@@ -674,12 +685,28 @@ export default function IncomingDocs() {
       return;
     }
     
-    if (!confirm(`คุณต้องการเสนอหนังสือที่เลือกจำนวน ${selectedHoldingIds.length} ฉบับไปยังผู้บริหารพร้อมกันใช่หรือไม่?`)) return;
+    const count = selectedHoldingIds.length;
+    if (!confirm(`คุณต้องการเสนอหนังสือที่เลือกจำนวน ${count} ฉบับไปยังผู้บริหารพร้อมกันใช่หรือไม่?`)) return;
     
+    const targetIds = [...selectedHoldingIds];
+    const docsToPropose = docs.filter(d => targetIds.includes(d.id));
+
     setIsSaving(true);
     try {
-      const docsToPropose = docs.filter(d => selectedHoldingIds.includes(d.id));
-      
+      // 1. DB-First: อัปเดตสถานะใน Supabase เป็น 'pending' ทันที
+      const { error: dbError } = await supabase
+        .from('incoming_docs')
+        .update({ status: 'pending' })
+        .in('id', targetIds);
+
+      if (dbError) throw dbError;
+
+      // 2. Instant Optimistic UI: ปรับสถานะบนหน้าจอทันที (เปลี่ยนเป็น 'รอ ผอ. เกษียณ' เสี้ยววินาที)
+      setDocs(prev => prev.map(d => targetIds.includes(d.id) ? { ...d, status: 'pending' } : d));
+      setSelectedHoldingIds([]);
+      setIsSaving(false);
+
+      // 3. เตรียมข้อมูล Carousel และ Telegram สำหรับส่งแจ้งเตือนแบบคู่ขนาน (Concurrent Dispatch)
       const carouselItems = docsToPropose.map(d => ({
         id: d.id,
         subject: d.subject || '',
@@ -689,109 +716,114 @@ export default function IncomingDocs() {
         attachment_urls: Array.isArray(d.attachment_urls)
           ? d.attachment_urls
           : (() => { try { const p = JSON.parse(d.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })()
-
       }));
 
-      await sendBulkFlexCarousel(
-        undefined, // ส่งเข้าไลน์กลุ่มที่กำหนดใน Settings
-        `📥 เสนอหนังสือรอเกษียณใหม่ (${selectedHoldingIds.length} ฉบับ)`,
-        carouselItems
-      );
+      let telegramMsg = `📥 <b>เสนอหนังสือราชการรอเกษียณเข้าใหม่ (${docsToPropose.length} ฉบับ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+      docsToPropose.forEach((doc, idx) => {
+        let summaryText = '';
+        let senderDocNo = '';
+        let senderDocDate = '';
+        try {
+          const rObj = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
+          summaryText = rObj.proposal_summary || rObj.ai_summary || '';
+          senderDocNo = rObj.sender_doc_number || '';
+          senderDocDate = rObj.sender_doc_date || '';
+        } catch {}
 
-      // ส่งแจ้งเตือน Telegram สำหรับการเสนอหลายฉบับพร้อมกัน (จัดรวมเป็นข้อความเดียวแบบมีปุ่มสั่งการแยก พร้อมสาระสำคัญและไฟล์แนบ)
-      let telegramNotifyStatus = '';
-      try {
-        let telegramMsg = `📥 <b>เสนอหนังสือราชการรอเกษียณเข้าใหม่ (${docsToPropose.length} ฉบับ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-        docsToPropose.forEach((doc, idx) => {
-          let summaryText = '';
-          let senderDocNo = '';
-          let senderDocDate = '';
-          try {
-            const rObj = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
-            summaryText = rObj.proposal_summary || rObj.ai_summary || '';
-            senderDocNo = rObj.sender_doc_number || '';
-            senderDocDate = rObj.sender_doc_date || '';
-          } catch {}
+        const urgencyBadge = doc.urgency === 'ด่วนที่สุด' 
+          ? '🔴 <b>[ด่วนที่สุด]</b>' 
+          : doc.urgency === 'ด่วนมาก' 
+            ? '🟠 <b>[ด่วนมาก]</b>' 
+            : doc.urgency === 'ด่วน' 
+              ? '🟡 <b>[ด่วน]</b>' 
+              : '🟢 <b>[ปกติ]</b>';
 
-          const urgencyBadge = doc.urgency === 'ด่วนที่สุด' 
-            ? '🔴 <b>[ด่วนที่สุด]</b>' 
-            : doc.urgency === 'ด่วนมาก' 
-              ? '🟠 <b>[ด่วนมาก]</b>' 
-              : doc.urgency === 'ด่วน' 
-                ? '🟡 <b>[ด่วน]</b>' 
-                : '🟢 <b>[ปกติ]</b>';
+        const safeSubject = escapeHtml(doc.subject || '-');
+        const safeDocNo = escapeHtml(doc.doc_number || '-');
+        const safeFrom = escapeHtml(doc.from_agency || '-');
+        const safeSenderDocNo = escapeHtml(senderDocNo || '-');
 
-          const safeSubject = escapeHtml(doc.subject || '-');
-          const safeDocNo = escapeHtml(doc.doc_number || '-');
-          const safeFrom = escapeHtml(doc.from_agency || '-');
-          const safeSenderDocNo = escapeHtml(senderDocNo || '-');
-
-          // ย่อสรุปให้กระชับสำหรับรายการรวม
-          let safeSummary = escapeHtml(summaryText || '');
-          if (safeSummary.length > 250) {
-            safeSummary = safeSummary.substring(0, 247) + '...';
-          }
-
-          telegramMsg += `${idx + 1}. ${urgencyBadge} <b>เรื่อง:</b> <b>${safeSubject}</b>\n`;
-          telegramMsg += `   • <b>เลขรับ:</b> <code>${safeDocNo}</code> | <b>จาก:</b> ${safeFrom}\n`;
-          if (senderDocNo || senderDocDate) {
-            telegramMsg += `   • <b>เลขที่ผู้ส่ง:</b> <code>${safeSenderDocNo}</code> ${senderDocDate ? `(ลงวันที่ ${formatDateDMY(senderDocDate)})` : ''}\n`;
-          }
-          if (safeSummary) {
-            telegramMsg += `   ✨ <b>สาระสำคัญ:</b>\n<blockquote>${safeSummary}</blockquote>\n`;
-          }
-          if (doc.action_deadline) {
-            telegramMsg += `   ⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${formatDateDMY(doc.action_deadline)}</u>\n`;
-          }
-          if (doc.file_url) {
-            telegramMsg += `   📄 <a href="${doc.file_url}"><b>[เปิดดูต้นฉบับ]</b></a>`;
-          }
-          const docAtts = Array.isArray(doc.attachment_urls)
-            ? doc.attachment_urls
-            : (() => { try { const p = JSON.parse(doc.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })();
-
-          if (docAtts.length > 0) {
-            telegramMsg += ` | 📎 <b>ไฟล์แนบ:</b> `;
-            docAtts.forEach((url: string, i: number) => {
-              telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
-            });
-          }
-          telegramMsg += `\n\n`;
-        });
-        
-        // จัดเรียงปุ่มสั่งการแบบ 2 ปุ่มต่อแถวเพื่อความกระชับ
-        const inlineButtons: any[] = [];
-        const buttonList = docsToPropose.map(doc => ({
-          text: `✍️ สั่งการที่ ${doc.doc_number}`,
-          callback_data: `action=start_assign&id=${doc.id}`
-        }));
-        
-        for (let i = 0; i < buttonList.length; i += 2) {
-          inlineButtons.push(buttonList.slice(i, i + 2));
+        let safeSummary = escapeHtml(summaryText || '');
+        if (safeSummary.length > 250) {
+          safeSummary = safeSummary.substring(0, 247) + '...';
         }
 
-        const telegramReplyMarkup = { inline_keyboard: inlineButtons };
+        telegramMsg += `${idx + 1}. ${urgencyBadge} <b>เรื่อง:</b> <b>${safeSubject}</b>\n`;
+        telegramMsg += `   • <b>เลขรับ:</b> <code>${safeDocNo}</code> | <b>จาก:</b> ${safeFrom}\n`;
+        if (senderDocNo || senderDocDate) {
+          telegramMsg += `   • <b>เลขที่ผู้ส่ง:</b> <code>${safeSenderDocNo}</code> ${senderDocDate ? `(ลงวันที่ ${formatDateDMY(senderDocDate)})` : ''}\n`;
+        }
+        if (safeSummary) {
+          telegramMsg += `   ✨ <b>สาระสำคัญ:</b>\n<blockquote>${safeSummary}</blockquote>\n`;
+        }
+        if (doc.action_deadline) {
+          telegramMsg += `   ⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${formatDateDMY(doc.action_deadline)}</u>\n`;
+        }
+        if (doc.file_url) {
+          telegramMsg += `   📄 <a href="${doc.file_url}"><b>[เปิดดูต้นฉบับ]</b></a>`;
+        }
+        const docAtts = Array.isArray(doc.attachment_urls)
+          ? doc.attachment_urls
+          : (() => { try { const p = JSON.parse(doc.attachment_urls); return Array.isArray(p) ? p : []; } catch { return []; } })();
 
-        await sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup);
-        telegramNotifyStatus = ' และ Telegram ✅';
-      } catch (tgErr: any) {
-        console.error('[TELEGRAM BULK NOTIFY ERROR]', tgErr);
-        telegramNotifyStatus = ` (Telegram ล้มเหลว: ${tgErr.message})`;
+        if (docAtts.length > 0) {
+          telegramMsg += ` | 📎 <b>ไฟล์แนบ:</b> `;
+          docAtts.forEach((url: string, i: number) => {
+            telegramMsg += `<a href="${url}">[แนบ ${i + 1}]</a> `;
+          });
+        }
+        telegramMsg += `\n\n`;
+      });
+      
+      const inlineButtons: any[] = [];
+      const buttonList = docsToPropose.map(doc => ({
+        text: `✍️ สั่งการที่ ${doc.doc_number}`,
+        callback_data: `action=start_assign&id=${doc.id}`
+      }));
+      
+      for (let i = 0; i < buttonList.length; i += 2) {
+        inlineButtons.push(buttonList.slice(i, i + 2));
+      }
+      const telegramReplyMarkup = { inline_keyboard: inlineButtons };
+
+      // 4. ส่งแจ้งเตือน LINE และ Telegram พร้อมกันโดยไม่บล็อกการทำงาน
+      const notifyPromises: Promise<any>[] = [
+        sendBulkFlexCarousel(
+          undefined,
+          `📥 เสนอหนังสือรอเกษียณใหม่ (${count} ฉบับ)`,
+          carouselItems
+        ).catch(err => ({ failed: true, channel: 'LINE', err })),
+        
+        sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup)
+          .catch(err => ({ failed: true, channel: 'Telegram', err }))
+      ];
+
+      const results = await Promise.allSettled(notifyPromises);
+      let lineSuccess = true;
+      let telegramSuccess = true;
+
+      results.forEach((res) => {
+        if (res.status === 'fulfilled' && (res.value as any)?.failed) {
+          if ((res.value as any).channel === 'LINE') lineSuccess = false;
+          if ((res.value as any).channel === 'Telegram') telegramSuccess = false;
+        } else if (res.status === 'rejected') {
+          telegramSuccess = false;
+        }
+      });
+
+      let statusFeedback = '';
+      if (lineSuccess && telegramSuccess) {
+        statusFeedback = ' (ส่ง LINE และ Telegram สำเร็จ ✅)';
+      } else if (lineSuccess && !telegramSuccess) {
+        statusFeedback = ' (ส่ง LINE สำเร็จ)';
+      } else if (!lineSuccess && telegramSuccess) {
+        statusFeedback = ' (ส่ง Telegram สำเร็จ)';
       }
 
-      const { error } = await supabase
-        .from('incoming_docs')
-        .update({ status: 'pending' })
-        .in('id', selectedHoldingIds);
-
-      if (error) throw error;
-
-      alert(`เสนอหนังสือจำนวน ${selectedHoldingIds.length} ฉบับไปยัง LINE ผอ. เรียบร้อยแล้ว${telegramNotifyStatus}`);
-      setSelectedHoldingIds([]);
+      alert(`เสนอหนังสือจำนวน ${count} ฉบับไปยังผู้บริหารเรียบร้อยแล้ว${statusFeedback}`);
       fetchDocs();
     } catch (err: any) {
       alert('เสนอไม่สำเร็จ: ' + err.message);
-    } finally {
       setIsSaving(false);
     }
   }

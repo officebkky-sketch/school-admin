@@ -124,39 +124,54 @@ async function executeTelegramSend(
   return { ok: res.ok, data: resData, status: res.status };
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(req: any, res?: any): Promise<any> {
+  const sendResponse = (status: number, data: any) => {
+    if (res && typeof res.status === 'function') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return res.status(status).json(data);
+    }
+    return new Response(JSON.stringify(data), { 
+      status, 
+      headers: corsHeaders 
+    });
+  };
+
   // 1. CORS Preflight
   if (req.method === 'OPTIONS') {
+    if (res && typeof res.status === 'function') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return res.status(204).end();
+    }
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ message: 'Method not allowed' }), { 
-      status: 405, 
-      headers: corsHeaders 
-    });
+    return sendResponse(405, { message: 'Method not allowed' });
   }
 
   let body: any = {};
   try {
-    if (typeof req.json === 'function') {
+    if (req.body && typeof req.body === 'object') {
+      body = req.body;
+    } else if (typeof req.json === 'function') {
       body = await req.json();
-    } else if ((req as any).body) {
-      body = (req as any).body;
+    } else if (typeof req.body === 'string') {
+      try { body = JSON.parse(req.body); } catch {}
     }
   } catch (e) {
     body = {};
   }
 
-  const { chat_id, message, reply_markup } = body;
+  const { chat_id, message, reply_markup } = body || {};
 
   if (!chat_id || !message) {
-    return new Response(JSON.stringify({ 
+    return sendResponse(400, { 
       success: false, 
       message: 'Missing required fields: chat_id or message' 
-    }), { 
-      status: 400, 
-      headers: corsHeaders 
     });
   }
 
@@ -171,12 +186,9 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (settingsErr || !settings?.telegram_bot_token) {
       console.error('[TELEGRAM NOTIFY ERROR] Settings or Token not found:', settingsErr);
-      return new Response(JSON.stringify({ 
+      return sendResponse(400, { 
         success: false, 
         message: 'Missing telegram_bot_token in settings' 
-      }), { 
-        status: 400, 
-        headers: corsHeaders 
       });
     }
 
@@ -203,12 +215,9 @@ export default async function handler(req: Request): Promise<Response> {
 
       if (!result.ok) {
         console.error('[TELEGRAM NOTIFY SEND FAILED]', result.data);
-        return new Response(JSON.stringify({ 
+        return sendResponse(result.status || 500, { 
           success: false, 
           error: result.data 
-        }), { 
-          status: result.status, 
-          headers: corsHeaders 
         });
       }
 
@@ -218,22 +227,16 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    return new Response(JSON.stringify({ 
+    return sendResponse(200, { 
       success: true, 
       message: 'Telegram notification sent successfully' 
-    }), { 
-      status: 200, 
-      headers: corsHeaders 
     });
 
   } catch (err: any) {
     console.error('[TELEGRAM NOTIFY SYSTEM ERROR]', err);
-    return new Response(JSON.stringify({ 
+    return sendResponse(500, { 
       success: false, 
       error: err.message || 'Internal Server Error' 
-    }), { 
-      status: 500, 
-      headers: corsHeaders 
     });
   }
 }
