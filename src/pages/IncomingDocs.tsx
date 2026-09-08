@@ -4,7 +4,7 @@ import { getAccurateNextSequence } from '../lib/docSequence';
 import { uploadFileToDrive, deleteFileFromDrive, uploadToSupabase, deleteFromSupabase } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage, sendBulkFlexCarousel } from '../lib/lineNotify';
-import { sendTelegramNotification, getVercelBaseUrl } from '../lib/telegramNotify';
+import { sendTelegramNotification, getVercelBaseUrl, escapeHtml } from '../lib/telegramNotify';
 import { applyDigitalStamps } from '../lib/pdfService';
 import { summarizeDocument } from '../lib/aiService';
 import { formatDateDMY } from '../lib/dateUtils';
@@ -336,19 +336,25 @@ export default function IncomingDocs() {
               { text: '✅ รับทราบงาน', callback_data: `action=acknowledge&id=${insertedAssign?.id || ''}` }
             ],
             [
+              { text: '↪️ ส่งต่อเฉพาะบุคคล', callback_data: `action=fwd_start&id=${insertedAssign?.id || ''}` },
               { text: '📢 ประชาสัมพันธ์ลงกลุ่มกลาง', callback_data: `action=bc_grp&id=${insertedAssign?.id || ''}` }
             ]
           ]
         };
 
+        const safeSubject = escapeHtml(selectedDoc.subject || '-');
+        const safeDocNo = escapeHtml(selectedDoc.doc_number || '-');
+        const safeInstruction = escapeHtml(assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้');
+        const safeTeacherName = escapeHtml(teacherName || '-');
+
         if (telegramChatId) {
           // ส่งตรงถึงครูผู้รับมอบหมายทาง Telegram
-          const telegramPersonalMsg = `📬 <b>มีงานมอบหมายใหม่ถึงคุณครูค่ะ</b>\n\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ/แนวทาง</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${tgAttachLinksText}`;
+          const telegramPersonalMsg = `📬 <b>มีงานมอบหมายใหม่ถึงคุณครูค่ะ</b>\n\n• <b>เรื่อง</b>: ${safeSubject}\n• <b>เลขที่รับ</b>: <code>${safeDocNo}</code>\n• <b>คำสั่งการ/แนวทาง</b>: ${safeInstruction}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${tgAttachLinksText}`;
           await sendTelegramNotification(telegramPersonalMsg, telegramChatId, telegramReplyMarkup);
           telegramNotifyStatus = ` และ Telegram ✅`;
         } else {
           // ส่งเข้ากลุ่ม Telegram ส่วนกลาง
-          const telegramGroupMsg = `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: ${teacherName}\n• <b>เรื่อง</b>: ${selectedDoc.subject}\n• <b>เลขที่รับ</b>: ${selectedDoc.doc_number}\n• <b>คำสั่งการ</b>: ${assignForm.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${tgAttachLinksText}`;
+          const telegramGroupMsg = `📢 <b>แจ้งมอบหมายงานใหม่</b>\n\n• <b>ถึงคุณครู</b>: <b>${safeTeacherName}</b>\n• <b>เรื่อง</b>: ${safeSubject}\n• <b>เลขที่รับ</b>: <code>${safeDocNo}</code>\n• <b>คำสั่งการ</b>: ${safeInstruction}\n\n📄 <a href="${selectedDoc.file_url}">เปิดดูต้นฉบับเอกสารสั่งการ</a>${tgAttachLinksText}`;
           await sendTelegramNotification(telegramGroupMsg, 'central', telegramReplyMarkup);
           telegramNotifyStatus = ' และส่งเข้ากลุ่ม Telegram ส่วนกลาง 📣';
         }
@@ -586,16 +592,23 @@ export default function IncomingDocs() {
                 ? '🟡 <b>[ด่วน]</b>' 
                 : '🟢 <b>[ปกติ]</b>';
 
+          const safeFinalDocNum = escapeHtml(finalDocNum);
+          const safeSubject = escapeHtml(formData.subject || '-');
+          const safeFromAgency = escapeHtml(formData.from_agency || '-');
+          const safeSenderDocNo = escapeHtml(formData.sender_doc_number || '-');
+          const safeSummary = escapeHtml(proposalData.summary || '');
+          const safeSuggestedName = escapeHtml(suggestedTeacherName || '');
+
           let telegramMsg = `📥 <b>เสนอหนังสือราชการเข้าใหม่ (รอเกษียณสั่งการ)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-          telegramMsg += `${urgencyBadge} 📌 <b>เลขรับที่:</b> <code>${finalDocNum}</code>\n`;
-          telegramMsg += `📋 <b>เรื่อง:</b> <b>${formData.subject}</b>\n`;
-          telegramMsg += `🏛️ <b>จาก:</b> ${formData.from_agency || '-'}\n`;
+          telegramMsg += `${urgencyBadge} 📌 <b>เลขรับที่:</b> <code>${safeFinalDocNum}</code>\n`;
+          telegramMsg += `📋 <b>เรื่อง:</b> <b>${safeSubject}</b>\n`;
+          telegramMsg += `🏛️ <b>จาก:</b> ${safeFromAgency}\n`;
           if (formData.sender_doc_number || formData.sender_doc_date) {
-            telegramMsg += `🔢 <b>เลขที่ผู้ส่ง:</b> <code>${formData.sender_doc_number || '-'}</code> ${formData.sender_doc_date ? `(ลงวันที่ ${formatDateDMY(formData.sender_doc_date)})` : ''}\n`;
+            telegramMsg += `🔢 <b>เลขที่ผู้ส่ง:</b> <code>${safeSenderDocNo}</code> ${formData.sender_doc_date ? `(ลงวันที่ ${formatDateDMY(formData.sender_doc_date)})` : ''}\n`;
           }
 
-          if (proposalData.summary) {
-            telegramMsg += `\n✨ <b>สาระสำคัญ (เกษียณเสนอ):</b>\n<blockquote>${proposalData.summary}</blockquote>\n`;
+          if (safeSummary) {
+            telegramMsg += `\n✨ <b>สาระสำคัญ (เกษียณเสนอ):</b>\n<blockquote>${safeSummary}</blockquote>\n`;
           }
 
           if (formData.action_deadline) {
@@ -603,12 +616,14 @@ export default function IncomingDocs() {
             telegramMsg += `⏰ <b>กำหนดการ/ส่งงาน:</b> <u>${dlStr}</u>\n`;
           }
 
-          if (suggestedTeacherName) {
-            telegramMsg += `🧑‍🏫 <b>ครูผู้รับงานที่แนะนำ:</b> <b>${suggestedTeacherName}</b>\n`;
+          if (safeSuggestedName) {
+            telegramMsg += `🧑‍🏫 <b>ครูผู้รับงานที่แนะนำ:</b> <b>${safeSuggestedName}</b>\n`;
           }
 
           telegramMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-          telegramMsg += `📄 <a href="${file_url}"><b>[เปิดดูต้นฉบับหนังสือนำ]</b></a>`;
+          if (file_url) {
+            telegramMsg += `📄 <a href="${file_url}"><b>[เปิดดูต้นฉบับหนังสือนำ]</b></a>`;
+          }
 
           if (Array.isArray(att_urls) && att_urls.length > 0) {
             telegramMsg += `\n📎 <b>สิ่งที่ส่งมาด้วย (ไฟล์แนบ):</b>\n`;
@@ -620,7 +635,7 @@ export default function IncomingDocs() {
           const telegramInlineButtons: any[] = [];
           if (suggestedTeacherId) {
             telegramInlineButtons.push([{
-              text: `✅ มอบหมาย ${suggestedTeacherName} ทันที`,
+              text: `✅ มอบหมาย ${safeSuggestedName} ทันที`,
               callback_data: `action=smart_assign_confirm&doc_id=${insertedDoc?.id || ''}&t_id=${suggestedTeacherId}`
             }]);
           }
@@ -706,13 +721,24 @@ export default function IncomingDocs() {
                 ? '🟡 <b>[ด่วน]</b>' 
                 : '🟢 <b>[ปกติ]</b>';
 
-          telegramMsg += `${idx + 1}. ${urgencyBadge} <b>เรื่อง:</b> <b>${doc.subject}</b>\n`;
-          telegramMsg += `   • <b>เลขรับ:</b> <code>${doc.doc_number}</code> | <b>จาก:</b> ${doc.from_agency || '-'}\n`;
-          if (senderDocNo || senderDocDate) {
-            telegramMsg += `   • <b>เลขที่ผู้ส่ง:</b> <code>${senderDocNo || '-'}</code> ${senderDocDate ? `(ลงวันที่ ${formatDateDMY(senderDocDate)})` : ''}\n`;
+          const safeSubject = escapeHtml(doc.subject || '-');
+          const safeDocNo = escapeHtml(doc.doc_number || '-');
+          const safeFrom = escapeHtml(doc.from_agency || '-');
+          const safeSenderDocNo = escapeHtml(senderDocNo || '-');
+
+          // ย่อสรุปให้กระชับสำหรับรายการรวม
+          let safeSummary = escapeHtml(summaryText || '');
+          if (safeSummary.length > 250) {
+            safeSummary = safeSummary.substring(0, 247) + '...';
           }
-          if (summaryText) {
-            telegramMsg += `   ✨ <b>สาระสำคัญ:</b>\n<blockquote>${summaryText}</blockquote>\n`;
+
+          telegramMsg += `${idx + 1}. ${urgencyBadge} <b>เรื่อง:</b> <b>${safeSubject}</b>\n`;
+          telegramMsg += `   • <b>เลขรับ:</b> <code>${safeDocNo}</code> | <b>จาก:</b> ${safeFrom}\n`;
+          if (senderDocNo || senderDocDate) {
+            telegramMsg += `   • <b>เลขที่ผู้ส่ง:</b> <code>${safeSenderDocNo}</code> ${senderDocDate ? `(ลงวันที่ ${formatDateDMY(senderDocDate)})` : ''}\n`;
+          }
+          if (safeSummary) {
+            telegramMsg += `   ✨ <b>สาระสำคัญ:</b>\n<blockquote>${safeSummary}</blockquote>\n`;
           }
           if (doc.action_deadline) {
             telegramMsg += `   ⏰ <b>กำหนดส่ง/จัดงาน:</b> <u>${formatDateDMY(doc.action_deadline)}</u>\n`;
@@ -733,11 +759,18 @@ export default function IncomingDocs() {
           telegramMsg += `\n\n`;
         });
         
-        const telegramReplyMarkup = {
-          inline_keyboard: docsToPropose.map(doc => ([
-            { text: `✍️ สั่งการเรื่องที่ ${doc.doc_number}`, callback_data: `action=start_assign&id=${doc.id}` }
-          ]))
-        };
+        // จัดเรียงปุ่มสั่งการแบบ 2 ปุ่มต่อแถวเพื่อความกระชับ
+        const inlineButtons: any[] = [];
+        const buttonList = docsToPropose.map(doc => ({
+          text: `✍️ สั่งการที่ ${doc.doc_number}`,
+          callback_data: `action=start_assign&id=${doc.id}`
+        }));
+        
+        for (let i = 0; i < buttonList.length; i += 2) {
+          inlineButtons.push(buttonList.slice(i, i + 2));
+        }
+
+        const telegramReplyMarkup = { inline_keyboard: inlineButtons };
 
         await sendTelegramNotification(telegramMsg, 'proposal', telegramReplyMarkup);
         telegramNotifyStatus = ' และ Telegram ✅';

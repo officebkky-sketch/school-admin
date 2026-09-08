@@ -1,5 +1,16 @@
 import { supabase, getActiveSchoolProfile } from './supabase';
 
+/**
+ * ฟังก์ชันสำหรับแปลงอักขระพิเศษ HTML เพื่อป้องกัน Error ใน Telegram HTML parse_mode
+ */
+export function escapeHtml(str: any): string {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export function getVercelBaseUrl(): string {
   let vercelBaseUrl = '';
   const isWebUrl = typeof window !== 'undefined' && 
@@ -29,17 +40,24 @@ export function getVercelBaseUrl(): string {
   return vercelBaseUrl;
 }
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * ส่งการแจ้งเตือนทาง Telegram (ทั้งห้องแชทส่วนตัวและห้องแชทกลุ่ม)
  * @param message ข้อความแจ้งเตือน (รองรับรูปแบบ HTML)
  * @param specificToId รหัสผู้รับปลายทาง (ถ้าละไว้ จะดึง telegram_group_id จากหน้าตั้งค่าโรงเรียนโดยอัตโนมัติ)
  */
-export async function sendTelegramNotification(message: string, specificToId?: 'central' | 'proposal' | string, replyMarkup?: any) {
+export async function sendTelegramNotification(
+  message: string, 
+  specificToId?: 'central' | 'proposal' | string, 
+  replyMarkup?: any,
+  retryCount = 0
+): Promise<any> {
   try {
     const activeSchoolId = localStorage.getItem('active_school_id');
     if (!activeSchoolId) return;
 
-    // ค้นหาค่าตั้งค่าจากตาราง settings
+    // ค้นหาค่าตั้งค่าจากตาราง settings (Rule C: 1 row ต่อ 1 โรงเรียน)
     const { data: settings } = await supabase
       .from('settings')
       .select('telegram_group_id')
@@ -50,9 +68,9 @@ export async function sendTelegramNotification(message: string, specificToId?: '
 
     let targetId = '';
     if (specificToId === 'central') {
-      targetId = centralId || '';
+      targetId = centralId?.trim() || '';
     } else if (specificToId === 'proposal' || !specificToId) {
-      targetId = proposalId || centralId || ''; // หากระบุเป็นเสนอ หรือไม่ระบุปลายทาง ให้ใช้กลุ่มเสนอ (หรือกลุ่มกลางถ้าไม่ได้แยก)
+      targetId = proposalId?.trim() || centralId?.trim() || ''; // หากระบุเป็นเสนอ หรือไม่ระบุปลายทาง ให้ใช้กลุ่มเสนอ (หรือกลุ่มกลางถ้าไม่ได้แยก)
     } else {
       targetId = specificToId;
     }
@@ -91,15 +109,31 @@ export async function sendTelegramNotification(message: string, specificToId?: '
       })
     });
 
-    const resData = await response.json();
+    const resData = await response.json().catch(() => ({}));
+
+    // จัดการกรณี Rate Limit 429 ฝั่ง Client
+    if (response.status === 429 && retryCount < 2) {
+      const waitSec = Number(resData?.error?.parameters?.retry_after || 4);
+      console.warn(`[TELEGRAM NOTIFY] Client got 429, backing off for ${waitSec}s...`);
+      await sleep(waitSec * 1000);
+      return sendTelegramNotification(message, specificToId, replyMarkup, retryCount + 1);
+    }
+
     if (!response.ok || !resData.success) {
       console.error('[TELEGRAM NOTIFY ERROR DETAIL]', resData);
-      throw new Error(resData.error?.description || 'Failed to send Telegram notification');
+      throw new Error(resData.error?.description || resData.message || 'Failed to send Telegram notification');
     }
 
     return resData;
-  } catch (err) {
+  } catch (err: any) {
+    // ถ้าเป็น 429 และยัง retry ได้
+    if (err?.message?.includes('Too Many Requests') && retryCount < 2) {
+      console.warn('[TELEGRAM NOTIFY] Retrying after error 429...');
+      await sleep(4000);
+      return sendTelegramNotification(message, specificToId, replyMarkup, retryCount + 1);
+    }
     console.error('[TELEGRAM NOTIFY ERROR]', err);
     throw err;
   }
 }
+

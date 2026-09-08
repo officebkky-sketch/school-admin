@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
-import { sendTelegramNotification } from '../lib/telegramNotify';
+import { sendTelegramNotification, escapeHtml } from '../lib/telegramNotify';
 import { generateAIDraft } from '../lib/aiService';
 import { formatDateDMY } from '../lib/dateUtils';
 import Modal from '../components/Modal';
@@ -209,7 +209,10 @@ export default function Memos() {
 
       // ส่ง Telegram แจ้งเตือนการอนุมัติบันทึกข้อความ
       try {
-        let tgApprovedMsg = `✅ <b>อนุมัติลงนามบันทึกข้อความเรียบร้อยแล้ว</b>\n\n• <b>เลขที่บันทึก</b>: ${selectedMemoForApproval.memo_number}\n• <b>เรื่อง</b>: ${selectedMemoForApproval.subject}\n• <b>ผู้เสนอ</b>: ${selectedMemoForApproval.requester}`;
+        const safeMemoNum = escapeHtml(selectedMemoForApproval.memo_number || '-');
+        const safeSubj = escapeHtml(selectedMemoForApproval.subject || '-');
+        const safeReq = escapeHtml(selectedMemoForApproval.requester || '-');
+        let tgApprovedMsg = `✅ <b>อนุมัติลงนามบันทึกข้อความเรียบร้อยแล้ว</b>\n\n• <b>เลขที่บันทึก</b>: <code>${safeMemoNum}</code>\n• <b>เรื่อง</b>: ${safeSubj}\n• <b>ผู้เสนอ</b>: ${safeReq}`;
         if (selectedMemoForApproval.file_url) {
           tgApprovedMsg += `\n\n📄 <a href="${selectedMemoForApproval.file_url}">เปิดดูบันทึกข้อความฉบับสมบูรณ์</a>`;
         }
@@ -637,7 +640,12 @@ export default function Memos() {
 
         // ส่งการแจ้งเตือนทาง Telegram เข้ากลุ่มเสนอ / ผอ.
         try {
-          const tgMsg = `📝 <b>เสนออนุมัติบันทึกข้อความเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>ผู้เสนอ</b>: ${formData.requester}\n• <b>หน่วยงาน</b>: ${formData.department}\n• <b>เลขที่บันทึก</b>: ${finalMemoNumber}\n\n📄 <a href="${file_url || '#'}">เปิดดูร่างบันทึกข้อความ</a>`;
+          const safeSubj = escapeHtml(formData.subject || '-');
+          const safeReq = escapeHtml(formData.requester || '-');
+          const safeDept = escapeHtml(formData.department || '-');
+          const safeMemoNum = escapeHtml(finalMemoNumber || '-');
+
+          const tgMsg = `📝 <b>เสนออนุมัติบันทึกข้อความเข้าใหม่</b>\n\n• <b>เรื่อง</b>: ${safeSubj}\n• <b>ผู้เสนอ</b>: ${safeReq}\n• <b>หน่วยงาน</b>: ${safeDept}\n• <b>เลขที่บันทึก</b>: <code>${safeMemoNum}</code>\n\n📄 <a href="${file_url || '#'}">เปิดดูร่างบันทึกข้อความ</a>`;
           const tgReplyMarkup = {
             inline_keyboard: [[
               { text: '✅ อนุมัติลงนาม (Telegram)', callback_data: `action=approve_doc&type=memo&id=${insertedDoc?.id || ''}` }
@@ -658,7 +666,11 @@ export default function Memos() {
         );
 
         try {
-          const tgMsg = `📝 <b>บันทึกข้อความใหม่ (ลงทะเบียนตรง)</b>\n\n• <b>เลขที่บันทึก</b>: ${finalMemoNumber}\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>ผู้เสนอ</b>: ${formData.requester}`;
+          const safeSubj = escapeHtml(formData.subject || '-');
+          const safeReq = escapeHtml(formData.requester || '-');
+          const safeMemoNum = escapeHtml(finalMemoNumber || '-');
+
+          const tgMsg = `📝 <b>บันทึกข้อความใหม่ (ลงทะเบียนตรง)</b>\n\n• <b>เลขที่บันทึก</b>: <code>${safeMemoNum}</code>\n• <b>เรื่อง</b>: ${safeSubj}\n• <b>ผู้เสนอ</b>: ${safeReq}`;
           await sendTelegramNotification(tgMsg, 'central');
         } catch (tgErr) {
           console.error('[TELEGRAM NOTIFY ERROR]', tgErr);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendLineNotification } from '../lib/lineNotify';
+import { sendTelegramNotification, escapeHtml } from '../lib/telegramNotify';
 import { uploadFileToDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import Modal from '../components/Modal';
@@ -19,7 +20,8 @@ import {
   Paperclip,
   Upload,
   X,
-  Trash2
+  Trash2,
+  Share2
 } from 'lucide-react';
 
 type TaskStatus = 'all' | 'pending' | 'acknowledged' | 'completed' | 'closed';
@@ -27,12 +29,16 @@ type TaskStatus = 'all' | 'pending' | 'acknowledged' | 'completed' | 'closed';
 export default function TaskManagement() {
   const { user, profile } = useAuth();
   const [tasks, setTasks] = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<TaskStatus>('pending');
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [forwardTeacherId, setForwardTeacherId] = useState('');
+  const [forwardInstruction, setForwardInstruction] = useState('');
   const [reportText, setReportText] = useState('');
   const [reportFiles, setReportFiles] = useState<File[]>([]);
   const [feedbackText, setFeedbackText] = useState('');
@@ -40,7 +46,21 @@ export default function TaskManagement() {
 
   useEffect(() => {
     fetchTasks();
+    fetchTeachers();
   }, []);
+
+  async function fetchTeachers() {
+    try {
+      const { data } = await supabase
+        .from('teachers')
+        .select('id, prefix, first_name, last_name, department')
+        .eq('status', 'active')
+        .order('first_name', { ascending: true });
+      setTeachers(data || []);
+    } catch (err) {
+      console.error('Error fetching teachers:', err);
+    }
+  }
 
   async function fetchTasks() {
     setLoading(true);
@@ -60,6 +80,91 @@ export default function TaskManagement() {
       console.error('Error fetching tasks:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleForwardTask() {
+    if (!selectedTask || !forwardTeacherId) return;
+    setIsSaving(true);
+    try {
+      const targetTeacher = teachers.find(t => t.id === forwardTeacherId);
+      const targetTeacherName = targetTeacher 
+        ? `${targetTeacher.prefix || ''}${targetTeacher.first_name} ${targetTeacher.last_name}`
+        : 'คุณครู';
+
+      const senderName = profile?.display_name || 'คุณครูผู้มอบหมาย';
+      const finalInstruction = forwardInstruction.trim() !== ''
+        ? `[ส่งต่อจาก ${senderName}]: ${forwardInstruction.trim()}`
+        : `[ส่งต่อจาก ${senderName}]: ${selectedTask.instruction || 'โปรดดำเนินการตามหนังสือฉบับนี้'}`;
+
+      // 1. บันทึกลงตาราง doc_assignments
+      const { data: newAssign, error: insertErr } = await supabase
+        .from('doc_assignments')
+        .insert([{
+          doc_id: selectedTask.doc_id,
+          assignee_id: forwardTeacherId,
+          instruction: finalInstruction,
+          status: 'pending'
+        }])
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      // 2. ค้นหา telegram_chat_id ของครูผู้รับส่งต่อใน profiles (ส่งตรงเฉพาะบุคคล ไม่ส่งเข้ากลุ่มกลาง)
+      const { data: targetProfile } = await supabase
+        .from('profiles')
+        .select('telegram_chat_id')
+        .eq('teacher_id', forwardTeacherId)
+        .maybeSingle();
+
+      let telegramStatus = '';
+      if (targetProfile?.telegram_chat_id) {
+        const docSubject = selectedTask.incoming_docs?.subject || '-';
+        const docNumber = selectedTask.incoming_docs?.doc_number || '-';
+        const docFileUrl = selectedTask.incoming_docs?.file_url;
+
+        let fwdMsg = `📬 <b>มีงานส่งต่อถึงคุณครูค่ะ (เฉพาะบุคคล)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+        fwdMsg += `• <b>เรื่อง</b>: ${escapeHtml(docSubject)}\n`;
+        fwdMsg += `• <b>เลขที่รับ</b>: <code>${escapeHtml(docNumber)}</code>\n`;
+        fwdMsg += `• <b>ส่งต่อโดย</b>: <b>${escapeHtml(senderName)}</b>\n`;
+        fwdMsg += `• <b>คำสั่งการ/แนวทาง</b>: ${escapeHtml(finalInstruction)}\n\n`;
+        if (docFileUrl) {
+          fwdMsg += `📄 <a href="${docFileUrl}">เปิดดูต้นฉบับเอกสารสั่งการ</a>`;
+        }
+
+        const replyMarkup = {
+          inline_keyboard: [
+            ...(docFileUrl ? [[{ text: '📄 ดูเอกสารสั่งการ', url: docFileUrl }]] : []),
+            [
+              { text: '✅ รับทราบงาน', callback_data: `action=acknowledge&id=${newAssign.id}` }
+            ],
+            [
+              { text: '↪️ ส่งต่อเฉพาะบุคคล', callback_data: `action=fwd_start&id=${newAssign.id}` },
+              { text: '📢 ประชาสัมพันธ์ลงกลุ่มกลาง', callback_data: `action=bc_grp&id=${newAssign.id}` }
+            ]
+          ]
+        };
+
+        try {
+          await sendTelegramNotification(fwdMsg, targetProfile.telegram_chat_id, replyMarkup);
+          telegramStatus = ' และส่งแจ้งเตือน Telegram ส่วนบุคคลสำเร็จ ✅';
+        } catch (tgErr: any) {
+          console.warn('[FORWARD TELEGRAM ERROR]', tgErr);
+          telegramStatus = ' (แต่ Telegram ปลายทางไม่สำเร็จ)';
+        }
+      }
+
+      alert(`ส่งต่องานเรื่อง "${selectedTask.incoming_docs?.subject || ''}" ให้คุณครู ${targetTeacherName} เรียบร้อยแล้วค่ะ${telegramStatus}\n(ระบบส่งตรงเฉพาะบุคคล ไม่ลงกลุ่มกลางตามคำสั่ง)`);
+      setIsForwardModalOpen(false);
+      setForwardTeacherId('');
+      setForwardInstruction('');
+      await fetchTasks();
+    } catch (err: any) {
+      console.error('Error forwarding task:', err);
+      alert('ส่งต่องานไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -372,12 +477,26 @@ export default function TaskManagement() {
                           )}
                           
                           {(task.status === 'pending' || task.status === 'acknowledged') && (
-                            <button 
-                             onClick={() => { setSelectedTask(task); setIsReportModalOpen(true); }}
-                             className="w-full py-4 bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
-                            >
-                              <Send size={16} /> รายงานผลงาน
-                            </button>
+                            <>
+                              <button 
+                               onClick={() => { setSelectedTask(task); setIsReportModalOpen(true); }}
+                               className="w-full py-4 bg-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-100 hover:bg-blue-600 transition-all flex items-center justify-center gap-2"
+                              >
+                                <Send size={16} /> รายงานผลงาน
+                              </button>
+
+                              <button 
+                               onClick={() => { 
+                                 setSelectedTask(task); 
+                                 setForwardTeacherId('');
+                                 setForwardInstruction('');
+                                 setIsForwardModalOpen(true); 
+                               }}
+                               className="w-full py-3 bg-white text-indigo-600 border-2 border-indigo-100 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-50 hover:border-indigo-200 transition-all flex items-center justify-center gap-2 shadow-xs"
+                              >
+                                <Share2 size={15} /> ↪️ ส่งต่อให้ครูท่านอื่น
+                              </button>
+                            </>
                           )}
 
                           {task.status === 'completed' && (
@@ -573,6 +692,80 @@ export default function TaskManagement() {
             className="w-full py-4 bg-slate-800 text-white rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-slate-200 hover:bg-slate-900 transition-all"
           >
             {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} ตรวจรับและปิดงาน
+          </button>
+        </div>
+      </Modal>
+
+      {/* Forward Task Modal (1-on-1 forwarding) */}
+      <Modal
+        isOpen={isForwardModalOpen}
+        onClose={() => {
+          setIsForwardModalOpen(false);
+          setForwardTeacherId('');
+          setForwardInstruction('');
+        }}
+        title="↪️ ส่งต่องานมอบหมาย (ส่งตรงเฉพาะบุคคล ไม่ลงกลุ่มกลาง)"
+      >
+        <div className="space-y-4">
+          <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-100">
+            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">เรื่องเอกสาร</p>
+            <p className="text-sm font-black text-slate-800 line-clamp-2">{selectedTask?.incoming_docs?.subject || '-'}</p>
+            {selectedTask?.instruction && (
+              <div className="mt-2 pt-2 border-t border-indigo-100/60">
+                <p className="text-[10px] font-bold text-slate-400">คำสั่งการเดิม:</p>
+                <p className="text-xs text-slate-600 italic">{selectedTask.instruction}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+              <span>เลือกคุณครูผู้รับมอบหมายต่อ</span>
+              <span className="text-rose-500">*</span>
+            </label>
+            <select
+              value={forwardTeacherId}
+              onChange={(e) => setForwardTeacherId(e.target.value)}
+              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
+            >
+              <option value="">-- กรุณาเลือกคุณครูผู้รับงาน --</option>
+              {teachers
+                .filter(t => (profile?.teacher_id ? t.id !== profile.teacher_id : true) && (profile?.email ? t.email !== profile.email : true))
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.prefix || ''}{t.first_name} {t.last_name} {t.position ? `(${t.position})` : ''}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+              <span>คำสั่งการเพิ่มเติม / แนวทางปฏิบัติ</span>
+              <span className="text-[10px] font-normal text-slate-400">(เว้นว่างไว้จะใช้คำสั่งการเดิม)</span>
+            </label>
+            <textarea
+              rows={3}
+              value={forwardInstruction}
+              onChange={(e) => setForwardInstruction(e.target.value)}
+              placeholder="ระบุคำสั่งการเพิ่มเติม หรือแนวทางการปฏิบัติงานให้ครูปลายทางทราบ..."
+              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm"
+            />
+          </div>
+
+          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 flex items-start gap-2 text-amber-800 text-xs font-medium">
+            <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
+            <span>
+              <strong>ความปลอดภัย:</strong> งานนี้จะส่งตรงเข้า Telegram ส่วนตัวของคุณครูปลายทาง <strong>โดยไม่ถูกส่งเข้ากลุ่มกลางหรือกลุ่มประชาสัมพันธ์</strong> ปลอดภัยและเป็นส่วนตัว 100%
+            </span>
+          </div>
+
+          <button
+            onClick={handleForwardTask}
+            disabled={isSaving || !forwardTeacherId}
+            className="w-full py-4.5 bg-indigo-600 text-white rounded-[24px] font-black text-base flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="animate-spin" /> : <Share2 size={18} />} ยืนยันการส่งต่องาน (เฉพาะบุคคล)
           </button>
         </div>
       </Modal>

@@ -3,10 +3,18 @@ import { createClient } from '@supabase/supabase-js';
 
 // ============================================================
 // Telegram Notify API (Rule A & Rule C compliant)
-// API สำหรับส่งการแจ้งเตือนหาผู้ใช้ทางห้องแชท Telegram
-// Method: POST /api/telegram-notify
-// Body: { chat_id, message, reply_markup }
+// รองรับ:
+// 1. Auto-Retry เมื่อเจอ Rate Limit (HTTP 429: Too Many Requests)
+// 2. Auto Plaintext Fallback เมื่อเจอ Entity Parse Error (HTTP 400: can't parse entities)
+// 3. Smart Message Splitting เมื่อข้อความยาวเกิน 4000 ตัวอักษร
 // ============================================================
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Content-Type': 'application/json'
+};
 
 function getSupabase() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -19,33 +27,142 @@ function getSupabase() {
   });
 }
 
-export default async function handler(req: Request | any, res?: any): Promise<Response | void> {
-  const method = req.method || 'POST';
-  if (method !== 'POST') {
-    if (res?.status) return res.status(405).json({ message: 'Method not allowed' });
-    return new Response(JSON.stringify({ message: 'Method not allowed' }), { status: 405 });
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/blockquote>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function splitMessageSafely(text: string, maxLen = 3800): string[] {
+  if (text.length <= maxLen) return [text];
+  
+  const chunks: string[] = [];
+  const lines = text.split('\n');
+  let currentChunk = '';
+
+  for (const line of lines) {
+    if ((currentChunk + '\n' + line).length > maxLen) {
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+      }
+      if (line.length > maxLen) {
+        // บรรทัดเดียวยาวเกิน maxLen ให้ตัดเป็นท่อนๆ
+        for (let i = 0; i < line.length; i += maxLen) {
+          chunks.push(line.substring(i, i + maxLen));
+        }
+      } else {
+        currentChunk = line;
+      }
+    } else {
+      currentChunk = currentChunk ? `${currentChunk}\n${line}` : line;
+    }
+  }
+
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks.length > 0 ? chunks : [text.substring(0, maxLen)];
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function executeTelegramSend(
+  botToken: string,
+  chatId: string | number,
+  text: string,
+  parseMode: 'HTML' | null,
+  replyMarkup?: any,
+  attempt = 1
+): Promise<{ ok: boolean; data?: any; status: number }> {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const payload: any = {
+    chat_id: chatId,
+    text: text,
+  };
+
+  if (parseMode) {
+    payload.parse_mode = parseMode;
+  }
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const resData = await res.json().catch(() => ({}));
+
+  // กรณี 429 Too Many Requests -> หน่วงเวลารอ retry_after แล้วลองส่งใหม่อัตโนมัติ
+  if (res.status === 429 && attempt <= 2) {
+    const retryAfter = Number(resData?.parameters?.retry_after || 3);
+    const waitSeconds = Math.min(Math.max(retryAfter, 1), 8); // ป้องกันรอนานเกิน Vercel timeout
+    console.warn(`[TELEGRAM NOTIFY] Rate limit 429 encountered, waiting ${waitSeconds}s before retry (attempt ${attempt})...`);
+    await sleep(waitSeconds * 1000);
+    return executeTelegramSend(botToken, chatId, text, parseMode, replyMarkup, attempt + 1);
+  }
+
+  // กรณี 400 Bad Request: parse entities error -> fallback ส่งเป็น Plain Text
+  if (!res.ok && parseMode === 'HTML' && resData?.description?.includes("can't parse entities")) {
+    console.warn('[TELEGRAM NOTIFY] HTML Entity parsing failed. Retrying with clean plain text...', resData.description);
+    const plainText = stripHtml(text);
+    return executeTelegramSend(botToken, chatId, plainText, null, replyMarkup, attempt + 1);
+  }
+
+  return { ok: res.ok, data: resData, status: res.status };
+}
+
+export default async function handler(req: Request): Promise<Response> {
+  // 1. CORS Preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ message: 'Method not allowed' }), { 
+      status: 405, 
+      headers: corsHeaders 
+    });
   }
 
   let body: any = {};
   try {
     if (typeof req.json === 'function') {
       body = await req.json();
-    } else {
-      body = req.body || {};
+    } else if ((req as any).body) {
+      body = (req as any).body;
     }
   } catch (e) {
-    body = req.body || {};
+    body = {};
   }
 
   const { chat_id, message, reply_markup } = body;
 
   if (!chat_id || !message) {
-    if (res?.status) return res.status(400).json({ message: 'Missing required fields: chat_id or message' });
-    return new Response(JSON.stringify({ message: 'Missing required fields: chat_id or message' }), { status: 400 });
+    return new Response(JSON.stringify({ 
+      success: false, 
+      message: 'Missing required fields: chat_id or message' 
+    }), { 
+      status: 400, 
+      headers: corsHeaders 
+    });
   }
 
   try {
     const supabase = getSupabase();
+    // Rule C: ไม่ใส่ school_id
     const { data: settings, error: settingsErr } = await supabase
       .from('settings')
       .select('telegram_bot_token')
@@ -54,35 +171,69 @@ export default async function handler(req: Request | any, res?: any): Promise<Re
 
     if (settingsErr || !settings?.telegram_bot_token) {
       console.error('[TELEGRAM NOTIFY ERROR] Settings or Token not found:', settingsErr);
-      if (res?.status) return res.status(400).json({ message: 'Missing telegram_bot_token in settings' });
-      return new Response(JSON.stringify({ message: 'Missing telegram_bot_token in settings' }), { status: 400 });
+      return new Response(JSON.stringify({ 
+        success: false, 
+        message: 'Missing telegram_bot_token in settings' 
+      }), { 
+        status: 400, 
+        headers: corsHeaders 
+      });
     }
 
     const botToken = settings.telegram_bot_token;
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chat_id,
-        text: message.substring(0, 4096),
-        parse_mode: 'HTML',
-        reply_markup: reply_markup
-      }),
+
+    // ตรวจสอบความยาวข้อความ หากยาวเกิน 4000 ตัวอักษร ให้แบ่งท่อนส่งอย่างปลอดภัย
+    const chunks = splitMessageSafely(message, 3800);
+    let lastResult: any = null;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const isLastChunk = i === chunks.length - 1;
+      // ส่ง reply_markup ที่ท่อนสุดท้าย
+      const markupToSend = isLastChunk ? reply_markup : undefined;
+
+      const result = await executeTelegramSend(
+        botToken,
+        chat_id,
+        chunks[i],
+        'HTML',
+        markupToSend
+      );
+
+      lastResult = result;
+
+      if (!result.ok) {
+        console.error('[TELEGRAM NOTIFY SEND FAILED]', result.data);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: result.data 
+        }), { 
+          status: result.status, 
+          headers: corsHeaders 
+        });
+      }
+
+      // หากมีหลายข้อความ ให้หน่วงเวลาเล็กน้อย (500ms) เพื่อป้องกัน Telegram 429
+      if (chunks.length > 1 && !isLastChunk) {
+        await sleep(500);
+      }
+    }
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: 'Telegram notification sent successfully' 
+    }), { 
+      status: 200, 
+      headers: corsHeaders 
     });
 
-    if (response.ok) {
-      if (res?.status) return res.status(200).json({ success: true, message: 'Telegram notification sent successfully' });
-      return new Response(JSON.stringify({ success: true, message: 'Telegram notification sent successfully' }), { status: 200 });
-    } else {
-      const errData = await response.json();
-      console.error('[TELEGRAM NOTIFY API ERROR DETAIL]', errData);
-      if (res?.status) return res.status(response.status).json({ success: false, error: errData });
-      return new Response(JSON.stringify({ success: false, error: errData }), { status: response.status });
-    }
   } catch (err: any) {
     console.error('[TELEGRAM NOTIFY SYSTEM ERROR]', err);
-    if (res?.status) return res.status(500).json({ success: false, error: err.message });
-    return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500 });
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: err.message || 'Internal Server Error' 
+    }), { 
+      status: 500, 
+      headers: corsHeaders 
+    });
   }
 }

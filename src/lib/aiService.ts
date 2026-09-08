@@ -295,8 +295,9 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   
   // โมเดลหลักที่แนะนำและเสถียรที่สุดในปัจจุบัน (เน้นรุ่น Lite ที่ให้โควต้ารายวันสูง 500 RPD เพื่อหลีกเลี่ยง Rate Limit)
   const RECOMMENDED_MODELS = [
-    'gemini-3.1-flash-lite',
+    'gemini-3.8-flash',
     'gemini-3.5-flash',
+    'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash',

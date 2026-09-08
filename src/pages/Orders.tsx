@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { uploadFile, deleteFileFromDrive } from '../lib/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { sendLineNotification, sendInteractiveFlexMessage } from '../lib/lineNotify';
-import { sendTelegramNotification } from '../lib/telegramNotify';
+import { sendTelegramNotification, escapeHtml } from '../lib/telegramNotify';
 import { generateAIDraft } from '../lib/aiService';
 import { formatDateDMY } from '../lib/dateUtils';
 import Modal from '../components/Modal';
@@ -752,7 +752,12 @@ export default function Orders() {
 
       // ส่งการแจ้งเตือนทาง Telegram ไปยังกลุ่มเสนอ / ผอ.
       try {
-        const tgMsg = `📋 <b>เสนออนุมัติคำสั่งแต่งตั้ง (คำสั่งใหม่)</b>\n\n• <b>เรื่อง</b>: ${formData.subject}\n• <b>ผู้ออกคำสั่ง</b>: ${formData.issuer}\n• <b>ผู้เสนอ</b>: ${profile?.display_name || 'ครูผู้รับผิดชอบ'}\n• <b>เลขที่ร่างคำสั่ง</b>: ${finalOrderNum}\n\n📄 <a href="${file_url || '#'}">เปิดดูร่างคำสั่ง</a>`;
+        const safeSubj = escapeHtml(formData.subject || '-');
+        const safeIssuer = escapeHtml(formData.issuer || '-');
+        const safeReq = escapeHtml(profile?.display_name || 'ครูผู้รับผิดชอบ');
+        const safeOrderNum = escapeHtml(finalOrderNum || '-');
+
+        const tgMsg = `📋 <b>เสนออนุมัติคำสั่งแต่งตั้ง (คำสั่งใหม่)</b>\n\n• <b>เรื่อง</b>: ${safeSubj}\n• <b>ผู้ออกคำสั่ง</b>: ${safeIssuer}\n• <b>ผู้เสนอ</b>: ${safeReq}\n• <b>เลขที่ร่างคำสั่ง</b>: <code>${safeOrderNum}</code>\n\n📄 <a href="${file_url || '#'}">เปิดดูร่างคำสั่ง</a>`;
         const tgReplyMarkup = {
           inline_keyboard: [[
             { text: '✅ อนุมัติลงนาม (Telegram)', callback_data: `action=approve_doc&type=order&id=${insertedDoc?.id || ''}` }
@@ -852,7 +857,11 @@ export default function Orders() {
 
       // แจ้งเตือนเข้ากลุ่ม Telegram ส่วนกลางเมื่ออนุมัติคำสั่งแล้ว
       try {
-        let tgApprovedMsg = `📜 <b>อนุมัติและออกเลขที่คำสั่งโรงเรียนเรียบร้อยแล้ว</b>\n\n• <b>เลขที่คำสั่ง</b>: ${finalOrderNumber}\n• <b>เรื่อง</b>: ${selectedOrderForApproval.subject}\n• <b>ผู้ออกคำสั่ง</b>: ${selectedOrderForApproval.issuer}`;
+        const safeOrderNum = escapeHtml(finalOrderNumber || '-');
+        const safeSubj = escapeHtml(selectedOrderForApproval.subject || '-');
+        const safeIssuer = escapeHtml(selectedOrderForApproval.issuer || '-');
+
+        let tgApprovedMsg = `📜 <b>อนุมัติและออกเลขที่คำสั่งโรงเรียนเรียบร้อยแล้ว</b>\n\n• <b>เลขที่คำสั่ง</b>: <code>${safeOrderNum}</code>\n• <b>เรื่อง</b>: ${safeSubj}\n• <b>ผู้ออกคำสั่ง</b>: ${safeIssuer}`;
         if (selectedOrderForApproval.file_url) {
           tgApprovedMsg += `\n\n📄 <a href="${selectedOrderForApproval.file_url}">เปิดดูคำสั่งฉบับเต็ม</a>`;
         }

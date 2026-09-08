@@ -11,6 +11,7 @@ interface Profile {
   signature_url?: string;
   line_user_id?: string;
   telegram_chat_id?: string;
+  teacher_id?: string;
   extra_permissions?: Record<string, any>;
 }
 
