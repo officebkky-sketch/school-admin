@@ -393,6 +393,11 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
     {
       keys: ['ค้างเกษียณ', 'รอเกษียณ', 'ยังไม่ได้เกษียณ', 'ยังไม่เกษียณ', 'ผอ. ยังไม่ได้ทำ', 'ผอ. ยังไม่สั่ง', 'ค้างผอ', 'หนังสือค้าง', 'รอสั่งการ', 'ค้างสั่งการ'],
       fetch: async () => {
+        // 🛡️ Security Guard: ตรวจสอบสิทธิ์ ผอ. หรือ แอดมิน เท่านั้น
+        if (profileLinked?.role !== 'director' && profileLinked?.role !== 'admin') {
+          return 'ผู้สอบถามไม่มีสิทธิ์เข้าถึงข้อมูลหนังสือรอเกษียณของผู้อำนวยการ (สงวนสิทธิ์เฉพาะผู้อำนวยการและผู้ดูแลระบบ)';
+        }
+
         let query = supabase.from('incoming_docs').select('id, doc_sequence, doc_number, subject, from_agency, doc_date, urgency, status, file_url, attachment_urls');
         if (schoolId) query = query;
         query = query.eq('status', 'pending');
@@ -689,6 +694,170 @@ async function smartFetchContext(message: string, currentYear: string, supabase:
   } catch (err) { console.error('[TELEGRAM WEBHOOK RAG ERROR]', err); }
 
   return "";
+}
+
+/** แปลงข้อมูล Context JSON ให้อยู่ในรูปแบบรายการภาษาไทยที่อ่านง่าย ป้องกันการหลุดของ Raw JSON 100% */
+function formatContextDataForHumans(contextData: string): string {
+  if (!contextData) return '';
+
+  // สกัด JSON Array จาก contextData
+  const jsonMatch = contextData.match(/\[\s*\{[\s\S]*\}\s*\]/);
+  if (!jsonMatch) {
+    // ถ้าไม่ใช่ JSON Array ให้ตัดเครื่องหมาย bracket/quote/backslash ออกเพื่อความสะอาด
+    return escapeHtml(contextData.replace(/[{}[\]"\\]/g, '').trim());
+  }
+
+  try {
+    const items: any[] = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(items) || items.length === 0) {
+      return 'ขณะนี้ไม่พบรายการข้อมูลที่ค้างอยู่ในระบบค่ะ 🌸';
+    }
+
+    // กรณีที่ 1: รายการหนังสือรับเข้า (incoming_docs)
+    if (items[0].subject && (items[0].doc_number !== undefined || items[0].from_agency !== undefined || items[0].doc_sequence !== undefined)) {
+      let output = `📬 <b>รายการหนังสือจากฐานข้อมูล (${items.length} ฉบับ):</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+      items.forEach((item, idx) => {
+        const uBadge = item.urgency === 'ด่วนที่สุด' ? '🔴 [ด่วนที่สุด]' : item.urgency === 'ด่วนมาก' ? '🟠 [ด่วนมาก]' : item.urgency === 'ด่วน' ? '🟡 [ด่วน]' : '🟢 [ปกติ]';
+        output += `${idx + 1}. ${uBadge} <b>เรื่อง:</b> ${escapeHtml(item.subject || '-')}\n`;
+        output += `   • <b>เลขรับ:</b> <code>${escapeHtml(String(item.doc_number || item.doc_sequence || '-'))}</code> | <b>จาก:</b> ${escapeHtml(item.from_agency || '-')}\n`;
+        if (item.file_url) {
+          output += `   📄 <a href="${item.file_url}">เปิดดูเอกสาร</a>\n`;
+        }
+        output += `\n`;
+      });
+      return output.trim();
+    }
+
+    // กรณีที่ 2: รายการภาระงานครู (doc_assignments)
+    if (items[0].instruction || items[0].incoming_docs) {
+      let output = `📋 <b>รายการงานที่ได้รับมอบหมาย (${items.length} งาน):</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+      items.forEach((item, idx) => {
+        const doc = item.incoming_docs || {};
+        output += `${idx + 1}. <b>เรื่อง:</b> ${escapeHtml(doc.subject || '-')}\n`;
+        output += `   • <b>คำสั่งการ:</b> <i>"${escapeHtml(item.instruction || 'โปรดดำเนินการ')}"</i>\n`;
+        if (doc.file_url) {
+          output += `   📄 <a href="${doc.file_url}">ดูเอกสาร</a>\n`;
+        }
+        output += `\n`;
+      });
+      return output.trim();
+    }
+
+    // กรณีที่ 3: รายชื่อครู/บุคลากร (teachers)
+    if (items[0].first_name && (items[0].phone !== undefined || items[0].department !== undefined || items[0].position !== undefined)) {
+      let output = `🧑‍🏫 <b>ข้อมูลบุคลากร (${items.length} ท่าน):</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+      items.forEach((t, idx) => {
+        output += `${idx + 1}. <b>${escapeHtml(t.prefix || '')}${escapeHtml(t.first_name)} ${escapeHtml(t.last_name || '')}</b>\n`;
+        if (t.position) output += `   • <b>ตำแหน่ง:</b> ${escapeHtml(t.position)}\n`;
+        if (t.phone) output += `   • <b>เบอร์โทร:</b> <code>${escapeHtml(t.phone)}</code>\n`;
+        output += `\n`;
+      });
+      return output.trim();
+    }
+
+    // กรณีทั่วไป: แสดง key-value ที่สำคัญ
+    return items.map((it, i) => `${i + 1}. ` + Object.entries(it)
+      .filter(([k]) => !['id', 'created_at', 'updated_at', 'raw_data'].includes(k))
+      .map(([k, v]) => `<b>${escapeHtml(k)}:</b> ${escapeHtml(String(v))}`).join(' | ')
+    ).join('\n\n');
+
+  } catch {
+    return escapeHtml(contextData.replace(/[{}[\]"\\]/g, '').trim());
+  }
+}
+
+/** สร้างปุ่ม Inline Keyboard จาก Context Data อัตโนมัติ เพื่อรองรับทั้งโหมด AI และ Fallback */
+function buildReplyMarkupFromContext(contextData: string, cleanedText: string, profileLinked: any): any {
+  if (!contextData) return undefined;
+  const isReportIntent = ['งานค้าง', 'งานของฉัน', 'ยังไม่ได้ส่ง', 'ยังไม่ได้รายงาน', 'งานที่มอบหมายค้าง', 'รายงานผล', 'ส่งรายงาน', 'ส่งงาน'].some(k => cleanedText.includes(k));
+  const inlineKeyboard: any[] = [];
+  const addedDocIds = new Set<string>();
+
+  // 1. ค้นหา ID หนังสือรับทั้งหมดใน contextData เพื่อสร้างปุ่มดูเอกสาร / เกษียณสั่งการ
+  const docMatches = contextData.match(/"id":"([a-f0-9-]{36})"/g);
+  if (docMatches) {
+    for (const match of docMatches) {
+      const idMatch = match.match(/"id":"([a-f0-9-]{36})"/);
+      if (idMatch && idMatch[1] && !addedDocIds.has(idMatch[1])) {
+        const docId = idMatch[1];
+        addedDocIds.add(docId);
+
+        const docBlockMatch = contextData.match(new RegExp(`\\{[^{}]*?"id"\\s*:\\s*"${docId}"[^{}]*?\\}`));
+        if (docBlockMatch && docBlockMatch[0]) {
+          let docNum = '';
+          let status = '';
+          let fileUrl = '';
+          let attachmentUrls: string[] = [];
+
+          const numMatch = docBlockMatch[0].match(/"doc_number":"(.*?)"/);
+          if (numMatch && numMatch[1]) docNum = numMatch[1];
+
+          const statusMatch = docBlockMatch[0].match(/"status":"(.*?)"/);
+          if (statusMatch && statusMatch[1]) status = statusMatch[1];
+
+          const fileMatch = docBlockMatch[0].match(/"file_url":"(.*?)"/);
+          if (fileMatch && fileMatch[1]) fileUrl = fileMatch[1];
+
+          const attachMatch = docBlockMatch[0].match(/"attachment_urls":(\[.*?\])/);
+          if (attachMatch && attachMatch[1]) {
+            try {
+              attachmentUrls = JSON.parse(attachMatch[1]);
+            } catch (e) {}
+          }
+
+          const rowButtons: any[] = [];
+          if (fileUrl) {
+            rowButtons.push({ text: `📄 ดูต้นฉบับ ${docNum ? `(${docNum})` : ''}`, url: fileUrl });
+          }
+
+          if (attachmentUrls && attachmentUrls.length > 0) {
+            attachmentUrls.forEach((url, idx) => {
+              if (url && (url.startsWith('http') || url.startsWith('https'))) {
+                rowButtons.push({ text: `📎 แนบ ${idx + 1}`, url: url });
+              }
+            });
+          }
+
+          if (rowButtons.length > 0) {
+            inlineKeyboard.push(rowButtons);
+          }
+
+          if ((profileLinked?.role === 'director' || profileLinked?.role === 'admin') && status === 'pending' && !isReportIntent) {
+            inlineKeyboard.push([
+              { text: `✍️ เกษียณสั่งการหนังสือ เลขที่ ${docNum || ''}`, callback_data: `action=start_assign&id=${docId}` }
+            ]);
+          }
+        }
+      }
+    }
+  }
+
+  // 2. ค้นหา ID ของการมอบหมายงาน (doc_assignments) เพื่อสร้างปุ่มรายงานผล
+  const assignSectionMatch = contextData.match(/ข้อมูลการมอบหมายงาน:\s*(\[.*\])/s) || contextData.match(/รายการงานมอบหมาย.*?:\s*(\[.*\])/s);
+  const assignSectionText = assignSectionMatch ? assignSectionMatch[1] : '';
+
+  if (assignSectionText) {
+    try {
+      const assignments: any[] = JSON.parse(assignSectionText);
+      const addedAssignIds = new Set<string>();
+
+      for (const assign of assignments) {
+        if (!assign?.id || addedAssignIds.has(assign.id)) continue;
+        if (assign.status !== 'acknowledged' && assign.status !== 'pending') continue;
+
+        addedAssignIds.add(assign.id);
+        const docNum = assign.incoming_docs?.doc_number || '';
+
+        inlineKeyboard.push([
+          { text: `📝 รายงานผลงาน ${docNum ? `เลขที่ ${docNum}` : ''}`.trim(), callback_data: `action=report&id=${assign.id}` }
+        ]);
+      }
+    } catch (parseErr) {
+      console.error('[TELEGRAM BOT] Failed to parse assignment section:', parseErr);
+    }
+  }
+
+  return inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
 }
 
 function wrapThaiText(text: string, maxWidth: number, font: any, fontSize: number) {
@@ -1364,7 +1533,11 @@ export default async function handler(req: any, res: any) {
       if (!isNaN(parsed)) primaryGroupId = parsed;
     }
 
-    const rawApiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key;
+    const rawApiKey = settings?.ai_cowork_api_key || 
+                      settings?.gemini_api_key || 
+                      (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) || 
+                      (typeof process !== 'undefined' && process.env?.VITE_GEMINI_API_KEY) || 
+                      '';
     let apiKey = '';
     if (rawApiKey) {
       if (rawApiKey.includes(',')) {
@@ -2636,14 +2809,32 @@ export default async function handler(req: any, res: any) {
     const docYearNum = parseInt(currentYear, 10) || (new Date().getFullYear() + 543);
     const textTrimmed = (rawText || '').trim();
 
+    // ดึง bot username เพื่อตัด mention ออกอย่างแม่นยำ
+    const botUser = settings?.telegram_bot_username || 'ChabaSchoolBot';
+
+    // ล้าง @botmention และ Prefix คำเรียกบอทรวมถึง Typo (ชบา, ชยา, น้องชบา, บอท)
+    let cleanCmd = textTrimmed;
+    if (botUser) {
+      cleanCmd = cleanCmd.replace(new RegExp(`^@${botUser}\\s*`, 'i'), '').trim();
+    }
+    // ล้าง prefix ชบา / ชยา / น้องชบา / บอท (รองรับการใส่ slash นำหน้า เช่น /ชยา หรือเคาะซ้ำ)
+    cleanCmd = cleanCmd.replace(/^(@\w+|\/?(?:น้อง)?(?:ชบา|ชยา|บอท))\s*/i, '').trim();
+    cleanCmd = cleanCmd.replace(/^(@\w+|\/?(?:น้อง)?(?:ชบา|ชยา|บอท))\s*/i, '').trim();
+
+    // สตริงที่ตัด Slash ออกเพื่อใช้ดักจับคำสั่งแบบยืดหยุ่น
+    const cleanNoSlash = cleanCmd.replace(/^\//, '').trim();
+
     // ── 6.1 คำสั่งสำหรับ ผอ. / ผู้บริหาร: ขอหนังสือรอเกษียณ ──
-    if (
-      textTrimmed === '/รอเกษียณ' ||
-      textTrimmed === '/ขอหนังสือรอเกษียณ' ||
-      textTrimmed === '/pending' ||
-      textTrimmed.startsWith('/รอเกษียณ') ||
-      textTrimmed.startsWith('/ขอหนังสือรอเกษียณ')
-    ) {
+    const pendingDocKeywords = [
+      'รอเกษียณ', 'ขอหนังสือรอเกษียณ', 'หนังสือรอเกษียณ', 'หนังสือค้างเกษียณ', 
+      'ค้างเกษียณ', 'pending', 'เช็คหนังสือรอเกษียณ', 'ดูหนังสือรอเกษียณ',
+      'รายการรอเกษียณ', 'งานรอเกษียณ'
+    ];
+    const isPendingDocsCmd = pendingDocKeywords.some(kw => 
+      cleanNoSlash === kw || cleanNoSlash.startsWith(kw + ' ') || cleanNoSlash.startsWith(kw + '\n')
+    );
+
+    if (isPendingDocsCmd) {
       if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
         await sendTelegramMessage(botToken, chatId, '❌ ขออภัยค่ะ คำสั่งดูหนังสือรอเกษียณสงวนสิทธิ์เฉพาะผู้อำนวยการและผู้ดูแลระบบเท่านั้นค่ะ 🌸');
         return res.status(200).json({ ok: true });
@@ -2721,13 +2912,12 @@ export default async function handler(req: any, res: any) {
     }
 
     // ── 6.2 คำสั่งสำหรับคุณครู: เช็คภาระงานที่ค้างอยู่ ──
-    if (
-      textTrimmed === '/งานค้าง' ||
-      textTrimmed === '/งานของฉัน' ||
-      textTrimmed === '/mytasks' ||
-      textTrimmed.startsWith('/งานค้าง') ||
-      textTrimmed.startsWith('/งานของฉัน')
-    ) {
+    const myTaskKeywords = ['งานค้าง', 'งานของฉัน', 'mytasks', 'เช็คงานค้าง', 'ดูงานค้าง', 'ภารกิจของฉัน'];
+    const isMyTaskCmd = myTaskKeywords.some(kw => 
+      cleanNoSlash === kw || cleanNoSlash.startsWith(kw + ' ') || cleanNoSlash.startsWith(kw + '\n')
+    );
+
+    if (isMyTaskCmd) {
       let teacherId = '';
       if (profileLinked.email) {
         const { data: tData } = await supabase
@@ -2832,13 +3022,12 @@ export default async function handler(req: any, res: any) {
     }
 
     // ── 6.3 คำสั่งภาพรวมสถานะงานทั้งโรงเรียน: สำหรับ ผอ. และ แอดมิน ──
-    if (
-      textTrimmed === '/สถานะงาน' ||
-      textTrimmed === '/สรุปงาน' ||
-      textTrimmed === '/ภาพรวมงาน' ||
-      textTrimmed.startsWith('/สถานะงาน') ||
-      textTrimmed.startsWith('/สรุปงาน')
-    ) {
+    const overviewKeywords = ['สถานะงาน', 'สรุปงาน', 'ภาพรวมงาน', 'สรุปงานโรงเรียน', 'ภาพรวม'];
+    const isOverviewCmd = overviewKeywords.some(kw => 
+      cleanNoSlash === kw || cleanNoSlash.startsWith(kw + ' ') || cleanNoSlash.startsWith(kw + '\n')
+    );
+
+    if (isOverviewCmd) {
       if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
         await sendTelegramMessage(botToken, chatId, '❌ ขออภัยค่ะ คำสั่งนี้สำหรับผู้อำนวยการและผู้ดูแลระบบเท่านั้นค่ะ 🌸');
         return res.status(200).json({ ok: true });
@@ -2882,7 +3071,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // ปรับแต่งคำสั่งให้เป็นมาตรฐาน (Standardize Command) รองรับทั้งมี slash '/' และไม่มี slash
-    let normCmd = textTrimmed;
+    let normCmd = cleanCmd;
     if (normCmd.startsWith('จองเลข')) {
       normCmd = normCmd.replace(/^จองเลข/, 'ขอเลข');
     } else if (normCmd.startsWith('/จองเลข')) {
@@ -3553,125 +3742,33 @@ export default async function handler(req: any, res: any) {
               .join('\n')
               .trim();
 
+            const replyMarkup = buildReplyMarkupFromContext(contextData, cleanedText, profileLinked);
+
             if (finalAnswer) {
-              let replyMarkup: any = undefined;
-              const isReportIntent = ['งานค้าง', 'งานของฉัน', 'ยังไม่ได้ส่ง', 'ยังไม่ได้รายงาน', 'งานที่มอบหมายค้าง', 'รายงานผล', 'ส่งรายงาน', 'ส่งงาน'].some(k => cleanedText.includes(k));
-              
-              // ค้นหา ID หนังสือรับทั้งหมดใน contextData (สกัดแบบอิสระ ไม่จำกัดเฉพาะ pending เพื่อให้บริการปุ่มดูเอกสารแก่ครูทุกคน)
-              const docMatches = contextData.match(/"id":"([a-f0-9-]{36})"/g);
-              if (docMatches) {
-                const inlineKeyboard: any[] = [];
-                const addedIds = new Set<string>();
-                
-                for (const match of docMatches) {
-                  const idMatch = match.match(/"id":"([a-f0-9-]{36})"/);
-                  if (idMatch && idMatch[1] && !addedIds.has(idMatch[1])) {
-                    const docId = idMatch[1];
-                    addedIds.add(docId);
-                    
-                    // Fix Bug#8: ปรับ regex ให้จับ JSON object ที่มี id ตรงตำแหน่งแรก ไม่ข้ามบล็อก
-                    const docBlockMatch = contextData.match(new RegExp(`\\{[^{}]*?"id"\\s*:\\s*"${docId}"[^{}]*?\\}`));
-                    if (docBlockMatch && docBlockMatch[0]) {
-                      let docNum = '';
-                      let status = '';
-                      let fileUrl = '';
-                      let attachmentUrls: string[] = [];
-                      
-                      const numMatch = docBlockMatch[0].match(/"doc_number":"(.*?)"/);
-                      if (numMatch && numMatch[1]) docNum = numMatch[1];
-                      
-                      const statusMatch = docBlockMatch[0].match(/"status":"(.*?)"/);
-                      if (statusMatch && statusMatch[1]) status = statusMatch[1];
-                      
-                      const fileMatch = docBlockMatch[0].match(/"file_url":"(.*?)"/);
-                      if (fileMatch && fileMatch[1]) fileUrl = fileMatch[1];
-                      
-                      const attachMatch = docBlockMatch[0].match(/"attachment_urls":(\[.*?\])/);
-                      if (attachMatch && attachMatch[1]) {
-                        try {
-                          attachmentUrls = JSON.parse(attachMatch[1]);
-                        } catch (e) {}
-                      }
-                      
-                      // 1. สร้างแถวปุ่มสำหรับ เปิดดูเอกสาร และ สิ่งที่ส่งมาด้วย (ครูทุกคนกดดูได้)
-                      const rowButtons: any[] = [];
-                      if (fileUrl) {
-                        rowButtons.push({ text: `📄 ดูต้นฉบับ ${docNum ? `(${docNum})` : ''}`, url: fileUrl });
-                      }
-                      
-                      if (attachmentUrls && attachmentUrls.length > 0) {
-                        attachmentUrls.forEach((url, idx) => {
-                          if (url && (url.startsWith('http') || url.startsWith('https'))) {
-                            rowButtons.push({ text: `📎 แนบ ${idx + 1}`, url: url });
-                          }
-                        });
-                      }
-                      
-                      if (rowButtons.length > 0) {
-                        inlineKeyboard.push(rowButtons);
-                      }
-                      
-                      // 2. ถ้าผู้ใช้มีสิทธิ์เป็น ผอ./แอดมิน และหนังสือยังไม่ได้เกษียณ (status === 'pending') และไม่ได้ต้องการรายงานผล -> แนบปุ่มเกษียณสั่งการเพิ่มขึ้นมาในแถวถัดไป
-                      if ((profileLinked.role === 'director' || profileLinked.role === 'admin') && status === 'pending' && !isReportIntent) {
-                        inlineKeyboard.push([
-                          { text: `✍️ เกษียณสั่งการหนังสือ เลขที่ ${docNum || ''}`, callback_data: `action=start_assign&id=${docId}` }
-                        ]);
-                      }
-                    }
-                  }
-                }
-                
-                if (inlineKeyboard.length > 0) {
-                  replyMarkup = { inline_keyboard: inlineKeyboard };
-                }
-              }
-              
-              // 2. ค้นหา ID ของการมอบหมายงาน (doc_assignments) ใน contextData เพื่อสร้างปุ่มรายงานผล
-              // แยกเฉพาะ section ข้อมูลการมอบหมายงาน เพื่อป้องกัน regex จับ ID ของ incoming_docs มาด้วย
-              const assignSectionMatch = contextData.match(/ข้อมูลการมอบหมายงาน:\s*(\[.*\])/s);
-              const assignSectionText = assignSectionMatch ? assignSectionMatch[1] : '';
-
-              if (assignSectionText) {
-                try {
-                  const assignments: any[] = JSON.parse(assignSectionText);
-                  const inlineKeyboard: any[] = replyMarkup?.inline_keyboard || [];
-                  const addedAssignIds = new Set<string>();
-
-                  for (const assign of assignments) {
-                    if (!assign?.id || addedAssignIds.has(assign.id)) continue;
-                    if (assign.status !== 'acknowledged' && assign.status !== 'pending') continue;
-
-                    addedAssignIds.add(assign.id);
-                    const docNum = assign.incoming_docs?.doc_number || '';
-
-                    inlineKeyboard.push([
-                      { text: `📝 รายงานผลงาน ${docNum ? `เลขที่ ${docNum}` : ''}`.trim(), callback_data: `action=report&id=${assign.id}` }
-                    ]);
-                  }
-
-                  if (inlineKeyboard.length > 0) {
-                    replyMarkup = { inline_keyboard: inlineKeyboard };
-                  }
-                } catch (parseErr) {
-                  console.error('[TELEGRAM BOT] Failed to parse assignment section:', parseErr);
-                }
-              }
-              
               await sendTelegramMessage(botToken, chatId, finalAnswer, replyMarkup);
+            } else if (contextData) {
+              // Fallback: หาก AI ตอบกลับไม่สมบูรณ์ แต่มีข้อมูลจาก DB → แปลงเป็นข้อความภาษาไทยสวยงาม ไม่ส่ง JSON ดิบ
+              const humanFormatted = formatContextDataForHumans(contextData);
+              const fallbackMsg = `📊 <b>ข้อมูลจากฐานข้อมูลโรงเรียน:</b>\n\n${humanFormatted.substring(0, 3800)}`;
+              await sendTelegramMessage(botToken, chatId, fallbackMsg, replyMarkup);
             } else {
               await sendTelegramMessage(botToken, chatId, `📬 สวัสดีค่ะคุณครู <b>${profileLinked.display_name || ''}</b>\nขณะนี้ระบบพร้อมใช้งานแจ้งเตือนหนังสือราชการและงานสารบรรณแล้วค่ะ หากมีคำสั่งหรือการมอบหมายงานใหม่ ระบบจะทักมาโดยอัตโนมัติค่ะ`);
             }
           } else if (contextData) {
-            // Fallback: หาก AI ล่ม แต่มีข้อมูลจาก DB → ส่งข้อมูลดิบกลับ
-            const fallbackMsg = `📊 ชบาขอส่งข้อมูลโดยตรงจากฐานข้อมูลให้ดังนี้นะคะ:\n\n${contextData.substring(0, 3500)}`;
-            await sendTelegramMessage(botToken, chatId, fallbackMsg);
+            // Fallback: หาก AI ล่ม หรือไม่มีคำตอบจาก Gemini → แปลงเป็นข้อความภาษาไทยสวยงาม ไม่ส่ง JSON ดิบ
+            const replyMarkup = buildReplyMarkupFromContext(contextData, cleanedText, profileLinked);
+            const humanFormatted = formatContextDataForHumans(contextData);
+            const fallbackMsg = `📊 <b>ข้อมูลจากฐานข้อมูลโรงเรียน:</b>\n\n${humanFormatted.substring(0, 3800)}`;
+            await sendTelegramMessage(botToken, chatId, fallbackMsg, replyMarkup);
           } else {
             await sendTelegramMessage(botToken, chatId, `ขออภัยนะคะคุณครู ตอนนี้ระบบสมองของชบามีการเชื่อมต่อขัดข้องชั่วคราวค่ะ รบกวนลองใหม่อีกครั้งในภายหลังนะคะ 🙏🌸`);
           }
         } else if (contextData) {
           // --- โหมดไม่มี API Key แต่มีข้อมูลจาก DB ---
-          const fallbackMsg = `📊 ข้อมูลจากฐานข้อมูลโรงเรียน:\n\n${contextData.substring(0, 3500)}`;
-          await sendTelegramMessage(botToken, chatId, fallbackMsg);
+          const replyMarkup = buildReplyMarkupFromContext(contextData, cleanedText, profileLinked);
+          const humanFormatted = formatContextDataForHumans(contextData);
+          const fallbackMsg = `📊 <b>ข้อมูลจากฐานข้อมูลโรงเรียน:</b>\n\n${humanFormatted.substring(0, 3800)}`;
+          await sendTelegramMessage(botToken, chatId, fallbackMsg, replyMarkup);
         } else {
           await sendTelegramMessage(botToken, chatId, `📬 สวัสดีค่ะคุณครู <b>${profileLinked.display_name || ''}</b>\nขณะนี้ระบบพร้อมใช้งานแจ้งเตือนหนังสือราชการและงานสารบรรณแล้วค่ะ หากมีคำสั่งหรือการมอบหมายงานใหม่ ระบบจะทักมาโดยอัตโนมัติค่ะ`);
         }
