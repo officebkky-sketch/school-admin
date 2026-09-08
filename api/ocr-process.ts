@@ -53,14 +53,13 @@ async function callGemini(
   apiKey: string, 
   inlineImageData?: { mimeType: string, data: string }
 ): Promise<string> {
-  // รองรับโมเดล Gemini ล่าสุดตามลำดับความสามารถและความเร็ว
+  // รองรับโมเดลทางการของ Google Gemini ล่าสุดตามลำดับความสามารถและความเร็ว
   const models = [
-    "gemini-3.8-flash",
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
   ];
   
   for (const model of models) {

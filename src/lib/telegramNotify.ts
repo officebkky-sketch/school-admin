@@ -24,11 +24,11 @@ export function getVercelBaseUrl(): string {
     vercelBaseUrl = window.location.origin;
   } else {
     const profile = getActiveSchoolProfile();
-    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-multischool.vercel.app';
   }
 
   if (!vercelBaseUrl || vercelBaseUrl.includes('localhost') || vercelBaseUrl.includes('127.0.0.1')) {
-    vercelBaseUrl = 'https://school-admin-psi.vercel.app';
+    vercelBaseUrl = 'https://school-admin-multischool.vercel.app';
   }
 
   if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
@@ -54,8 +54,7 @@ export async function sendTelegramNotification(
   retryCount = 0
 ): Promise<any> {
   try {
-    const activeSchoolId = localStorage.getItem('active_school_id');
-    if (!activeSchoolId) return;
+    const activeSchoolId = typeof window !== 'undefined' ? localStorage.getItem('active_school_id') || undefined : undefined;
 
     // ค้นหาค่าตั้งค่าจากตาราง settings (Rule C: 1 row ต่อ 1 โรงเรียน)
     const { data: settings } = await supabase

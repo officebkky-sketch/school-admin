@@ -66,11 +66,11 @@ export async function callGeminiAPI(
   let modelsToTry = await getAvailableModels(keys[0]);
   if (modelsToTry.length === 0) {
     modelsToTry = [
-      "gemini-3.1-flash-lite",
-      "gemini-3.5-flash",
       "gemini-2.5-flash",
       "gemini-2.0-flash",
+      "gemini-2.0-flash-lite",
       "gemini-1.5-flash",
+      "gemini-2.5-pro",
       "gemini-1.5-pro"
     ];
   }
@@ -178,11 +178,11 @@ export async function extractProjectsFromKnowledge(apiKey: string, academicYear:
     let modelsToTry = await getAvailableModels(apiKey);
     if (modelsToTry.length === 0) {
       modelsToTry = [
-        "gemini-3.1-flash-lite",
-        "gemini-3.5-flash",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
-        "gemini-1.5-flash"
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
       ];
     }
     const apiVersions = ["v1beta", "v1"];
@@ -293,14 +293,13 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) return [];
   
-  // โมเดลหลักที่แนะนำและเสถียรที่สุดในปัจจุบัน (เน้นรุ่น Lite ที่ให้โควต้ารายวันสูง 500 RPD เพื่อหลีกเลี่ยง Rate Limit)
+  // โมเดลหลักทางการของ Google Gemini API ที่แนะนำและเสถียรที่สุด
   const RECOMMENDED_MODELS = [
-    'gemini-3.8-flash',
-    'gemini-3.5-flash',
-    'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
+    'gemini-2.5-pro',
     'gemini-1.5-pro'
   ];
   
@@ -358,11 +357,11 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
         modelsToTry = [
-          "gemini-3.1-flash-lite",
-          "gemini-3.5-flash",
           "gemini-2.5-flash",
           "gemini-2.0-flash",
-          "gemini-1.5-flash"
+          "gemini-2.0-flash-lite",
+          "gemini-1.5-flash",
+          "gemini-1.5-pro"
         ];
       }
 
@@ -459,11 +458,11 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
   let modelsToTry = await getAvailableModels(apiKey);
   if (modelsToTry.length === 0) {
     modelsToTry = [
-      "gemini-3.1-flash-lite",
-      "gemini-3.5-flash",
       "gemini-2.5-flash",
       "gemini-2.0-flash",
-      "gemini-1.5-flash"
+      "gemini-2.0-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
     ];
   }
 
