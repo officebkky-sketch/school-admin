@@ -125,7 +125,7 @@ async function sendTelegramMessage(botToken: string, chatId: number | string, te
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
+      const err: any = await res.json().catch(() => ({}));
       // หากเกิด HTML parse error ให้ส่งแบบ Clean Plain text ทันที
       if (err?.description?.includes("can't parse entities")) {
         const cleanText = text.replace(/<[^>]+>/g, '').substring(0, 4000);

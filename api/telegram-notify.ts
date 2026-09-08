@@ -103,7 +103,7 @@ async function executeTelegramSend(
     body: JSON.stringify(payload)
   });
 
-  const resData = await res.json().catch(() => ({}));
+  const resData: any = await res.json().catch(() => ({}));
 
   // กรณี 429 Too Many Requests -> หน่วงเวลารอ retry_after แล้วลองส่งใหม่อัตโนมัติ
   if (res.status === 429 && attempt <= 2) {
