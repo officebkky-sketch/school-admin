@@ -113,6 +113,20 @@
 ### 12) การเสนอหนังสือแบบกลุ่ม (Bulk Propose Completeness)
 - **ข้อกำหนด**: ฟังก์ชัน `handleBulkPropose` ต้อง parse ข้อมูลจาก `remark` (ได้แก่ `proposal_summary`, `sender_doc_number`, `sender_doc_date`) และแสดงป้ายความเร่งด่วน 🔴 🟠 🟡 🟢 พร้อมกำหนดการ `DD-MM-YYYY` และลิงก์ไฟล์แนบทุกฉบับครบถ้วน
 
+### 13) Vercel Serverless Function Universal Dual-Runtime Pattern (ป้องกัน 504 Gateway Timeout)
+- **ปัญหา**: เมื่อ handler ใน `api/*.ts` ประกาศเป็น `export default async function handler(req: Request): Promise<Response>` แล้วคืนค่า `new Response(...)` บน Vercel Node.js Serverless Function (ซึ่งไม่ได้เปิด Edge Runtime) ระบบจะส่ง arguments เข้ามาเป็น `(req: any, res?: any)` ของ Node.js HTTP Server หากไม่เรียก `res.status().json()` หรือ `res.end()` ตัว Node.js server จะไม่เคยส่งสัญญาณปิดการเชื่อมต่อ ทำให้เกิด **HTTP 504 Gateway Timeout**
+- **การแก้ไข (Universal Dual-Runtime)**: ต้องเขียน handler ให้รองรับทั้งสองสภาพแวดล้อม:
+  - ตรวจสอบว่ามี `res?.status` หรือไม่ ถ้ามีให้ตอบผ่าน `res.setHeader(...)` และ `res.status(status).json(data)`
+  - ถ้าไม่มี `res` (เช่น Edge Runtime หรือ Fetch mock) ให้ตอบผ่าน `new Response(JSON.stringify(data))`
+  - จัดการ CORS Preflight (OPTIONS 204) และ Universal Request Body Parsing (`req.body` vs `req.json()`) ทุกครั้ง
+
+### 14) DB-First & Instant Optimistic UI State Transition
+- **ปัญหา**: ในขั้นตอนเสนอหนังสือ (เดี่ยวหรือชุด) หากรอการส่งแจ้งเตือนภายนอก (`sendBulkFlexCarousel`, `sendTelegramNotification`) ให้เสร็จก่อนแล้วจึงบันทึกฐานข้อมูล เมื่อ LINE/Telegram ช้า 5-15 วิ หน้าจอจะหมุนค้างและสถานะในตารางไม่ยอมเปลี่ยน
+- **การแก้ไข**: 
+  1. **DB-First**: สั่ง `await supabase.from('incoming_docs').update({ status: 'pending' })` ทันที (< 200ms)
+  2. **Instant Optimistic UI**: อัปเดต State บนหน้าจอทันที (`setDocs(...)`, `setSelectedHoldingIds([])`) ให้ป้ายสถานะเปลี่ยนเป็น "รอ ผอ. เกษียณ" ในเสี้ยววินาที และปิด Modal / เคลียร์ Checkbox ทันที
+  3. **Concurrent Background Dispatch**: รันการส่งแจ้งเตือนทั้ง LINE และ Telegram แบบคู่ขนาน (`Promise.allSettled`) ในพื้นหลัง โดยไม่บล็อกการใช้งานของผู้ใช้
+
 ---
 
 ### 📅 บันทึกแผนงานล่าสุด
