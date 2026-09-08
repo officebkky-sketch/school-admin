@@ -2897,7 +2897,8 @@ export default async function handler(req: any, res: any) {
       const knownCommands = [
         'ขอเลข', 'เช็คเลขจอง', 'แนบเอกสาร', 'แนบรับ', 'แนบหนังสือรับ',
         'แนบส่ง', 'แนบหนังสือส่ง', 'แนบคำสั่ง', 'แนบบันทึก', 'แนบเมโม่',
-        'ยกเลิก', 'ลบเลขจอง'
+        'ยกเลิกเลขจอง', 'ยกเลิกจอง', 'ลบเลขจอง', 'ยกเลิกรับ', 'ยกเลิกส่ง',
+        'ยกเลิกคำสั่ง', 'ยกเลิกบันทึก', 'ยกเลิกเมโม่'
       ];
       for (const kc of knownCommands) {
         if (normCmd.startsWith(kc)) {
@@ -2918,8 +2919,14 @@ export default async function handler(req: any, res: any) {
       normCmd.startsWith('/แนบคำสั่ง') ||
       normCmd.startsWith('/แนบบันทึก') ||
       normCmd.startsWith('/แนบเมโม่') ||
-      normCmd.startsWith('/ยกเลิก') ||
-      normCmd.startsWith('/ลบเลขจอง')
+      normCmd.startsWith('/ยกเลิกเลขจอง') ||
+      normCmd.startsWith('/ยกเลิกจอง') ||
+      normCmd.startsWith('/ลบเลขจอง') ||
+      normCmd.startsWith('/ยกเลิกรับ') ||
+      normCmd.startsWith('/ยกเลิกส่ง') ||
+      normCmd.startsWith('/ยกเลิกคำสั่ง') ||
+      normCmd.startsWith('/ยกเลิกบันทึก') ||
+      normCmd.startsWith('/ยกเลิกเมโม่')
     ) {
       // เมนูแนะนำวิธีการขอเลขหนังสือ หากพิมพ์เพียง /ขอเลข หรือ ขอเลข
       if (normCmd.trim() === '/ขอเลข') {
