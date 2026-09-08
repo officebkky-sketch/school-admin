@@ -367,7 +367,7 @@ function buildThaiDocOrFilter(searchWord: string, numberCol: string = 'doc_numbe
 }
 
 /** Smart Data Fetch — ดึงข้อมูลจริงจากฐานข้อมูลตามหมวดคำถาม (เทียบเท่า LINE Bot) */
-async function smartFetchContext(message: string, currentYear: string, supabase: any, schoolId: string, profileLinked?: any): Promise<string> {
+async function smartFetchContext(message: string, currentYear: string, supabase: any, schoolId?: string, profileLinked?: any): Promise<string> {
   const msg = message.toLowerCase();
   const targetClass = extractClassLevel(message);
 
@@ -986,10 +986,11 @@ async function executeDocAssignment(
       } catch (e) {}
     }
 
-    const schoolId = doc?.school_id || profile?.school_id;
-    let settingsQuery = supabase.from('settings').select('school_name, director_name, director_signature_url');
-    if (schoolId) settingsQuery = settingsQuery;
-    const { data: settings } = await settingsQuery.limit(1).maybeSingle();
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('school_name, director_name, director_signature_url')
+      .limit(1)
+      .maybeSingle();
 
     const schoolLabel = settings?.school_name 
       ? (settings.school_name.startsWith('โรงเรียน') ? settings.school_name : `โรงเรียน${settings.school_name}`)
@@ -1309,7 +1310,6 @@ export default async function handler(req: any, res: any) {
 
   waitUntil((async () => {
     const res = mockRes;
-    const schoolId = req.query?.school_id as string;
     try {
       const supabase = getSupabase();
 
@@ -3382,7 +3382,7 @@ export default async function handler(req: any, res: any) {
 
     try {
       // 1. Smart Data Fetch — ดึงข้อมูลจริงจากฐานข้อมูลตามหมวดคำถาม
-      const contextData = await smartFetchContext(cleanedText, currentYear, supabase, schoolId, profileLinked);
+      const contextData = await smartFetchContext(cleanedText, currentYear, supabase, undefined, profileLinked);
       console.log(`[TELEGRAM WEBHOOK] Context Data size: ${contextData.length} chars`);
 
       // 2. นับจำนวนบุคลากร

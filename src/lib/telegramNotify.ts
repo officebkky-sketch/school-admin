@@ -91,7 +91,7 @@ export async function sendTelegramNotification(
 
     if (!targetId) {
       console.warn('[TELEGRAM NOTIFY] Skipping send: No recipient chat_id or group_id found.');
-      return;
+      return { success: false, skipped: true, message: 'ไม่พบ ID กลุ่ม Telegram หรือแชท ผอ. ในการตั้งค่า' };
     }
 
     const vercelUrl = getVercelBaseUrl();

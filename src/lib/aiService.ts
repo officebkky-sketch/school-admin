@@ -518,8 +518,8 @@ export async function generateEmbedding(
   retries = 5, 
   delay = 2000
 ): Promise<number[]> {
-  const targetModel = "models/gemini-embedding-2"; 
-  const versions = ['v1beta', 'v1'];
+  const targetModel = "models/text-embedding-004"; 
+  const versions = ['v1beta'];
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) throw new Error("กรุณาตั้งค่า Gemini API Key");
   let lastError = "";
@@ -783,12 +783,20 @@ export function extractThaiKeywords(text: string): string[] {
 export async function searchKnowledge(query: string, apiKey: string, limit: number = 10) {
   try {
     // 1. ค้นหาแบบ Vector (Semantic Search)
-    const queryEmbedding = await generateEmbedding(query, apiKey);
-    const { data: vectorMatches } = await supabase.rpc('match_knowledge', {
-      query_embedding: queryEmbedding,
-      match_threshold: 0.10, // ปรับ threshold ผ่อนคลายลงให้ค้นหาได้กว้างขึ้น
-      match_count: limit
-    });
+    let vectorMatches: any[] = [];
+    try {
+      const queryEmbedding = await generateEmbedding(query, apiKey);
+      if (queryEmbedding && queryEmbedding.length > 0) {
+        const { data } = await supabase.rpc('match_knowledge', {
+          query_embedding: queryEmbedding,
+          match_threshold: 0.10, // ปรับ threshold ผ่อนคลายลงให้ค้นหาได้กว้างขึ้น
+          match_count: limit
+        });
+        vectorMatches = data || [];
+      }
+    } catch (embErr) {
+      console.warn('[SEARCH KNOWLEDGE] Vector embedding warning, falling back to keyword search:', embErr);
+    }
 
     // 2. ค้นหาแบบ Keyword (สกัดคำสำคัญภาษาไทย)
     const extractedKw = extractThaiKeywords(query);
@@ -1078,16 +1086,25 @@ export async function searchPrivateKnowledge(
     const fileMap = new Map(fileList?.map(f => [f.id, f.file_name]) || []);
 
     // 1. ค้นหาแบบ Vector (Semantic Search)
-    const queryEmbedding = await generateEmbedding(query, apiKey);
-    const { data: vectorMatches, error: rpcErr } = await supabase.rpc('match_private_knowledge', {
-      query_embedding: queryEmbedding,
-      match_threshold: 0.15,
-      match_count: limit,
-      p_teacher_id: teacherId
-    });
+    let vectorMatches: any[] = [];
+    try {
+      const queryEmbedding = await generateEmbedding(query, apiKey);
+      if (queryEmbedding && queryEmbedding.length > 0) {
+        const { data: vMatches, error: rpcErr } = await supabase.rpc('match_private_knowledge', {
+          query_embedding: queryEmbedding,
+          match_threshold: 0.15,
+          match_count: limit,
+          p_teacher_id: teacherId
+        });
 
-    if (rpcErr) {
-      console.error('match_private_knowledge RPC Error:', rpcErr.message);
+        if (rpcErr) {
+          console.warn('match_private_knowledge RPC Warning:', rpcErr.message);
+        } else {
+          vectorMatches = vMatches || [];
+        }
+      }
+    } catch (embErr) {
+      console.warn('[SEARCH PRIVATE KNOWLEDGE] Vector embedding warning, falling back to keywords:', embErr);
     }
 
     // 2. ค้นหาแบบ Keyword Search

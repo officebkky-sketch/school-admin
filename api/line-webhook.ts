@@ -2205,7 +2205,7 @@ async function handlePendingAction(event: any, pendingState: any, profile: any, 
       const teacherMsg = `📌 ผอ. มีคำแนะนำ/สั่งการเพิ่มเติม\nเรื่อง: ${docSubject}\n\nคำสั่ง ผอ.: "${userMsg}"\n\nรบกวนคุณครูดำเนินการเพิ่มเติม และรายงานผลส่งกลับอีกครั้งเมื่อเสร็จงานนะคะ 🌸`;
       
       const teacherActions = [
-        { label: '📄 ดูเอกสาร', type: 'uri' as const, uri: assign.report_file_urls?.[0] || 'https://school-admin-psi.vercel.app' },
+        { label: '📄 ดูเอกสาร', type: 'uri' as const, uri: assign.report_file_urls?.[0] || assign.incoming_docs?.file_url || 'https://school-admin-multischool.vercel.app' },
         { label: '📝 รายงานผลใหม่', type: 'postback' as const, data: `action=report&id=${assignment_id}`, color: '#9C27B0' }
       ];
 

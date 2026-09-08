@@ -14,15 +14,21 @@ let currentClient: SupabaseClient | null = null;
 export function getActiveSchoolProfile(): SchoolProfile | null {
   try {
     const profilesJson = localStorage.getItem('school_profiles');
+    if (!profilesJson) return null;
+    const profiles: SchoolProfile[] = JSON.parse(profilesJson);
+    if (!Array.isArray(profiles) || profiles.length === 0) return null;
+
     const activeId = localStorage.getItem('active_school_id');
-    if (profilesJson && activeId) {
-      const profiles = JSON.parse(profilesJson);
-      return profiles.find((p: SchoolProfile) => p.id === activeId) || null;
-    }
+    const matched = profiles.find((p: SchoolProfile) => p.id === activeId);
+    if (matched) return matched;
+
+    // Self-Healing Fallback: หาก active_school_id หลุดหาย ให้เลือกโปรไฟล์แรกและบันทึกคืน
+    localStorage.setItem('active_school_id', profiles[0].id);
+    return profiles[0];
   } catch (e) {
     console.error('Error reading active profile:', e);
+    return null;
   }
-  return null;
 }
 
 export function getSchoolProfiles(): SchoolProfile[] {

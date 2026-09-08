@@ -18,11 +18,11 @@ function getWebhookUrl(): string {
     vercelBaseUrl = window.location.origin;
   } else {
     const profile = getActiveSchoolProfile();
-    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
+    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-multischool.vercel.app';
   }
 
   if (!vercelBaseUrl || vercelBaseUrl.includes('localhost') || vercelBaseUrl.includes('127.0.0.1')) {
-    vercelBaseUrl = 'https://school-admin-psi.vercel.app';
+    vercelBaseUrl = 'https://school-admin-multischool.vercel.app';
   }
 
   if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
@@ -55,7 +55,10 @@ export async function sendLineNotification(message: string, specificToId?: strin
     const groupId = settings?.line_group_id;
 
     const targetId = specificToId || groupId;
-    if (!targetId) return;
+    if (!targetId) {
+      console.warn('[LINE NOTIFY] Skipping send: No recipient LINE ID found.');
+      return { success: false, skipped: true, message: 'ไม่พบ LINE Group ID ในการตั้งค่า' };
+    }
 
     let payloadObj: any;
 
@@ -192,7 +195,10 @@ export async function sendInteractiveFlexMessage(
     const groupId = settings?.line_group_id;
 
     const targetId = specificToId || groupId;
-    if (!targetId) return;
+    if (!targetId) {
+      console.warn('[LINE NOTIFY] Skipping interactive flex: No recipient LINE ID found.');
+      return { success: false, skipped: true, message: 'ไม่พบ LINE Group ID ในการตั้งค่า' };
+    }
 
     const payloadObj = {
       to: targetId,
@@ -327,7 +333,10 @@ export async function sendBulkFlexCarousel(
     const groupId = settings?.line_group_id;
 
     const targetId = specificToId || groupId;
-    if (!targetId) return;
+    if (!targetId) {
+      console.warn('[LINE NOTIFY] Skipping bulk flex: No recipient LINE ID found.');
+      return { success: false, skipped: true, message: 'ไม่พบ LINE Group ID ในการตั้งค่า' };
+    }
 
     if (items.length === 0) return;
 
