@@ -426,7 +426,7 @@ ${sets?.custom_sop ? `\n[แนวปฏิบัติและข้อกำ�
 }
 
 async function callGemini(system: string, user: string, apiKey: string): Promise<string> {
-  const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
+  const models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-flash-latest"];
   for (const model of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -910,7 +910,7 @@ async function handleReceiptOCR(replyToken: string, messageId: string, _profile:
 }
 
 async function callGeminiMultimodal(system: string, user: string, base64Data: string, mimeType: string, apiKey: string): Promise<string> {
-  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
+  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
   for (const model of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -1105,15 +1105,21 @@ export async function applyStampsOnServer(
         fontBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
       } else {
         console.log('No local font found. Fetching from remote network...');
-        const res = await fetch('https://school-admin-psi.vercel.app/fonts/THSarabunNew.ttf');
+        const remoteFontUrl = process.env.VERCEL_URL 
+          ? `https://${process.env.VERCEL_URL}/fonts/THSarabunNew.ttf` 
+          : 'https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@master/fonts/THSarabunNew/THSarabunNew.ttf';
+        const res = await fetch(remoteFontUrl);
         if (!res.ok) {
-          throw new Error(`Failed to fetch remote font: status ${res.status}`);
+          throw new Error(`Failed to fetch remote font from ${remoteFontUrl}: status ${res.status}`);
         }
         fontBytes = await res.arrayBuffer();
       }
     } catch (err) {
       console.error('Error loading local/preferred font, falling back to remote network fetch:', err);
-      const res = await fetch('https://school-admin-psi.vercel.app/fonts/THSarabunNew.ttf');
+      const fallbackFontUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}/fonts/THSarabunNew.ttf` 
+        : 'https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@master/fonts/THSarabunNew/THSarabunNew.ttf';
+      const res = await fetch(fallbackFontUrl);
       if (!res.ok) {
         throw new Error(`Remote network backup fetch failed: status ${res.status}`);
       }
@@ -2205,7 +2211,7 @@ async function handlePendingAction(event: any, pendingState: any, profile: any, 
       const teacherMsg = `📌 ผอ. มีคำแนะนำ/สั่งการเพิ่มเติม\nเรื่อง: ${docSubject}\n\nคำสั่ง ผอ.: "${userMsg}"\n\nรบกวนคุณครูดำเนินการเพิ่มเติม และรายงานผลส่งกลับอีกครั้งเมื่อเสร็จงานนะคะ 🌸`;
       
       const teacherActions = [
-        { label: '📄 ดูเอกสาร', type: 'uri' as const, uri: assign.report_file_urls?.[0] || assign.incoming_docs?.file_url || 'https://school-admin-multischool.vercel.app' },
+        { label: '📄 ดูเอกสาร', type: 'uri' as const, uri: assign.report_file_urls?.[0] || assign.incoming_docs?.file_url || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://school-admin-multischool.vercel.app') },
         { label: '📝 รายงานผลใหม่', type: 'postback' as const, data: `action=report&id=${assignment_id}`, color: '#9C27B0' }
       ];
 

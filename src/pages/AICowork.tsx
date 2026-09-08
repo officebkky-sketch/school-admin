@@ -139,7 +139,7 @@ export default function AICowork() {
           const keys = apiKey.split(',').map((k: string) => k.trim()).filter(Boolean);
           const currentKey = keys[Math.floor(Math.random() * keys.length)];
           const version = "v1beta";
-          const modelName = "gemini-2.5-flash";
+          const modelName = "gemini-2.0-flash";
 
           const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${currentKey}`;
           

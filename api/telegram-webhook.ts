@@ -179,7 +179,7 @@ async function uploadTelegramFileToSupabase(botToken: string, fileId: string, cu
 
 /** เรียกใช้งานโมเดล Gemini API สำหรับโต้ตอบบทสนทนา */
 async function callGemini(system: string, user: string, apiKey: string): Promise<string> {
-  const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
+  const models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-flash-latest"];
   for (const model of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -729,13 +729,19 @@ async function applyStampsOnServer(
         const buffer = fs.readFileSync(rootFontPath);
         fontBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
       } else {
-        const res = await fetch('https://school-admin-psi.vercel.app/fonts/THSarabunNew.ttf');
-        if (!res.ok) throw new Error(`Failed to fetch remote font: status ${res.status}`);
+        const remoteFontUrl = process.env.VERCEL_URL 
+          ? `https://${process.env.VERCEL_URL}/fonts/THSarabunNew.ttf` 
+          : 'https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@master/fonts/THSarabunNew/THSarabunNew.ttf';
+        const res = await fetch(remoteFontUrl);
+        if (!res.ok) throw new Error(`Failed to fetch remote font from ${remoteFontUrl}: status ${res.status}`);
         fontBytes = await res.arrayBuffer();
       }
     } catch (err) {
       console.error('Error loading local/preferred font, falling back to remote network fetch:', err);
-      const res = await fetch('https://school-admin-psi.vercel.app/fonts/THSarabunNew.ttf');
+      const fallbackFontUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}/fonts/THSarabunNew.ttf` 
+        : 'https://cdn.jsdelivr.net/gh/lazywasabi/thai-web-fonts@master/fonts/THSarabunNew/THSarabunNew.ttf';
+      const res = await fetch(fallbackFontUrl);
       if (!res.ok) throw new Error(`Remote network backup fetch failed: status ${res.status}`);
       fontBytes = await res.arrayBuffer();
     }

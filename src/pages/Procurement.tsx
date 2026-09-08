@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { extractProjectsFromKnowledge } from '../lib/aiService';
+import { sendLineNotification } from '../lib/lineNotify';
 import { 
   Package, 
   ShoppingCart, 
@@ -685,11 +686,7 @@ export default function Procurement() {
           });
 
           for (const user of usersToNotify) {
-            await fetch('/api/line-webhook', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ lineUserId: user.userId, message: user.msg })
-            }).catch(err => console.error("Line notify fetch err:", err));
+            await sendLineNotification(user.msg, user.userId).catch(err => console.error("Line notify fetch err:", err));
           }
         } catch (err) {
           console.error("Line notification trigger err:", err);

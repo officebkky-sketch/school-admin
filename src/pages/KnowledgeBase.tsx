@@ -17,7 +17,7 @@ import {
   Layers,
   ArrowRight
 } from 'lucide-react';
-import { callGeminiAPI } from '../lib/aiService';
+import { callGeminiAPI, generateEmbedding, searchPrivateKnowledge } from '../lib/aiService';
 
 interface KnowledgeDoc {
   id: string;
@@ -100,13 +100,33 @@ export default function KnowledgeBase() {
       const chunks = splitIntoChunks(manualText, 600);
       
       const teacherId = profile?.id || '00000000-0000-0000-0000-000000000000';
-      const insertPayloads = chunks.map((chunk, idx) => ({
-        teacher_id: teacherId,
-        file_id: uploadTitle.trim(),
-        page_number: idx + 1,
-        chunk_text: `[${uploadCategory}] ${uploadTitle}\n${chunk}`,
-        created_at: new Date().toISOString()
-      }));
+
+      // ดึง API Key เพื่อสร้าง Vector Embedding
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key').maybeSingle();
+      const rawApiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key || '';
+      const apiKey = rawApiKey.split(',')[0]?.trim();
+
+      const insertPayloads = [];
+      for (let idx = 0; idx < chunks.length; idx++) {
+        const chunk = chunks[idx];
+        const chunkText = `[${uploadCategory}] ${uploadTitle}\n${chunk}`;
+        let embeddingVal = null;
+        if (apiKey) {
+          try {
+            embeddingVal = await generateEmbedding(chunkText, apiKey);
+          } catch (e) {
+            console.warn('[KB Upload] Embedding generation fallback:', e);
+          }
+        }
+        insertPayloads.push({
+          teacher_id: teacherId,
+          file_id: uploadTitle.trim(),
+          page_number: idx + 1,
+          chunk_text: chunkText,
+          embedding: embeddingVal,
+          created_at: new Date().toISOString()
+        });
+      }
 
       const { error } = await supabase
         .from('ai_private_knowledge_chunks')
@@ -153,24 +173,44 @@ export default function KnowledgeBase() {
       setAiAnswer(null);
       setMatchedChunks([]);
 
-      // 1. ค้นหา Chunks ที่เกี่ยวข้องจากตาราง
-      const { data: chunks } = await supabase
-        .from('ai_private_knowledge_chunks')
-        .select('file_id, chunk_text, page_number')
-        .ilike('chunk_text', `%${searchQuery.trim()}%`)
-        .limit(5);
+      // 1. ดึง API Key และข้อมูลการตั้งค่า
+      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, school_name, custom_sop').maybeSingle();
+      const rawApiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key || '';
+      const apiKey = rawApiKey.split(',')[0]?.trim();
+      const teacherId = profile?.id || '00000000-0000-0000-0000-000000000000';
 
-      const relevantChunks = chunks || [];
+      // 2. ค้นหา Chunks ที่เกี่ยวข้องผ่าน Hybrid Vector & Keyword Search
+      let relevantChunks: any[] = [];
+      if (apiKey && teacherId) {
+        try {
+          const hybridResults = await searchPrivateKnowledge(searchQuery.trim(), teacherId, apiKey, 5);
+          if (hybridResults && hybridResults.length > 0) {
+            relevantChunks = hybridResults.map((r: any) => ({
+              file_id: r.document_name || r.file_id || 'คู่มือ',
+              chunk_text: r.chunk_text || r.snippet || '',
+              page_number: r.page_number || 1
+            }));
+          }
+        } catch (searchErr) {
+          console.warn('[KB] Hybrid search error, falling back to direct keyword match:', searchErr);
+        }
+      }
+
+      // Fallback: หาก Hybrid Search ไม่พบ ให้ใช้ Keyword ILIKE ดั้งเดิม
+      if (relevantChunks.length === 0) {
+        const { data: chunks } = await supabase
+          .from('ai_private_knowledge_chunks')
+          .select('file_id, chunk_text, page_number')
+          .ilike('chunk_text', `%${searchQuery.trim()}%`)
+          .limit(5);
+        relevantChunks = chunks || [];
+      }
+
       setMatchedChunks(relevantChunks);
 
       const knowledgeContext = relevantChunks.length > 0
         ? relevantChunks.map((c: any, i: number) => `[เอกสาร: ${c.file_id} หน้า ${c.page_number}]:\n${c.chunk_text}`).join('\n\n')
         : 'ไม่พบคู่มือเฉพาะเจาะจงที่ตรงกับคำค้นหาโดยตรง (ใช้ความรู้มาตรฐานงานสารบรรณ/ระเบียบราชการไทยตอบ)';
-
-      // 2. ดึง API Key จาก Settings
-      const { data: settings } = await supabase.from('settings').select('gemini_api_key, ai_cowork_api_key, school_name, custom_sop').maybeSingle();
-      const rawApiKey = settings?.ai_cowork_api_key || settings?.gemini_api_key || '';
-      const apiKey = rawApiKey.split(',')[0].trim();
 
 
       const prompt = `คุณคือ "น้องชบา" AI ผู้เชี่ยวชาญระเบียบราชการและคลังคู่มือปฏิบัติงานของ ${settings?.school_name || 'โรงเรียน'}

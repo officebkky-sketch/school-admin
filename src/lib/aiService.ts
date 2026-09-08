@@ -66,11 +66,9 @@ export async function callGeminiAPI(
   let modelsToTry = await getAvailableModels(keys[0]);
   if (modelsToTry.length === 0) {
     modelsToTry = [
-      "gemini-2.5-flash",
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
       "gemini-1.5-flash",
-      "gemini-2.5-pro",
       "gemini-1.5-pro"
     ];
   }
@@ -178,7 +176,6 @@ export async function extractProjectsFromKnowledge(apiKey: string, academicYear:
     let modelsToTry = await getAvailableModels(apiKey);
     if (modelsToTry.length === 0) {
       modelsToTry = [
-        "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
@@ -295,11 +292,9 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   
   // โมเดลหลักทางการของ Google Gemini API ที่แนะนำและเสถียรที่สุด
   const RECOMMENDED_MODELS = [
-    'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
-    'gemini-2.5-pro',
     'gemini-1.5-pro'
   ];
   
@@ -357,7 +352,6 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
         modelsToTry = [
-          "gemini-2.5-flash",
           "gemini-2.0-flash",
           "gemini-2.0-flash-lite",
           "gemini-1.5-flash",
@@ -458,7 +452,6 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
   let modelsToTry = await getAvailableModels(apiKey);
   if (modelsToTry.length === 0) {
     modelsToTry = [
-      "gemini-2.5-flash",
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
       "gemini-1.5-flash",
@@ -518,7 +511,7 @@ export async function generateEmbedding(
   retries = 5, 
   delay = 2000
 ): Promise<number[]> {
-  const targetModel = "models/text-embedding-004"; 
+  const candidateModels = ["models/text-embedding-004", "text-embedding-004"];
   const versions = ['v1beta'];
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) throw new Error("กรุณาตั้งค่า Gemini API Key");
@@ -528,22 +521,23 @@ export async function generateEmbedding(
     // หมุนเวียนคีย์ตามความพยายามเพื่อหลีกเลี่ยง Rate Limit
     const currentKey = keys[(attempt + Math.floor(Math.random() * keys.length)) % keys.length];
     
-    for (const version of versions) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/${version}/${targetModel}:embedContent?key=${currentKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: targetModel,
-            content: { parts: [{ text }] }
-          })
-        });
+    for (const targetModel of candidateModels) {
+      for (const version of versions) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/${version}/${targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`}:embedContent?key=${currentKey}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`,
+              content: { parts: [{ text }] }
+            })
+          });
 
-        const data = await response.json();
-        if (response.ok) {
-          return data.embedding?.values || [];
-        }
+          const data = await response.json();
+          if (response.ok && data.embedding?.values) {
+            return data.embedding.values;
+          }
 
         lastError = data.error?.message || 'Unknown error';
         
@@ -563,6 +557,7 @@ export async function generateEmbedding(
       }
     }
   }
+}
 
   console.error('Embedding error after retries:', lastError);
   throw new Error(`ไม่พบโมเดลสร้างความรู้ที่รองรับ: ${lastError}`);
