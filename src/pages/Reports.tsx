@@ -437,7 +437,13 @@ export default function Reports() {
       actions: [
         { 
           label: "เปิดระบบ ปพ. ดิจิทัล (ปพ.5 - ปพ.6)", 
-          onClick: () => window.open(import.meta.env.VITE_PP_APP_URL || 'https://school-grading-pp56.vercel.app', '_blank') 
+          onClick: () => window.open(
+            import.meta.env.VITE_PP_APP_URL || 
+            (typeof window !== 'undefined' && (window.location.origin.includes('lime') || window.location.origin.includes('wtk'))
+              ? 'https://school-grading-wtk.vercel.app'
+              : 'https://school-grading-pp56.vercel.app'),
+            '_blank'
+          ) 
         }
       ]
     }

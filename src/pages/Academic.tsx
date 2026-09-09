@@ -129,7 +129,12 @@ export default function Academic() {
           </div>
 
           <a 
-            href={import.meta.env.VITE_PP_APP_URL || 'https://school-grading-pp56.vercel.app'} 
+            href={
+              import.meta.env.VITE_PP_APP_URL || 
+              (typeof window !== 'undefined' && (window.location.origin.includes('lime') || window.location.origin.includes('wtk'))
+                ? 'https://school-grading-wtk.vercel.app'
+                : 'https://school-grading-pp56.vercel.app')
+            } 
             target="_blank" 
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-bold shadow-md shadow-emerald-100 active:scale-95 transition-all text-xs"
