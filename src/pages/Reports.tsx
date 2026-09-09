@@ -428,6 +428,18 @@ export default function Reports() {
         { label: "ข้อมูลนักเรียนรายบุคคล", onClick: () => exportToExcel('students', 'ข้อมูลนักเรียน') },        
         { label: "สถิติการมาเรียน (LEC)", onClick: () => alert('ฟีเจอร์นี้เปิดใช้งานในหน้า LEC Reports') }      
       ]
+    },
+    {
+      title: "งานวัดผลและวิชาการ (ปพ.๕ - ปพ.๖)",
+      description: "แบบบันทึกผลการเรียน ปพ.5 และสมุดรายงาน ปพ.6 ครบวงจร",
+      icon: <GraduationCap className="text-emerald-600" />,
+      color: "bg-emerald-50",
+      actions: [
+        { 
+          label: "เปิดระบบ ปพ. ดิจิทัล (ปพ.5 - ปพ.6)", 
+          onClick: () => window.open('http://localhost:5174', '_blank') 
+        }
+      ]
     }
   ];
 

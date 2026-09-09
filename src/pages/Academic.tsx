@@ -14,10 +14,13 @@ import {
   RefreshCcw,
   BookMarked,
   Save,
-  FileText
+  FileText,
+  ExternalLink,
+  GraduationCap
 } from 'lucide-react';
 import Modal from '../components/Modal';
 import LessonPlansTab from '../components/LessonPlansTab';
+import HomeroomAssignmentTab from '../components/HomeroomAssignmentTab';
 import { useAuth } from '../contexts/AuthContext';
 
 type Subject = {
@@ -38,6 +41,7 @@ export default function Academic() {
 
   const [activeSubTab, setActiveSubTab] = useState<'lesson_plans' | 'subjects' | 'assignments' | 'timetable'>('lesson_plans');
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [filterClassLevel, setFilterClassLevel] = useState<string>('ทั้งหมด');
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -116,34 +120,79 @@ export default function Academic() {
     <div className="space-y-8">
       {/* Tab Navigation */}
       {isAcademic && (
-        <div className="flex flex-wrap gap-2 bg-white/50 p-2 rounded-[32px] border border-slate-200 w-fit">
-          <TabBtn active={activeSubTab === 'lesson_plans'} icon={<FileText size={18} />} label="ส่งแผนการสอน" onClick={() => setActiveSubTab('lesson_plans')} />
-          <TabBtn active={activeSubTab === 'subjects'} icon={<BookMarked size={18} />} label="ทะเบียนวิชา" onClick={() => setActiveSubTab('subjects')} />
-          <TabBtn active={activeSubTab === 'assignments'} icon={<UserCheck size={18} />} label="มอบหมายงานสอน" onClick={() => setActiveSubTab('assignments')} />
-          <TabBtn active={activeSubTab === 'timetable'} icon={<Calendar size={18} />} label="ตารางเรียน/สอน" onClick={() => setActiveSubTab('timetable')} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2 bg-white/50 p-2 rounded-[32px] border border-slate-200 w-fit">
+            <TabBtn active={activeSubTab === 'lesson_plans'} icon={<FileText size={18} />} label="ส่งแผนการสอน" onClick={() => setActiveSubTab('lesson_plans')} />
+            <TabBtn active={activeSubTab === 'subjects'} icon={<BookMarked size={18} />} label="ทะเบียนวิชา" onClick={() => setActiveSubTab('subjects')} />
+            <TabBtn active={activeSubTab === 'assignments'} icon={<UserCheck size={18} />} label="แต่งตั้งครูประจำชั้น" onClick={() => setActiveSubTab('assignments')} />
+            <TabBtn active={activeSubTab === 'timetable'} icon={<Calendar size={18} />} label="ตารางเรียน/สอน" onClick={() => setActiveSubTab('timetable')} />
+          </div>
+
+          <a 
+            href="http://localhost:5174" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-bold shadow-md shadow-emerald-100 active:scale-95 transition-all text-xs"
+            title="เปิดระบบวัดผลและออกเอกสาร ปพ. (PP5-6)"
+          >
+            <GraduationCap size={16} />
+            <span>ระบบวัดผลและออกเอกสาร ปพ. (PP5-6)</span>
+            <ExternalLink size={14} className="opacity-70" />
+          </a>
         </div>
       )}
 
       {(activeSubTab === 'lesson_plans' || !isAcademic) && <LessonPlansTab />}
 
+      {activeSubTab === 'assignments' && isAcademic && <HomeroomAssignmentTab />}
+
       {activeSubTab === 'subjects' && isAcademic && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="flex items-center gap-4">
               <div className="bg-blue-600 p-3 rounded-2xl text-white shadow-lg shadow-blue-100">
                 <BookOpen size={24} />
               </div>
               <div>
                 <h3 className="font-bold text-slate-800 text-lg">ทะเบียนวิชาเรียน</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">ปีการศึกษา {formData.academic_year}</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
+                  ปีการศึกษา {formData.academic_year} • รวม {subjects.length} รายวิชา
+                </p>
               </div>
             </div>
             <button 
               onClick={() => { resetForm(); setEditingId(null); setIsModalOpen(true); }}
-              className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-green-100 active:scale-95 transition-all text-sm"
+              className="bg-brand-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-green-100 active:scale-95 transition-all text-sm shrink-0"
             >
               <Plus size={18} /> เพิ่มวิชาใหม่
             </button>
+          </div>
+
+          {/* Filter Pills for Class Levels */}
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+            {['ทั้งหมด', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'].map((lvl) => {
+              const count = lvl === 'ทั้งหมด' ? subjects.length : subjects.filter(s => s.class_level === lvl).length;
+              const isActive = filterClassLevel === lvl;
+
+              return (
+                <button
+                  key={lvl}
+                  onClick={() => setFilterClassLevel(lvl)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  <span>{lvl === 'ทั้งหมด' ? 'ทุกระดับชั้น' : `ชั้น ${lvl}`}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    isActive ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {loading ? (
@@ -154,7 +203,7 @@ export default function Academic() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {subjects.map(subject => (
+              {(filterClassLevel === 'ทั้งหมด' ? subjects : subjects.filter(s => s.class_level === filterClassLevel)).map(subject => (
                 <div key={subject.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-xs hover:shadow-xl transition-all group relative overflow-hidden">
                    <div className="flex justify-between items-start mb-4">
                       <span className={`px-3 py-1 rounded-lg text-[10px] font-bold ${subject.type === 'พื้นฐาน' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-purple-50 text-purple-600 border border-purple-100'}`}>
@@ -178,12 +227,12 @@ export default function Academic() {
         </div>
       )}
 
-      {(activeSubTab === 'assignments' || activeSubTab === 'timetable') && isAcademic && (
+      {activeSubTab === 'timetable' && isAcademic && (
         <div className="bg-white rounded-[40px] p-20 text-center border border-slate-100 shadow-sm">
           <RefreshCcw className="mx-auto text-blue-200 mb-4 animate-pulse" size={64} />
           <h4 className="text-xl font-bold text-slate-800">ระบบอัจฉริยะกำลังอยู่ในการพัฒนา</h4>
           <p className="text-slate-400 font-medium max-w-md mx-auto mt-2">
-            ส่วนของ "{activeSubTab === 'assignments' ? 'การมอบหมายงานสอน' : 'การจัดตารางเรียน'}" จะเชื่อมต่อกับทะเบียนวิชาเพื่อตรวจสอบความขัดแย้งให้อัตโนมัติ
+            ส่วนของ "การจัดตารางเรียน" จะเชื่อมต่อกับทะเบียนวิชาเพื่อตรวจสอบความขัดแย้งให้อัตโนมัติ
           </p>
         </div>
       )}

@@ -1081,12 +1081,18 @@ async function executeForwardAssignment(
     const targetName = `${targetTeacher.prefix || ''}${targetTeacher.first_name} ${targetTeacher.last_name}`;
     const doc = oldAssign.incoming_docs;
 
-    // 3. ดึง telegram_chat_id ของครูปลายทางจาก profiles (ส่งตรงเฉพาะบุคคล ไม่ส่งเข้ากลุ่มกลาง)
-    const { data: targetProfile } = await supabase
-      .from('profiles')
-      .select('telegram_chat_id')
-      .eq('teacher_id', targetTeacherId)
-      .maybeSingle();
+    // 3. ดึง telegram_chat_id ของครูปลายทางจาก teachers หรือ profiles (ส่งตรงเฉพาะบุคคล ไม่ส่งเข้ากลุ่มกลาง)
+    let targetChatId = targetTeacher.telegram_chat_id;
+    if (!targetChatId && targetTeacher.email) {
+      const { data: targetProfile } = await supabase
+        .from('profiles')
+        .select('telegram_chat_id')
+        .eq('email', targetTeacher.email)
+        .maybeSingle();
+      if (targetProfile?.telegram_chat_id) {
+        targetChatId = targetProfile.telegram_chat_id;
+      }
+    }
 
     const docButtons: any[] = [];
     if (doc.file_url) {
@@ -1121,8 +1127,8 @@ async function executeForwardAssignment(
     }
 
     let sentDirect = false;
-    if (targetProfile?.telegram_chat_id) {
-      await sendTelegramMessage(botToken, parseInt(targetProfile.telegram_chat_id), fwdPersonalMsg, fwdMarkup);
+    if (targetChatId) {
+      await sendTelegramMessage(botToken, parseInt(String(targetChatId), 10), fwdPersonalMsg, fwdMarkup);
       sentDirect = true;
     }
 
@@ -2082,6 +2088,15 @@ export default async function handler(req: any, res: any) {
 
         await answerCallbackQuery(botToken, callbackQuery.id);
 
+        // บันทึก Session เพื่อป้องกัน callback_data เกิน 64 bytes ของ Telegram
+        await supabase.from('line_action_states').delete().eq('user_id', `telegram:${userTelegramId}`);
+        await supabase.from('line_action_states').insert([{
+          user_id: `telegram:${userTelegramId}`,
+          action: 'fwd_session',
+          context: { assignment_id: assignId },
+          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        }]);
+
         // ดึงรายชื่อครูทั้งหมดที่ active (ยกเว้นผู้ที่ได้รับมอบหมายอยู่ปัจจุบัน)
         const { data: allTeachers } = await supabase
           .from('teachers')
@@ -2095,14 +2110,14 @@ export default async function handler(req: any, res: any) {
           return res.status(200).json({ ok: true });
         }
 
-        // จัดปุ่มครูเป็น Inline Buttons 2 ปุ่มต่อแถว
+        // จัดปุ่มครูเป็น Inline Buttons 2 ปุ่มต่อแถว (ความยาว callback_data <= 50 bytes ปลอดภัย 100%)
         const teacherButtons: any[] = [];
         let tempRow: any[] = [];
         for (const t of allTeachers) {
           const shortName = `${t.prefix || ''}${t.first_name} ${t.last_name ? t.last_name[0] + '.' : ''}`;
           tempRow.push({
             text: `🧑‍🏫 ${shortName}`,
-            callback_data: `action=fwd_to&id=${assignId}&to=${t.id}`
+            callback_data: `action=fwd_to&to=${t.id}`
           });
           if (tempRow.length === 2) {
             teacherButtons.push([...tempRow]);
@@ -2114,7 +2129,7 @@ export default async function handler(req: any, res: any) {
         }
 
         teacherButtons.push([
-          { text: '❌ ยกเลิกการส่งต่อ', callback_data: `action=fwd_cancel&id=${assignId}` }
+          { text: '❌ ยกเลิกการส่งต่อ', callback_data: `action=fwd_cancel` }
         ]);
 
         const fwdPromptMsg = `↪️ <b>ส่งต่องานมอบหมาย (เฉพาะบุคคล)</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
@@ -2126,13 +2141,33 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
 
       } else if (action === 'fwd_to') {
-        const assignId = params.get('id');
         const targetTeacherId = params.get('to');
+        
+        // ค้นหา assignment_id จาก session
+        const { data: activeSession } = await supabase
+          .from('line_action_states')
+          .select('*')
+          .eq('user_id', `telegram:${userTelegramId}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const assignId = activeSession?.context?.assignment_id || params.get('id');
+
         if (!assignId || !targetTeacherId) {
-          await answerCallbackQuery(botToken, callbackQuery.id, '❌ ข้อมูลไม่ครบถ้วนค่ะ', true);
+          await answerCallbackQuery(botToken, callbackQuery.id, '❌ เซสชันหมดอายุ กรุณากดส่งต่อใหม่อีกครั้งค่ะ', true);
           return res.status(200).json({ ok: true });
         }
         await answerCallbackQuery(botToken, callbackQuery.id);
+
+        // อัปเดต session
+        await supabase.from('line_action_states').delete().eq('user_id', `telegram:${userTelegramId}`);
+        await supabase.from('line_action_states').insert([{
+          user_id: `telegram:${userTelegramId}`,
+          action: 'fwd_session',
+          context: { assignment_id: assignId, target_teacher_id: targetTeacherId },
+          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        }]);
 
         const { data: targetTeacher } = await supabase
           .from('teachers')
@@ -2146,10 +2181,10 @@ export default async function handler(req: any, res: any) {
 
         const optionsButtons = [
           [
-            { text: '⏩ ส่งต่อตามคำสั่งเดิมของ ผอ. ทันที', callback_data: `action=fwd_exec&id=${assignId}&to=${targetTeacherId}&mode=same` }
+            { text: '⏩ ส่งต่อตามคำสั่งเดิมของ ผอ. ทันที', callback_data: `action=fwd_same` }
           ],
           [
-            { text: '✍️ พิมพ์บันทึก/คำสั่งส่งต่อเพิ่มเติม', callback_data: `action=fwd_exec&id=${assignId}&to=${targetTeacherId}&mode=custom` }
+            { text: '✍️ พิมพ์บันทึก/คำสั่งส่งต่อเพิ่มเติม', callback_data: `action=fwd_custom` }
           ],
           [
             { text: '⬅️ เลือกครูท่านอื่น', callback_data: `action=fwd_start&id=${assignId}` }
@@ -2164,7 +2199,62 @@ export default async function handler(req: any, res: any) {
         );
         return res.status(200).json({ ok: true });
 
+      } else if (action === 'fwd_same') {
+        await answerCallbackQuery(botToken, callbackQuery.id);
+
+        const { data: activeSession } = await supabase
+          .from('line_action_states')
+          .select('*')
+          .eq('user_id', `telegram:${userTelegramId}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const { assignment_id, target_teacher_id } = activeSession?.context || {};
+        if (!assignment_id || !target_teacher_id) {
+          await sendTelegramMessage(botToken, callbackChatId, '❌ เซสชันหมดอายุ กรุณากดส่งต่องานใหม่อีกครั้งค่ะ');
+          return res.status(200).json({ ok: true });
+        }
+
+        await supabase.from('line_action_states').delete().eq('user_id', `telegram:${userTelegramId}`);
+        await executeForwardAssignment(assignment_id, target_teacher_id, null, botToken, callbackChatId, profileLinked, supabase);
+        return res.status(200).json({ ok: true });
+
+      } else if (action === 'fwd_custom') {
+        await answerCallbackQuery(botToken, callbackQuery.id);
+
+        const { data: activeSession } = await supabase
+          .from('line_action_states')
+          .select('*')
+          .eq('user_id', `telegram:${userTelegramId}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const { assignment_id, target_teacher_id } = activeSession?.context || {};
+        if (!assignment_id || !target_teacher_id) {
+          await sendTelegramMessage(botToken, callbackChatId, '❌ เซสชันหมดอายุ กรุณากดส่งต่องานใหม่อีกครั้งค่ะ');
+          return res.status(200).json({ ok: true });
+        }
+
+        // เก็บ state รอให้ครูพิมพ์คำสั่งการ
+        await supabase.from('line_action_states').delete().eq('user_id', `telegram:${userTelegramId}`);
+        await supabase.from('line_action_states').insert([{
+          user_id: `telegram:${userTelegramId}`,
+          action: 'awaiting_fwd_instruction',
+          context: { assignment_id, target_teacher_id },
+          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        }]);
+
+        await sendTelegramMessage(
+          botToken,
+          callbackChatId,
+          '💬 <b>กรุณาพิมพ์บันทึกหรือคำสั่งการส่งต่อ</b> ที่ต้องการแจ้งคุณครูปลายทาง แล้วส่งเข้ามาในแชทนี้ได้เลยค่ะ 🌸'
+        );
+        return res.status(200).json({ ok: true });
+
       } else if (action === 'fwd_exec') {
+        // รองรับ backward compatibility สำหรับปุ่มเก่า
         const assignId = params.get('id');
         const targetTeacherId = params.get('to');
         const mode = params.get('mode');
@@ -2175,7 +2265,6 @@ export default async function handler(req: any, res: any) {
         await answerCallbackQuery(botToken, callbackQuery.id);
 
         if (mode === 'custom') {
-          // เก็บ state รอให้ครูพิมพ์คำสั่งการ
           await supabase.from('line_action_states').delete().eq('user_id', `telegram:${userTelegramId}`);
           await supabase.from('line_action_states').insert([{
             user_id: `telegram:${userTelegramId}`,
@@ -2191,12 +2280,12 @@ export default async function handler(req: any, res: any) {
           );
           return res.status(200).json({ ok: true });
         } else {
-          // mode === 'same' -> ส่งต่อทันทีตามคำสั่งเดิม
           await executeForwardAssignment(assignId, targetTeacherId, null, botToken, callbackChatId, profileLinked, supabase);
           return res.status(200).json({ ok: true });
         }
 
       } else if (action === 'fwd_cancel') {
+        await supabase.from('line_action_states').delete().eq('user_id', `telegram:${userTelegramId}`);
         await answerCallbackQuery(botToken, callbackQuery.id, 'ยกเลิกการส่งต่องานแล้วค่ะ');
         await sendTelegramMessage(botToken, callbackChatId, '👌 ยกเลิกการส่งต่องานเรียบร้อยแล้วค่ะ คุณครูยังคงเป็นผู้รับผิดชอบงานนี้ตามเดิมนะคะ 🌸');
         return res.status(200).json({ ok: true });

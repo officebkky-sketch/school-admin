@@ -53,7 +53,7 @@ export default function TaskManagement() {
     try {
       const { data } = await supabase
         .from('teachers')
-        .select('id, prefix, first_name, last_name, department')
+        .select('id, prefix, first_name, last_name, department, email, telegram_chat_id')
         .eq('status', 'active')
         .order('first_name', { ascending: true });
       setTeachers(data || []);
@@ -111,15 +111,19 @@ export default function TaskManagement() {
 
       if (insertErr) throw insertErr;
 
-      // 2. ค้นหา telegram_chat_id ของครูผู้รับส่งต่อใน profiles (ส่งตรงเฉพาะบุคคล ไม่ส่งเข้ากลุ่มกลาง)
-      const { data: targetProfile } = await supabase
-        .from('profiles')
-        .select('telegram_chat_id')
-        .eq('teacher_id', forwardTeacherId)
-        .maybeSingle();
+      // 2. ค้นหา telegram_chat_id ของครูผู้รับส่งต่อจาก teachers หรือ profiles (ส่งตรงเฉพาะบุคคล ไม่ส่งเข้ากลุ่มกลาง)
+      let targetTelegramChatId = targetTeacher?.telegram_chat_id;
+      if (!targetTelegramChatId && targetTeacher?.email) {
+        const { data: targetProfile } = await supabase
+          .from('profiles')
+          .select('telegram_chat_id')
+          .eq('email', targetTeacher.email)
+          .maybeSingle();
+        targetTelegramChatId = targetProfile?.telegram_chat_id;
+      }
 
       let telegramStatus = '';
-      if (targetProfile?.telegram_chat_id) {
+      if (targetTelegramChatId) {
         const docSubject = selectedTask.incoming_docs?.subject || '-';
         const docNumber = selectedTask.incoming_docs?.doc_number || '-';
         const docFileUrl = selectedTask.incoming_docs?.file_url;
@@ -147,7 +151,7 @@ export default function TaskManagement() {
         };
 
         try {
-          await sendTelegramNotification(fwdMsg, targetProfile.telegram_chat_id, replyMarkup);
+          await sendTelegramNotification(fwdMsg, targetTelegramChatId, replyMarkup);
           telegramStatus = ' และส่งแจ้งเตือน Telegram ส่วนบุคคลสำเร็จ ✅';
         } catch (tgErr: any) {
           console.warn('[FORWARD TELEGRAM ERROR]', tgErr);
