@@ -18,11 +18,11 @@ function getWebhookUrl(): string {
     vercelBaseUrl = window.location.origin;
   } else {
     const profile = getActiveSchoolProfile();
-    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-multischool.vercel.app';
+    vercelBaseUrl = profile?.vercelUrl || 'https://school-admin-psi.vercel.app';
   }
 
   if (!vercelBaseUrl || vercelBaseUrl.includes('localhost') || vercelBaseUrl.includes('127.0.0.1')) {
-    vercelBaseUrl = 'https://school-admin-multischool.vercel.app';
+    vercelBaseUrl = 'https://school-admin-psi.vercel.app';
   }
 
   if (vercelBaseUrl && !vercelBaseUrl.startsWith('http://') && !vercelBaseUrl.startsWith('https://')) {
