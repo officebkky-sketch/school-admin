@@ -437,7 +437,7 @@ export default function Reports() {
       actions: [
         { 
           label: "เปิดระบบ ปพ. ดิจิทัล (ปพ.5 - ปพ.6)", 
-          onClick: () => window.open('http://localhost:5174', '_blank') 
+          onClick: () => window.open(import.meta.env.VITE_PP_APP_URL || 'https://school-grading-pp56.vercel.app', '_blank') 
         }
       ]
     }

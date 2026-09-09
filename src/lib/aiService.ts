@@ -21,7 +21,7 @@ export interface GeminiOptions {
 
 function getApiKeyList(apiKey: string): string[] {
   if (!apiKey) return [];
-  return apiKey.split(',').map(k => k.trim()).filter(Boolean);
+  return apiKey.split(/[\n,;\s]+/).map(k => k.trim()).filter(Boolean);
 }
 
 function selectApiKey(apiKey: string): string {
@@ -63,24 +63,32 @@ export async function callGeminiAPI(
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) throw new Error("กรุณาตั้งค่า Gemini API Key");
 
+  // คำนวณรอบที่ลองให้ครอบคลุมทุกคีย์จากทุกบัญชีที่ผู้ใช้กรอก
+  const totalAttempts = Math.max(keys.length * 2, retryCount, 4);
+
   let modelsToTry = await getAvailableModels(keys[0]);
   if (modelsToTry.length === 0) {
     modelsToTry = [
-      "gemini-2.0-flash",
-      "gemini-2.0-flash-lite",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro"
+      "gemini-2.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-pro-latest",
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest"
     ];
   }
 
   const apiVersions = ["v1beta", "v1"];
   let lastError: any = null;
 
-  for (let attempt = 0; attempt < retryCount; attempt++) {
-    // สลับคีย์ตามรอบความพยายาม
-    const currentKey = keys[(attempt + Math.floor(Math.random() * keys.length)) % keys.length];
+  for (let attempt = 0; attempt < totalAttempts; attempt++) {
+    // หมุนเวียนคีย์ตามลำดับเพื่อกระจายโควตาข้ามบัญชีอย่างแท้จริง
+    const currentKey = keys[attempt % keys.length];
+
+    let shouldSwitchKey = false;
 
     for (const modelName of modelsToTry) {
+      if (shouldSwitchKey) break;
+
       for (const version of apiVersions) {
         try {
           const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${currentKey}`;
@@ -120,8 +128,9 @@ export async function callGeminiAPI(
           } else {
             lastError = data.error || { message: `HTTP ${response.status}` };
             if (response.status === 429) {
-              console.warn(`Rate limit reached for ${modelName} with key index ${attempt}, trying next...`);
-              continue; 
+              console.warn(`[GEMINI 429] Rate limit/quota reached for ${modelName} on key ${currentKey.slice(0, 8)}..., switching to next account key...`);
+              shouldSwitchKey = true;
+              break; 
             }
           }
         } catch (err: any) {
@@ -129,8 +138,9 @@ export async function callGeminiAPI(
         }
       }
     }
-    if (attempt < retryCount - 1) {
-      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+
+    if (attempt < totalAttempts - 1 && !shouldSwitchKey) {
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
     }
   }
 
@@ -290,12 +300,13 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) return [];
   
-  // โมเดลหลักทางการของ Google Gemini API ที่แนะนำและเสถียรที่สุดสำหรับสร้างข้อความ
+  // โมเดลหลักทางการของ Google Gemini API ที่แนะนำและเสถียรที่สุดสำหรับสร้างข้อความ (รองรับทั้ง Pro และ Flash)
   const RECOMMENDED_MODELS = [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-2.5-flash',
+    'gemini-3.1-pro-preview',
+    'gemini-pro-latest',
+    'gemini-2.5-flash-lite',
+    'gemini-flash-latest'
   ];
   
   for (const key of keys) {
