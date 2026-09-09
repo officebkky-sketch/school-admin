@@ -31,6 +31,7 @@ import ARAdmin from './pages/ARAdmin';
 import ServiceArea from './pages/ServiceArea';
 import Athletics from './pages/Athletics';
 import KnowledgeBase from './pages/KnowledgeBase';
+import StudentGradePortal from './pages/StudentGradePortal';
 import IdentityFooter from './components/IdentityFooter';
 import ResetPasswordModal from './components/ResetPasswordModal';
 import ToastContainer from './components/ToastContainer';
@@ -73,7 +74,7 @@ import {
 
 const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'knowledge_base' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'knowledge_base' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics' | 'grade_portal';
 
 
 function App() {
@@ -84,6 +85,15 @@ function App() {
   const [localGovName, setLocalGovName] = useState('');
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   
+  // ตรวจจับ URL สำหรับผู้ปกครองเข้าดูผลการเรียนโดยตรง (?portal=grades หรือ ?tab=grades)
+  const [showGradePortal, setShowGradePortal] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('portal') === 'grades' || p.get('tab') === 'grades';
+    }
+    return false;
+  });
+
   const [showSchoolSetup, setShowSchoolSetup] = useState(() => {
     return sessionStorage.getItem('open_school_setup_after_reload') === 'true';
   });
@@ -239,6 +249,10 @@ function App() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-brand-primary" size={48} /></div>;
   
+  if (showGradePortal) {
+    return <StudentGradePortal onBack={() => setShowGradePortal(false)} />;
+  }
+
   if (!user) {
     if (showSchoolSetup || !hasProfiles) {
       return (
@@ -250,6 +264,7 @@ function App() {
     return (
       <Login 
         onManageSchools={() => setShowSchoolSetup(true)} 
+        onOpenGradePortal={() => setShowGradePortal(true)}
       />
     );
   }
@@ -312,6 +327,14 @@ function App() {
                   label={isTeacher && !extraPerms.access_academic ? "ส่งแผนการสอน" : "ระบบวิชาการ"} 
                   active={activeTab === 'academic'} 
                   onClick={() => setActiveTab('academic')} 
+                />
+              )}
+              {canAccessAcademic && (
+                <SidebarItem 
+                  icon={<BookOpen size={20} />} 
+                  label="ประกาศผลการเรียน" 
+                  active={activeTab === 'grade_portal'} 
+                  onClick={() => setActiveTab('grade_portal')} 
                 />
               )}
               {canAccessLibrary && <SidebarItem icon={<Library size={20} />} label="ระบบห้องสมุด" active={activeTab === 'library'} onClick={() => setActiveTab('library')} />}
@@ -387,6 +410,7 @@ function App() {
             {activeTab === 'settings' && 'ตั้งค่าระบบ'}
             {activeTab === 'users' && 'จัดการสิทธิ์ผู้ใช้งาน'}
             {activeTab === 'academic' && (isTeacher && !extraPerms.access_academic ? 'ส่งแผนการสอน' : 'งานวิชาการ')}
+            {activeTab === 'grade_portal' && 'ระบบประกาศผลการเรียนออนไลน์ (สำหรับนักเรียน/ผู้ปกครอง)'}
             {activeTab === 'finance' && 'งานงบประมาณ (การเงิน/พัสดุ)'}
             {activeTab === 'utilities' && 'ระบบเบิกค่าสาธารณูปโภค'}
             {activeTab === 'free_education' && 'ระบบจ่ายเงินเรียนฟรี (๑๕ ปี)'}
@@ -435,6 +459,7 @@ function App() {
             {activeTab === 'settings' && <SettingsPage />}
             {activeTab === 'users' && <UsersManagement />}
             {activeTab === 'academic' && <Academic />}
+            {activeTab === 'grade_portal' && <StudentGradePortal />}
             {activeTab === 'finance' && <Procurement />}
             {activeTab === 'utilities' && <Utilities />}
             {activeTab === 'free_education' && <FreeEducation />}
