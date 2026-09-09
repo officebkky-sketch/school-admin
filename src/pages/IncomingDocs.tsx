@@ -502,7 +502,8 @@ export default function IncomingDocs() {
         sender_doc_date: formData.sender_doc_date,
         proposal_summary: proposalData.summary,
         proposal_text: proposalData.proposal,
-        stamp_page: formData.stamp_page // เก็บเลขหน้าประทับเสนอ
+        stamp_page: formData.stamp_page, // เก็บเลขหน้าประทับเสนอ
+        suggested_teacher_id: suggestedTeacherId || null
       };
 
       const { data: insertedDocs, error } = await supabase.from('incoming_docs').insert([{
@@ -512,6 +513,7 @@ export default function IncomingDocs() {
         doc_date: formData.doc_date,
         urgency: formData.urgency,
         action_deadline: formData.action_deadline ? new Date(formData.action_deadline).toISOString() : null,
+        suggested_assignee_id: suggestedTeacherId || null,
         remark: JSON.stringify(extraData),
         file_url,
         attachment_urls: att_urls,
@@ -627,7 +629,7 @@ export default function IncomingDocs() {
         if (suggestedTeacherId) {
           telegramInlineButtons.push([{
             text: `✅ มอบหมาย ${safeSuggestedName} ทันที`,
-            callback_data: `action=smart_assign_confirm&doc_id=${insertedDoc?.id || ''}&t_id=${suggestedTeacherId}`
+            callback_data: `action=sm_asg&id=${insertedDoc?.id || ''}`
           }]);
         }
         telegramInlineButtons.push([{

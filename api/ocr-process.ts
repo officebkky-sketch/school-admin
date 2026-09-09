@@ -418,7 +418,7 @@ ${teachersListStr}
         if (matchedTeacher) {
           inlineButtons.push([{
             text: `✅ มอบหมาย ${suggestedTeacherName} ทันที`,
-            callback_data: `action=smart_assign_confirm&doc_id=${docId}&t_id=${matchedTeacher.id}`
+            callback_data: `action=sm_asg&id=${docId}`
           }]);
         }
         inlineButtons.push([{

@@ -122,24 +122,36 @@ export default function TaskManagement() {
         targetTelegramChatId = targetProfile?.telegram_chat_id;
       }
 
+      if (!targetTelegramChatId && targetTeacher?.first_name) {
+        const { data: matchedProfile } = await supabase
+          .from('profiles')
+          .select('telegram_chat_id')
+          .ilike('display_name', `%${targetTeacher.first_name.trim()}%`)
+          .maybeSingle();
+        if (matchedProfile?.telegram_chat_id) {
+          targetTelegramChatId = matchedProfile.telegram_chat_id;
+        }
+      }
+
       let telegramStatus = '';
       if (targetTelegramChatId) {
         const docSubject = selectedTask.incoming_docs?.subject || '-';
         const docNumber = selectedTask.incoming_docs?.doc_number || '-';
         const docFileUrl = selectedTask.incoming_docs?.file_url;
+        const isHttpUrl = typeof docFileUrl === 'string' && (docFileUrl.startsWith('http://') || docFileUrl.startsWith('https://'));
 
         let fwdMsg = `📬 <b>มีงานส่งต่อถึงคุณครูค่ะ (เฉพาะบุคคล)</b>\n━━━━━━━━━━━━━━━━━━━━\n\n`;
         fwdMsg += `• <b>เรื่อง</b>: ${escapeHtml(docSubject)}\n`;
         fwdMsg += `• <b>เลขที่รับ</b>: <code>${escapeHtml(docNumber)}</code>\n`;
         fwdMsg += `• <b>ส่งต่อโดย</b>: <b>${escapeHtml(senderName)}</b>\n`;
         fwdMsg += `• <b>คำสั่งการ/แนวทาง</b>: ${escapeHtml(finalInstruction)}\n\n`;
-        if (docFileUrl) {
+        if (isHttpUrl) {
           fwdMsg += `📄 <a href="${docFileUrl}">เปิดดูต้นฉบับเอกสารสั่งการ</a>`;
         }
 
         const replyMarkup = {
           inline_keyboard: [
-            ...(docFileUrl ? [[{ text: '📄 ดูเอกสารสั่งการ', url: docFileUrl }]] : []),
+            ...(isHttpUrl ? [[{ text: '📄 ดูเอกสารสั่งการ', url: docFileUrl }]] : []),
             [
               { text: '✅ รับทราบงาน', callback_data: `action=acknowledge&id=${newAssign.id}` }
             ],
@@ -157,6 +169,8 @@ export default function TaskManagement() {
           console.warn('[FORWARD TELEGRAM ERROR]', tgErr);
           telegramStatus = ' (แต่ Telegram ปลายทางไม่สำเร็จ)';
         }
+      } else {
+        telegramStatus = ' (คุณครูปลายทางยังไม่ได้ผูก Telegram แต่บันทึกมอบหมายงานบนระบบสารบรรณเรียบร้อยแล้ว)';
       }
 
       alert(`ส่งต่องานเรื่อง "${selectedTask.incoming_docs?.subject || ''}" ให้คุณครู ${targetTeacherName} เรียบร้อยแล้วค่ะ${telegramStatus}\n(ระบบส่งตรงเฉพาะบุคคล ไม่ลงกลุ่มกลางตามคำสั่ง)`);

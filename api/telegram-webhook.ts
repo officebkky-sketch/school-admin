@@ -76,6 +76,12 @@ async function sendTelegramMessageSingle(botToken: string, chatId: number, text:
         }
       }
 
+      // กรณี BUTTON_DATA_INVALID หรือ BUTTON_URL_INVALID: ส่งซ้ำโดยตัดปุ่มที่มีปัญหาออก เพื่อไม่ให้ข้อความแจ้งเตือนตกหล่น
+      if (err?.description && (err.description.includes('BUTTON_DATA_INVALID') || err.description.includes('BUTTON_URL_INVALID')) && replyMarkup) {
+        console.warn('[TELEGRAM FALLBACK] Invalid button markup detected, retrying without replyMarkup...');
+        return sendTelegramMessageSingle(botToken, chatId, text, undefined, attempt + 1);
+      }
+
       // หากพังเพราะ HTML formatting ให้ถอยกลับไปส่งแบบข้อความทั่วไป (Plain Text)
       if (err?.description && (err.description.includes('entities') || err.description.includes('HTML') || err.description.includes('bad request'))) {
         console.warn('[TELEGRAM FALLBACK] Sending plain text message because HTML parsing failed');
@@ -1094,8 +1100,19 @@ async function executeForwardAssignment(
       }
     }
 
+    if (!targetChatId && targetTeacher.first_name) {
+      const { data: matchedProfile } = await supabase
+        .from('profiles')
+        .select('telegram_chat_id')
+        .ilike('display_name', `%${targetTeacher.first_name.trim()}%`)
+        .maybeSingle();
+      if (matchedProfile?.telegram_chat_id) {
+        targetChatId = matchedProfile.telegram_chat_id;
+      }
+    }
+
     const docButtons: any[] = [];
-    if (doc.file_url) {
+    if (doc.file_url && (doc.file_url.startsWith('http://') || doc.file_url.startsWith('https://'))) {
       docButtons.push({ text: '📄 ดูเอกสารสั่งการ', url: doc.file_url });
     }
 
@@ -1591,12 +1608,35 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      if (action === 'smart_assign_confirm') {
-        const docId = params.get('doc_id') || '';
-        const teacherId = params.get('t_id') || '';
+      if (action === 'smart_assign_confirm' || action === 'sm_asg') {
+        const docId = params.get('doc_id') || params.get('id') || '';
+        let teacherId = params.get('t_id') || '';
 
         if (profileLinked.role !== 'director' && profileLinked.role !== 'admin') {
           await answerCallbackQuery(botToken, callbackQuery.id, '❌ ขออภัยค่ะ ปุ่มนี้สำหรับผู้อำนวยการ/ผู้รักษาการเท่านั้นค่ะ 🌸', true);
+          return res.status(200).json({ ok: true });
+        }
+
+        // หากไม่มี teacherId ส่งมาใน callback (เพื่อประหยัดความยาว <= 64 bytes) ให้ค้นหาจาก incoming_docs
+        if (!teacherId && docId) {
+          const { data: docInfo } = await supabase
+            .from('incoming_docs')
+            .select('suggested_assignee_id, remark')
+            .eq('id', docId)
+            .maybeSingle();
+
+          if (docInfo?.suggested_assignee_id) {
+            teacherId = docInfo.suggested_assignee_id;
+          } else if (docInfo?.remark) {
+            try {
+              const parsed = typeof docInfo.remark === 'object' ? docInfo.remark : JSON.parse(docInfo.remark);
+              teacherId = parsed.suggested_teacher_id || '';
+            } catch {}
+          }
+        }
+
+        if (!teacherId) {
+          await answerCallbackQuery(botToken, callbackQuery.id, '❌ ไม่พบข้อมูลคุณครูที่แนะนำ กรุณากดปุ่ม "✍️ เกษียณสั่งการ" เพื่อเลือกครูด้วยตนเองค่ะ 🌸', true);
           return res.status(200).json({ ok: true });
         }
 
@@ -2589,11 +2629,17 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ ok: true });
       }
 
-      // อัปเดต telegram_chat_id ลงในตาราง profiles ของครูผู้ใช้รายนั้น
+      // อัปเดต telegram_chat_id ลงในตาราง profiles และ teachers ของครูผู้ใช้รายนั้น
       const { error: updateErr } = await supabase
         .from('profiles')
         .update({ telegram_chat_id: String(chatId) })
         .eq('id', profile.id);
+
+      const cleanEmail = email.toLowerCase().trim();
+      await supabase
+        .from('teachers')
+        .update({ telegram_chat_id: String(chatId) })
+        .eq('email', cleanEmail);
 
       if (updateErr) {
         console.error('[TELEGRAM WEBHOOK UPDATE ERROR]', updateErr);

@@ -74,6 +74,59 @@ function splitMessageSafely(text: string, maxLen = 3800): string[] {
   return chunks.length > 0 ? chunks : [text.substring(0, maxLen)];
 }
 
+function sanitizeReplyMarkup(replyMarkup: any): any {
+  if (!replyMarkup || !replyMarkup.inline_keyboard || !Array.isArray(replyMarkup.inline_keyboard)) {
+    return replyMarkup;
+  }
+
+  const cleanRows: any[] = [];
+  for (const row of replyMarkup.inline_keyboard) {
+    if (!Array.isArray(row)) continue;
+    const cleanRow: any[] = [];
+    for (const btn of row) {
+      if (!btn || typeof btn !== 'object') continue;
+      const cleanBtn = { ...btn };
+
+      // 1. ตรวจสอบ url: ต้องเป็น http/https เท่านั้น
+      if (cleanBtn.url !== undefined) {
+        const u = String(cleanBtn.url).trim();
+        if (!u.startsWith('http://') && !u.startsWith('https://')) {
+          console.warn('[TELEGRAM NOTIFY] Skipping button with invalid URL:', u);
+          continue;
+        }
+        cleanBtn.url = u;
+      }
+
+      // 2. ตรวจสอบ callback_data: ต้องไม่เกิน 64 bytes
+      if (cleanBtn.callback_data !== undefined) {
+        let cb = String(cleanBtn.callback_data);
+        const byteLen = Buffer.byteLength(cb, 'utf8');
+        if (byteLen > 64) {
+          console.warn(`[TELEGRAM NOTIFY] callback_data length is ${byteLen} bytes (>64). Auto-shortening...`, cb);
+          // หากเป็น smart_assign_confirm ให้แปลงเป็น sm_asg
+          if (cb.includes('action=smart_assign_confirm')) {
+            const matchDoc = cb.match(/doc_id=([^&]+)/);
+            if (matchDoc && matchDoc[1]) {
+              cb = `action=sm_asg&id=${matchDoc[1]}`;
+            }
+          }
+          if (Buffer.byteLength(cb, 'utf8') > 64) {
+            cb = cb.substring(0, 64);
+          }
+        }
+        cleanBtn.callback_data = cb;
+      }
+
+      cleanRow.push(cleanBtn);
+    }
+    if (cleanRow.length > 0) {
+      cleanRows.push(cleanRow);
+    }
+  }
+
+  return cleanRows.length > 0 ? { inline_keyboard: cleanRows } : undefined;
+}
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function executeTelegramSend(
@@ -112,6 +165,12 @@ async function executeTelegramSend(
     console.warn(`[TELEGRAM NOTIFY] Rate limit 429 encountered, waiting ${waitSeconds}s before retry (attempt ${attempt})...`);
     await sleep(waitSeconds * 1000);
     return executeTelegramSend(botToken, chatId, text, parseMode, replyMarkup, attempt + 1);
+  }
+
+  // กรณี 400 Bad Request: BUTTON_DATA_INVALID หรือ BUTTON_URL_INVALID -> fallback ส่งโดยตัด reply_markup ออก
+  if (!res.ok && replyMarkup && (resData?.description?.includes('BUTTON_DATA_INVALID') || resData?.description?.includes('BUTTON_URL_INVALID') || resData?.description?.includes('Bad Request: button'))) {
+    console.warn('[TELEGRAM NOTIFY] Invalid button data/url detected. Retrying without reply_markup...', resData.description);
+    return executeTelegramSend(botToken, chatId, text, parseMode, undefined, attempt + 1);
   }
 
   // กรณี 400 Bad Request: parse entities error -> fallback ส่งเป็น Plain Text
@@ -200,8 +259,8 @@ export default async function handler(req: any, res?: any): Promise<any> {
 
     for (let i = 0; i < chunks.length; i++) {
       const isLastChunk = i === chunks.length - 1;
-      // ส่ง reply_markup ที่ท่อนสุดท้าย
-      const markupToSend = isLastChunk ? reply_markup : undefined;
+      // ส่ง reply_markup ที่ท่อนสุดท้าย (ผ่านการ sanitize ตรวจความยาว <= 64 bytes และ URL)
+      const markupToSend = isLastChunk ? sanitizeReplyMarkup(reply_markup) : undefined;
 
       const result = await executeTelegramSend(
         botToken,

@@ -290,7 +290,7 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) return [];
   
-  // โมเดลหลักทางการของ Google Gemini API ที่แนะนำและเสถียรที่สุด
+  // โมเดลหลักทางการของ Google Gemini API ที่แนะนำและเสถียรที่สุดสำหรับสร้างข้อความ
   const RECOMMENDED_MODELS = [
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
@@ -303,9 +303,21 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
       if (response.ok) {
         const data = await response.json();
-        const apiModels: string[] = data.models
-          ?.map((m: any) => m.name.replace('models/', ''))
-          .filter((name: string) => name.includes('gemini')) || [];
+        const apiModels: string[] = (data.models || [])
+          .filter((m: any) => {
+            const name = (m.name || '').replace('models/', '').toLowerCase();
+            const methods: string[] = m.supportedGenerationMethods || [];
+            // ต้องรองรับ generateContent สำหรับสร้างข้อความ
+            if (!methods.includes('generateContent')) return false;
+            // กรองโมเดลเฉพาะทาง เช่น tts, audio, image, vision, realtime, embedding ออกทั้งหมด
+            if (name.includes('tts') || name.includes('audio') || name.includes('image') || 
+                name.includes('vision') || name.includes('realtime') || name.includes('embedding') ||
+                name.includes('custom') || name.includes('robotics')) {
+              return false;
+            }
+            return name.startsWith('gemini');
+          })
+          .map((m: any) => m.name.replace('models/', ''));
         
         // คัดกรองเฉพาะโมเดลแนะนำที่มีอยู่ในสิทธิ์การใช้งาน
         const available = RECOMMENDED_MODELS.filter(m => apiModels.includes(m));
@@ -313,16 +325,10 @@ export async function getAvailableModels(apiKey: string): Promise<string[]> {
           return available;
         }
 
-        // หากไม่มีตัวแนะนำเลย ให้กรองเอาเฉพาะตัวมาตรฐานที่คีย์นั้นรองรับและเสถียร
-        return apiModels
-          .filter((name: string) => 
-            !name.includes('vision') && 
-            !name.includes('embedding') && 
-            !name.includes('lite') && 
-            !name.includes('latest') && 
-            (name.includes('1.5') || name.includes('2.0') || name.includes('2.5'))
-          )
-          .sort((a: string, b: string) => b.localeCompare(a));
+        // หากไม่มีตัวแนะนำเลย ให้เลือกเฉพาะตัวที่รองรับ generateContent
+        if (apiModels.length > 0) {
+          return apiModels.slice(0, 3);
+        }
       }
     } catch (e) {
       console.error(`List models error with key ${key.slice(0, 8)}...:`, e);
