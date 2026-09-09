@@ -388,8 +388,16 @@ export default function StudentGradePortal({ onBack }: Props) {
           /* Login Card สำหรับผู้ปกครองและนักเรียน */
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200/80 p-8 space-y-6 my-auto">
             <div className="text-center space-y-2">
-              <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                <GraduationCap size={36} />
+              <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner overflow-hidden">
+                {schoolSettings?.school_logo_url ? (
+                  <img
+                    src={schoolSettings.school_logo_url}
+                    alt="โลโก้โรงเรียน"
+                    className="w-14 h-14 object-contain"
+                  />
+                ) : (
+                  <GraduationCap size={36} />
+                )}
               </div>
               <h2 className="text-xl font-black text-slate-800 tracking-tight">ตรวจสอบผลการเรียนรายบุคคล</h2>
               <p className="text-xs text-slate-500">
@@ -463,7 +471,15 @@ export default function StudentGradePortal({ onBack }: Props) {
             <div>
               {/* Official Header */}
               <div className="text-center border-b-2 border-slate-900 pb-3 mb-4">
-                <div className="flex items-center justify-center gap-3 mb-2">
+                <div className="flex items-center justify-center gap-4 mb-2">
+                  {schoolSettings?.school_logo_url && (
+                    <img
+                      src={schoolSettings.school_logo_url}
+                      alt="ตราโรงเรียน"
+                      className="w-13 h-13 object-contain"
+                      onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                    />
+                  )}
                   <img
                     src="/garuda.png"
                     alt="ตราครุฑ"
