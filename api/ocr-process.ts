@@ -209,7 +209,7 @@ export default async function handler(req: any, res?: any): Promise<any> {
       // 1. ดึงข้อมูล Settings & Teachers (Rule C: ไม่ระบุ school_id)
       const { data: settings } = await supabase
         .from('settings')
-        .select('school_name, telegram_bot_token, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year, google_vision_api_key')
+        .select('school_name, telegram_bot_token, telegram_group_id, gemini_api_key, ai_cowork_api_key, current_academic_year, google_vision_api_key, custom_sop')
         .limit(1)
         .maybeSingle();
 
@@ -249,6 +249,8 @@ export default async function handler(req: any, res?: any): Promise<any> {
       const mimeType = isPdf ? 'application/pdf' : 'image/jpeg';
       inlineImageData = { mimeType, data: base64Data };
 
+      const customSop = (settings?.custom_sop || '').trim();
+
       // 3. Single-Pass Multimodal Extraction: สกัดทั้ง Text ฉบับเต็ม และ Metadata JSON ในรอบเดียว!
       const systemPrompt = `คุณคือผู้เชี่ยวชาญสารบรรณอิเล็กทรอนิกส์และ OCR เอกสารราชการไทย
 หน้าที่ของคุณคืออ่านเอกสารที่ได้รับ และตอบกลับเป็น JSON เท่านั้น โดยมีโครงสร้างดังนี้:
@@ -267,6 +269,7 @@ export default async function handler(req: any, res?: any): Promise<any> {
 
 รายชื่อครูและบุคลากรในโรงเรียนสำหรับพิจารณา:
 ${teachersListStr}
+${customSop ? `\n[แนวปฏิบัติเฉพาะและภาระงานของโรงเรียน (SOP)]:\n${customSop}\n` : ''}
 `;
 
       const userPrompt = "โปรดอ่านเอกสารฉบับนี้ แล้วสกัดข้อมูลสำคัญทั้งหมดตามโครงสร้าง JSON ที่กำหนดอย่างละเอียดถูกต้อง";
@@ -282,28 +285,57 @@ ${teachersListStr}
 
       const extractedText = parsedInfo.extracted_text || '';
 
-      // Phase 2: Fuzzy Matching หาครูที่ตรงจาก suggested_assignee_name / dept
+      // Phase 2: Fuzzy Matching หาครูที่ตรงจาก suggested_assignee_name / dept ตามกฎสายการบังคับบัญชา (Department Head Hierarchy)
       let matchedTeacher: any = null;
       if (teachers && teachers.length > 0) {
         const suggestedName = (parsedInfo.suggested_assignee_name || '').toLowerCase().trim();
         const suggestedDept = (parsedInfo.suggested_assignee_dept || '').toLowerCase().trim();
 
+        // 1. ตรวจสอบชื่อตรงจาก SOP / เนื้อหา
         if (suggestedName) {
           matchedTeacher = teachers.find((t: any) => {
-            const firstName = (t.first_name || '').toLowerCase();
-            const lastName = (t.last_name || '').toLowerCase();
-            const fullName = `${t.prefix || ''}${t.first_name} ${t.last_name}`.toLowerCase();
+            const firstName = (t.first_name || '').toLowerCase().trim();
+            const lastName = (t.last_name || '').toLowerCase().trim();
+            const fullName = `${t.prefix || ''}${firstName} ${lastName}`.toLowerCase();
             return fullName.includes(suggestedName) ||
                    suggestedName.includes(firstName) ||
                    suggestedName.includes(lastName);
           }) || null;
         }
 
+        // 2. แมตช์ตามฝ่ายงาน โดยส่งหา "หัวหน้าฝ่าย" ก่อนเสมอ
         if (!matchedTeacher && suggestedDept) {
-          matchedTeacher = teachers.find((t: any) => {
-            const dept = (t.department || '').toLowerCase();
-            return dept && (suggestedDept.includes(dept) || dept.includes(suggestedDept));
-          }) || null;
+          const deptKeywords = [
+            { key: 'วิชาการ', label: 'วิชาการ' },
+            { key: 'งบประมาณ', label: 'งบประมาณ' },
+            { key: 'บุคคล', label: 'บุคคล' },
+            { key: 'บริหารทั่วไป', label: 'บริหารทั่วไป' },
+            { key: 'ทั่วไป', label: 'บริหารทั่วไป' },
+            { key: 'กิจการนักเรียน', label: 'กิจการนักเรียน' }
+          ];
+
+          const matchedKeyword = deptKeywords.find(k => suggestedDept.includes(k.key));
+          if (matchedKeyword) {
+            const targetKey = matchedKeyword.key;
+            // 2.1 First Priority: หัวหน้าฝ่าย
+            const headTeacher = teachers.find((t: any) => {
+              const d = (t.department || '').toLowerCase();
+              const p = (t.position || '').toLowerCase();
+              const isHead = d.includes('หัวหน้า') || p.includes('หัวหน้า');
+              return isHead && (d.includes(targetKey) || p.includes(targetKey));
+            });
+
+            if (headTeacher) {
+              matchedTeacher = headTeacher;
+            } else {
+              // 2.2 Second Priority: ครูคนอื่นในฝ่าย
+              matchedTeacher = teachers.find((t: any) => {
+                const d = (t.department || '').toLowerCase();
+                const p = (t.position || '').toLowerCase();
+                return d.includes(targetKey) || p.includes(targetKey);
+              }) || null;
+            }
+          }
         }
       }
 
@@ -337,6 +369,11 @@ ${teachersListStr}
         if (!existingRemarkObj.proposal_summary) {
           existingRemarkObj.proposal_summary = parsedInfo.summary;
         }
+      }
+
+      if (matchedTeacher) {
+        existingRemarkObj.suggested_teacher_id = matchedTeacher.id;
+        existingRemarkObj.suggested_teacher_name = `${matchedTeacher.prefix || ''}${matchedTeacher.first_name} ${matchedTeacher.last_name}`;
       }
 
       const updatePayload: any = {

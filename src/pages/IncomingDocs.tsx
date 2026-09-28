@@ -105,6 +105,7 @@ export default function IncomingDocs() {
   const [aiConfidence, setAiConfidence] = useState<{ count: number; total: number } | null>(null);
   const [suggestedTeacherId, setSuggestedTeacherId] = useState<string>('');
   const [suggestedTeacherName, setSuggestedTeacherName] = useState<string>('');
+  const [suggestedMatchType, setSuggestedMatchType] = useState<string>('');
 
   useEffect(() => { 
     fetchDocs(); 
@@ -859,6 +860,7 @@ export default function IncomingDocs() {
     setAiConfidence(null);
     setSuggestedTeacherId('');
     setSuggestedTeacherName('');
+    setSuggestedMatchType('');
   }
 
   const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -897,22 +899,71 @@ export default function IncomingDocs() {
       if (info.summary && info.summary !== 'ไม่สามารถสรุปเนื้อหาได้') score++;
       if (info.action_deadline) score++;
 
-      // แมตช์คุณครูที่แนะนำจากชื่อฝ่ายหรือตำแหน่ง
+      // แมตช์คุณครูตามกฎสายการบังคับบัญชา (Department Head Hierarchy) และ SOP
       let matchedT: any = null;
-      if (info.suggested_assignee_dept && teachers.length > 0) {
-        const deptLower = info.suggested_assignee_dept.toLowerCase();
-        matchedT = teachers.find(t =>
-          (t.department && deptLower.includes(t.department.toLowerCase())) ||
-          (t.position && deptLower.includes(t.position.toLowerCase()))
-        );
+      let matchType = '';
+
+      // 1. ตรวจสอบชื่อตรงจาก SOP/เนื้อหาก่อน
+      if (info.suggested_assignee_name && teachers.length > 0) {
+        const sName = info.suggested_assignee_name.toLowerCase().trim();
+        matchedT = teachers.find(t => {
+          const fn = (t.first_name || '').toLowerCase().trim();
+          const ln = (t.last_name || '').toLowerCase().trim();
+          const full = `${t.prefix || ''}${fn} ${ln}`.toLowerCase();
+          return full.includes(sName) || sName.includes(fn) || sName.includes(ln);
+        });
+        if (matchedT) matchType = 'direct_sop';
       }
+
+      // 2. หากยังไม่พบ แมตช์ตามฝ่ายงาน โดยส่งหา "หัวหน้าฝ่าย" ก่อนเสมอ
+      if (!matchedT && info.suggested_assignee_dept && teachers.length > 0) {
+        const sDept = info.suggested_assignee_dept.toLowerCase().trim();
+        const deptKeywords = [
+          { key: 'วิชาการ', label: 'วิชาการ' },
+          { key: 'งบประมาณ', label: 'งบประมาณ' },
+          { key: 'บุคคล', label: 'บุคคล' },
+          { key: 'บริหารทั่วไป', label: 'บริหารทั่วไป' },
+          { key: 'ทั่วไป', label: 'บริหารทั่วไป' },
+          { key: 'กิจการนักเรียน', label: 'กิจการนักเรียน' }
+        ];
+
+        const matchedKeyword = deptKeywords.find(k => sDept.includes(k.key));
+        if (matchedKeyword) {
+          const targetKey = matchedKeyword.key;
+          // 2.1 First Priority: หา 'หัวหน้าฝ่าย' ก่อนเสมอ
+          const headTeacher = teachers.find(t => {
+            const d = (t.department || '').toLowerCase();
+            const p = (t.position || '').toLowerCase();
+            const isHead = d.includes('หัวหน้า') || p.includes('หัวหน้า');
+            return isHead && (d.includes(targetKey) || p.includes(targetKey));
+          });
+          if (headTeacher) {
+            matchedT = headTeacher;
+            matchType = 'head_of_dept';
+          } else {
+            // 2.2 Second Priority: ครูคนอื่นในฝ่ายนั้น
+            const deptTeacher = teachers.find(t => {
+              const d = (t.department || '').toLowerCase();
+              const p = (t.position || '').toLowerCase();
+              return d.includes(targetKey) || p.includes(targetKey);
+            });
+            if (deptTeacher) {
+              matchedT = deptTeacher;
+              matchType = 'dept_staff';
+            }
+          }
+        }
+      }
+
       if (matchedT) {
         score++;
         setSuggestedTeacherId(matchedT.id);
         setSuggestedTeacherName(`${matchedT.prefix || ''}${matchedT.first_name} ${matchedT.last_name}`);
+        setSuggestedMatchType(matchType);
       } else {
         setSuggestedTeacherId('');
         setSuggestedTeacherName('');
+        setSuggestedMatchType('');
       }
 
       setAiConfidence({ count: score, total });
@@ -1310,15 +1361,37 @@ export default function IncomingDocs() {
                 )}
               </label>
 
-              {/* แสดงผลการแนะครูผู้รับงาน */}
-              {suggestedTeacherName && (
-                <div className="p-2.5 bg-white/80 rounded-xl border border-purple-200 flex items-center justify-between text-xs">
+              {/* แสดงผลและเลือกครูผู้รับผิดชอบที่แนะนำ (ปรับเปลี่ยนได้ทันที) */}
+              <div className="p-3 bg-purple-50/70 rounded-2xl border border-purple-200 space-y-2">
+                <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-purple-900 flex items-center gap-1.5">
-                    🧑‍🏫 <b>AI แนะนำผู้รับผิดชอบ:</b> <span className="text-purple-700">{suggestedTeacherName}</span>
+                    🧑‍🏫 <b>ผู้รับผิดชอบที่แนะนำ (AI):</b>
                   </span>
-                  <span className="text-[10px] font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-md">ตรงตามฝ่าย</span>
+                  {suggestedTeacherName && (
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
+                      {suggestedMatchType === 'direct_sop' ? '🎯 ตรงตามภาระงาน SOP' : (suggestedMatchType === 'head_of_dept' ? '👑 หัวหน้าฝ่าย' : 'ตรงตามฝ่ายงาน')}
+                    </span>
+                  )}
                 </div>
-              )}
+                <select
+                  className="w-full p-2.5 bg-white border border-purple-200 rounded-xl font-bold text-slate-700 text-xs focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+                  value={suggestedTeacherId}
+                  onChange={e => {
+                    const selectedId = e.target.value;
+                    setSuggestedTeacherId(selectedId);
+                    const t = teachers.find(item => item.id === selectedId);
+                    setSuggestedTeacherName(t ? `${t.prefix || ''}${t.first_name} ${t.last_name}` : '');
+                  }}
+                >
+                  <option value="">-- ไม่ระบุ / ให้ ผอ. สั่งการภายหลัง --</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.prefix || ''}{t.first_name} {t.last_name} ({t.position || t.department || 'ครู'})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[9px] text-purple-600 font-medium">* ระบบเลือกชื่อแนะนำให้อัตโนมัติ สามารถคลิกเปลี่ยนชื่อผู้รับผิดชอบได้ทันทีก่อนส่งเสนอ</p>
+              </div>
 
               {/* เอกสารแนบเพิ่มเติม */}
               <div className="space-y-2 pt-2 border-t border-purple-100">
