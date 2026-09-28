@@ -1132,7 +1132,7 @@ CREATE TABLE IF NOT EXISTS orders (
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">เวอร์ชันปัจจุบัน:</span>
               <span className="px-4 py-1.5 bg-blue-100 text-blue-700 font-black rounded-full text-xs">
-                {import.meta.env.VITE_APP_VERSION || '1.2.0'}
+                {import.meta.env.VITE_APP_VERSION || '1.2.1'}
               </span>
             </div>
           </div>
@@ -1142,6 +1142,21 @@ CREATE TABLE IF NOT EXISTS orders (
             <div className="space-y-3 pl-4">
               <div className="relative pl-6 border-l border-slate-200 pb-2">
                 <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">v1.2.1 (Smart Assignment & AI Draft Fix)</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(28 ก.ย. 2569)</span>
+                </div>
+                <ul className="list-disc list-inside text-xs text-slate-500 mt-1 space-y-1">
+                  <li><strong>ระบบสารบรรณอัจฉริยะ & สายการบังคับบัญชา (Department Head Hierarchy Standard)</strong>: หนังสือรับทั่วไปที่ไม่มีการระบุตัวบุคคล AI จะแนะนำและกระจายงานตรงไปยัง "หัวหน้าฝ่าย" (วิชาการ, งบประมาณ, บริหารทั่วไป, บุคคล) เป็นลำดับแรกเสมอ ป้องกันการคั่งค้างงาน</li>
+                  <li><strong>เชื่อมโยงแนวปฏิบัติเฉพาะและภาระงานโรงเรียน (Custom SOP to AI)</strong>: ดึงข้อมูล SOP โรงเรียนจากเมนูตั้งค่าระบบเข้าสู่ Gemini OCR สกัดและแนะนำครูผู้รับผิดชอบงานได้ตรงตามภาระงานจริง พร้อมแสดงป้าย <code>🎯 ตรงตามภาระงาน SOP</code> และ <code>👑 หัวหน้าฝ่าย</code></li>
+                  <li><strong>เพิ่ม Interactive Dropdown เลือกเปลี่ยนครูผู้รับผิดชอบ</strong>: เจ้าหน้าที่ธุรการสามารถตรวจทานและเลือกเปลี่ยนครูผู้รับงานได้ทันทีก่อนกดยืนยันบันทึกหนังสือรับ</li>
+                  <li><strong>ปรับปรุงระบบร่างหนังสือส่งด้วย AI (AI Outgoing Draft)</strong>: แก้ไขบั๊กคำลงท้าย ("จึงเรียนมาเพื่อโปรดทราบ") แสดงซ้ำซ้อน 2 จุด, กรองแท็กหลุดและ Markdown ออกจากช่องเนื้อหา, และปรับชื่อโรงเรียนให้เป็นแบบ Dynamic รองรับ Multi-School สมบูรณ์แบบ</li>
+                  <li><strong>ระบบความปลอดภัยและการจัดซื้อพัสดุ (Procurement Enhancements)</strong>: ปรับปรุง RLS Policy และการจัดการรายการจัดซื้อจัดจ้างให้เสถียรยิ่งขึ้น</li>
+                </ul>
+              </div>
+
+              <div className="relative pl-6 border-l border-slate-200 pb-2">
+                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">v1.2.0 (Major Release)</span>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">(13 ส.ค. 2569)</span>
