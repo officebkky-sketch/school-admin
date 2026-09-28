@@ -51,7 +51,7 @@ export default function OutgoingDocs() {
 
   const [formData, setFormData] = useState({
     doc_number: '',
-    from_agency: 'โรงเรียนบ้านควนโคกยา',
+    from_agency: '',
     to_agency: '',
     subject: '',
     doc_date: new Date().toISOString().split('T')[0],
@@ -60,7 +60,7 @@ export default function OutgoingDocs() {
     reference: '',
     closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบ',
     sign_name: '',
-    sign_position: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
+    sign_position: 'ผู้อำนวยการสถานศึกษา',
     contact_phone: '',
     footer_text: '',
     online_submit: true,
@@ -82,9 +82,9 @@ export default function OutgoingDocs() {
       setSettings(data);
       setFormData(prev => ({
         ...prev,
-        from_agency: data.school_name || 'โรงเรียนบ้านควนโคกยา',
+        from_agency: data.school_name || 'สถานศึกษา',
         sign_name: data.director_name || '',
-        sign_position: `ผู้อำนวยการ${data.school_name || 'โรงเรียนบ้านควนโคกยา'}`,
+        sign_position: `ผู้อำนวยการ${data.school_name || 'สถานศึกษา'}`,
         contact_phone: data.phone_number || ''
       }));
     }
@@ -263,7 +263,8 @@ export default function OutgoingDocs() {
 
       const userDetail = aiPurpose.trim() ? `ความต้องการหรือรายละเอียดเพิ่มเติมที่ผู้ใช้ระบุ: "${aiPurpose}"` : 'กรุณาร่างจดหมายตอบกลับที่เหมาะสม';
 
-      const prompt = `คุณคือผู้ช่วยส่วนตัว AI ระดับเชี่ยวชาญด้านงานสารบรรณโรงเรียนบ้านควนโคกยา
+      const schoolName = settings?.school_name || 'สถานศึกษา';
+      const prompt = `คุณคือผู้ช่วยส่วนตัว AI ระดับเชี่ยวชาญด้านงานสารบรรณ${schoolName}
 กรุณาช่วยร่างจดหมายราชการไทย (หนังสือส่งออก) ตามข้อมูลบริบทด้านล่างนี้:
 
 บริบทหนังสือรับ:
@@ -278,16 +279,16 @@ ${userDetail}
 3. ร่างเนื้อหาหลัก (Content) แบ่งออกเป็นย่อหน้าอย่างสวยงาม:
    - ย่อหน้าแรกต้องเขียนเกริ่นเหตุผลที่มาของการออกจดหมาย โดยอ้างอิงถึงหนังสือรับต้นทางในลักษณะ: "ตามหนังสือที่อ้างถึง [หน่วยงานต้นทาง] ได้แจ้ง/ขอความร่วมมือเรื่อง..." 
    - สำคัญมาก: ห้ามระบุเลขที่หนังสือต้นทาง (เช่น ศธ 04225/...) และห้ามระบุวันที่ลงบนหนังสือต้นทางซ้ำลงไปในเนื้อความย่อหน้าแรกหรือในเนื้อความส่วนอื่นๆ ของจดหมายเด็ดขาด เนื่องจากข้อมูลเหล่านี้ได้ระบุไว้ในช่อง "อ้างถึง" ด้านบนชัดเจนแล้ว (ให้เขียนเกริ่นอ้างถึงเพียงสั้นๆ เช่น "ตามหนังสือที่อ้างถึง..." หรือ "ตามหนังสือที่อ้างถึง [หน่วยงานต้นทาง]..." เท่านั้น)
-   - ย่อหน้าต่อมาให้ระบุการดำเนินงานหรือผลการพิจารณาของโรงเรียนบ้านควนโคกยา
-   - ย่อหน้าสุดท้ายเป็นย่อหน้าสรุปความประสงค์ เช่น "จึงเรียนมาเพื่อโปรดทราบ" หรือ "จึงเรียนมาเพื่อโปรดพิจารณา"
+   - ย่อหน้าต่อมาให้ระบุการดำเนินงานหรือผลการพิจารณาของ${schoolName}
+   - ข้อควรระวังสูงสุด: ในเนื้อหาหลัก <content> ให้มีเฉพาะย่อหน้าเนื้อความเท่านั้น **ห้ามใส่คำลงท้าย เช่น "จึงเรียนมาเพื่อโปรดทราบ" หรือ "จึงเรียนมาเพื่อโปรดพิจารณา" ไว้ในแท็ก <content>** โดยเด็ดขาด เพราะระบบมีแท็ก <closing_phrase> แยกต่างหากอยู่แล้ว
    - ห้ามพิมพ์คำว่า "ที่", "เรื่อง", "เรียน", "อ้างถึง" หรือ "คำลงท้าย" เข้ามาปนในเนื้อหาหลัก (Content)
-4. แนะนำคำลงท้าย (Closing Phrase) ที่เหมาะสม เช่น "จึงเรียนมาเพื่อโปรดทราบ", "จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ" เป็นต้น
+4. แนะนำคำลงท้าย (Closing Phrase) ที่เหมาะสมในแท็ก <closing_phrase> เช่น "จึงเรียนมาเพื่อโปรดทราบ", "จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ" เป็นต้น
 5. แนะนำเอกสารแนบ (Attachments) ที่จำเป็นสำหรับส่งไปพร้อมกับเรื่องนี้ (ถ้ามี) หากไม่มี ให้ปล่อยเป็นค่าว่าง
 
-กรุณาส่งผลลัพธ์กลับมาในรูปแบบ XML tags ต่อไปนี้เท่านั้น (ห้ามมีคำเกริ่นนำ ข้อความวิจารณ์ หรือพูดคุยใดๆ นอกเหนือจาก XML tag เด็ดขาด):
+กรุณาส่งผลลัพธ์กลับมาในรูปแบบ XML tags ต่อไปนี้เท่านั้น (ห้ามมีคำเกริ่นนำ ข้อความ Markdown code block หรือพูดคุยใดๆ นอกเหนือจาก XML tag เด็ดขาด):
 <subject>[พิมพ์หัวเรื่องหนังสือส่งตรงนี้ เช่น ขออนุมัติโครงการ...]</subject>
 <to_agency>[พิมพ์ตำแหน่ง/หน่วยงานผู้รับตรงนี้ เช่น ผู้อำนวยการสำนักงานเขต...]</to_agency>
-<content>[พิมพ์เนื้อความหนังสือแบ่งย่อหน้าอย่างสมบูรณ์ตรงนี้]</content>
+<content>[พิมพ์เนื้อความหนังสือแบ่งย่อหน้าอย่างสมบูรณ์ตรงนี้ โดยไม่ต้องใส่คำลงท้ายในนี้]</content>
 <closing_phrase>[พิมพ์คำลงท้ายตรงนี้ เช่น จึงเรียนมาเพื่อโปรดพิจารณา]</closing_phrase>
 <attachments>
 [ระบุเอกสารแนบที่ 1 (ถ้ามี)]
@@ -305,8 +306,21 @@ ${userDetail}
 
         const aiSubject = subjectMatch ? subjectMatch[1].trim() : '';
         const aiToAgency = toAgencyMatch ? toAgencyMatch[1].trim() : '';
-        const aiContent = contentMatch ? contentMatch[1].trim() : draft;
+        const rawContent = contentMatch ? contentMatch[1].trim() : draft;
         const aiClosingPhrase = closingPhraseMatch ? closingPhraseMatch[1].trim() : 'จึงเรียนมาเพื่อโปรดทราบ';
+
+        // ทำความสะอาดเนื้อหา: ตัดแท็ก XML, Markdown block และตัดคำลงท้ายที่อาจติดมาท้ายเนื้อหาออก
+        let cleanContent = rawContent
+          .replace(/```(?:xml|html|markdown)?/gi, '')
+          .replace(/```/g, '')
+          .replace(/<\/?(?:content|subject|to_agency|closing_phrase|attachments)>/gi, '')
+          .trim();
+
+        // ตัดคำลงท้ายที่อาจติดมาท้ายเนื้อหา (ป้องกันการแสดงซ้ำซ้อนกับ closing_phrase)
+        cleanContent = cleanContent
+          .replace(/(?:\r?\n\s*)?(?:จึงเรียนมาเพื่อ(?:โปรด)?(?:ทราบ|พิจารณา|ดำเนินการ|อนุมัติ|หารือ)?[\s.]*)$/gi, '')
+          .replace(/(?:\r?\n\s*)?(?:จึงเรียนมาเพื่อ(?:ทราบ|พิจารณา|ดำเนินการ|อนุมัติ|หารือ)?[\s.]*)$/gi, '')
+          .trim();
         
         let aiAttachments: string[] = [''];
         if (attachmentsMatch) {
@@ -331,7 +345,7 @@ ${userDetail}
           closing_phrase: aiClosingPhrase
         }));
 
-        setContent(aiContent);
+        setContent(cleanContent);
         setAttachmentsList(aiAttachments);
         setAiPurpose(''); 
         setIsAiModalOpen(false);
@@ -859,7 +873,7 @@ ${userDetail}
   function resetForm() {
     setFormData({ 
       doc_number: getNextDocNumber(), 
-      from_agency: settings?.school_name || 'โรงเรียนบ้านควนโคกยา', 
+      from_agency: settings?.school_name || 'สถานศึกษา', 
       to_agency: '', 
       subject: '', 
       doc_date: new Date().toISOString().split('T')[0], 
@@ -868,7 +882,7 @@ ${userDetail}
       reference: '',
       closing_phrase: 'จึงเรียนมาเพื่อโปรดทราบ',
       sign_name: settings?.director_name || '',
-      sign_position: `ผู้อำนวยการ${settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}`,
+      sign_position: `ผู้อำนวยการ${settings?.school_name || 'สถานศึกษา'}`,
       contact_phone: settings?.phone_number || '',
       footer_text: '',
       online_submit: true,

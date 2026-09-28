@@ -357,6 +357,7 @@ export interface DocumentInfo {
   urgency?: string;
   action_deadline?: string;
   suggested_assignee_dept?: string;
+  suggested_assignee_name?: string;
 }
 
 export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string): Promise<DocumentInfo> {
@@ -366,6 +367,14 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
   if (apiKey) {
     const keys = getApiKeyList(apiKey);
     if (keys.length > 0) {
+      let customSop = '';
+      try {
+        const { data: s } = await supabase.from('settings').select('custom_sop').maybeSingle();
+        if (s?.custom_sop) customSop = s.custom_sop.trim();
+      } catch (e) {
+        console.warn('Error fetching custom_sop in summarizeDocument:', e);
+      }
+
       let modelsToTry = await getAvailableModels(apiKey);
       if (modelsToTry.length === 0) {
         modelsToTry = [
@@ -387,8 +396,10 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
         "urgency": "ปกติ หรือ ด่วน หรือ ด่วนมาก หรือ ด่วนที่สุด",
         "summary": "สรุปสาระสำคัญสั้นๆ 1-2 ประโยค ระบุวัตถุประสงค์ เจตนา และสิ่งที่ต้องดำเนินการ (ห้ามตอบว่าไม่มีเนื้อหา ให้สรุปจากเจตนาของเรื่องเสมอ)",
         "action_deadline": "วันที่ต้องส่งงาน/วันจัดกิจกรรม/หมดเขต ในรูปแบบ YYYY-MM-DD (ค.ศ.) หากไม่พบให้ใส่ null",
-        "suggested_assignee_dept": "ฝ่ายที่ควรรับผิดชอบ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน"
+        "suggested_assignee_dept": "ฝ่ายที่ควรรับผิดชอบ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน",
+        "suggested_assignee_name": "ชื่อ-นามสกุลครูผู้รับผิดชอบงานนี้โดยตรง (ถ้าวิเคราะห์ได้จากแนวปฏิบัติ SOP หากไม่ชัดเจนให้ใส่ null)"
       }
+      ${customSop ? `\n[แนวปฏิบัติเฉพาะและภาระงานของโรงเรียน (SOP)]:\n${customSop}\n` : ''}
       ตอบกลับเฉพาะ JSON ล้วนๆ ห้ามมีข้อความอื่นนอก JSON`;
 
       const maxAttempts = 3;
