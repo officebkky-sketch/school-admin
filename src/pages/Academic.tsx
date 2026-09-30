@@ -16,7 +16,8 @@ import {
   Save,
   FileText,
   ExternalLink,
-  GraduationCap
+  GraduationCap,
+  Clock
 } from 'lucide-react';
 import Modal from '../components/Modal';
 import LessonPlansTab from '../components/LessonPlansTab';
@@ -28,7 +29,8 @@ type Subject = {
   code: string;
   name: string;
   credits: number;
-  type: 'พื้นฐาน' | 'เพิ่มเติม';
+  hours_per_year?: number;
+  type: 'พื้นฐาน' | 'เพิ่มเติม' | 'กิจกรรม';
   class_level: string;
   academic_year: string;
 };
@@ -49,6 +51,7 @@ export default function Academic() {
     code: '',
     name: '',
     credits: 0.5,
+    hours_per_year: 80,
     type: 'พื้นฐาน',
     class_level: 'ป.1',
     academic_year: '2569'
@@ -110,6 +113,7 @@ export default function Academic() {
       code: '',
       name: '',
       credits: 0.5,
+      hours_per_year: 80,
       type: 'พื้นฐาน',
       class_level: 'ป.1',
       academic_year: '2569'
@@ -211,19 +215,26 @@ export default function Academic() {
               {(filterClassLevel === 'ทั้งหมด' ? subjects : subjects.filter(s => s.class_level === filterClassLevel)).map(subject => (
                 <div key={subject.id} className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-xs hover:shadow-xl transition-all group relative overflow-hidden">
                    <div className="flex justify-between items-start mb-4">
-                      <span className={`px-3 py-1 rounded-lg text-[10px] font-bold ${subject.type === 'พื้นฐาน' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-purple-50 text-purple-600 border border-purple-100'}`}>
+                      <span className={`px-3 py-1 rounded-lg text-[10px] font-bold ${
+                        subject.type === 'พื้นฐาน' 
+                          ? 'bg-blue-50 text-blue-600 border border-blue-100' 
+                          : subject.type === 'กิจกรรม'
+                          ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                          : 'bg-purple-50 text-purple-600 border border-purple-100'
+                      }`}>
                         {subject.type}
                       </span>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <button onClick={() => { setFormData(subject); setEditingId(subject.id); setIsModalOpen(true); }} className="p-2 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition-colors"><Edit2 size={14} /></button>
-                         <button className="p-2 bg-slate-50 text-slate-400 hover:text-red-600 rounded-xl transition-colors"><Trash2 size={14} /></button>
+                         <button onClick={() => { setFormData({ ...subject, hours_per_year: subject.hours_per_year ?? 80 }); setEditingId(subject.id); setIsModalOpen(true); }} className="p-2 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition-colors" title="แก้ไขวิชา"><Edit2 size={14} /></button>
+                         <button className="p-2 bg-slate-50 text-slate-400 hover:text-red-600 rounded-xl transition-colors" title="ลบวิชา"><Trash2 size={14} /></button>
                       </div>
                    </div>
                    <h4 className="font-bold text-slate-800 text-lg">{subject.name}</h4>
                    <p className="text-sm font-bold text-brand-primary mt-1">{subject.code}</p>
-                   <div className="mt-4 flex items-center gap-4 text-xs font-bold text-slate-400">
+                   <div className="mt-4 flex flex-wrap items-center gap-3 text-xs font-bold text-slate-400">
                       <span className="flex items-center gap-1"><LayoutGrid size={14} /> ชั้น {subject.class_level}</span>
                       <span className="flex items-center gap-1"><SettingsIcon size={14} /> {subject.credits} หน่วยกิต</span>
+                      <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100"><Clock size={12} /> {subject.hours_per_year || 80} ชม./ปี</span>
                    </div>
                 </div>
               ))}
@@ -244,40 +255,69 @@ export default function Academic() {
 
       {/* Subject Modal */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? 'แก้ไขข้อมูลวิชา' : 'เพิ่มวิชาเรียนใหม่'}>
-        <form onSubmit={handleSaveSubject} className="space-y-6">
+        <form onSubmit={handleSaveSubject} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-             <div className="space-y-2">
+             <div className="space-y-1.5">
                <label className="text-xs font-bold text-slate-500 ml-1">รหัสวิชา</label>
-               <input type="text" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="เช่น ท11101" required value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} />
+               <input type="text" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold font-mono text-sm" placeholder="เช่น ท 11101" required value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} />
              </div>
-             <div className="space-y-2">
+             <div className="space-y-1.5">
                <label className="text-xs font-bold text-slate-500 ml-1">ประเภทวิชา</label>
-               <select className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+               <select className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm cursor-pointer" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
                  <option value="พื้นฐาน">พื้นฐาน</option>
                  <option value="เพิ่มเติม">เพิ่มเติม</option>
+                 <option value="กิจกรรม">กิจกรรม (พัฒนาผู้เรียน)</option>
                </select>
              </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 ml-1">ชื่อวิชา</label>
-            <input type="text" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="เช่น ภาษาไทย" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">ชื่อรายวิชา</label>
+            <input type="text" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm" placeholder="เช่น ภาษาไทย" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-             <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-3">
+             <div className="space-y-1.5">
                <label className="text-xs font-bold text-slate-500 ml-1">ระดับชั้น</label>
-               <select className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" value={formData.class_level} onChange={e => setFormData({...formData, class_level: e.target.value})}>
+               <select className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm cursor-pointer" value={formData.class_level} onChange={e => setFormData({...formData, class_level: e.target.value})}>
                  {['อ.1','อ.2','อ.3','ป.1','ป.2','ป.3','ป.4','ป.5','ป.6'].map(l => <option key={l} value={l}>{l}</option>)}
                </select>
              </div>
-             <div className="space-y-2">
+             <div className="space-y-1.5">
                <label className="text-xs font-bold text-slate-500 ml-1">หน่วยกิต/น้ำหนัก</label>
-               <input type="number" step="0.5" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" value={formData.credits} onChange={e => setFormData({...formData, credits: parseFloat(e.target.value)})} />
+               <input type="number" step="0.5" min="0" max="10" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold font-mono text-sm" value={formData.credits} onChange={e => setFormData({...formData, credits: parseFloat(e.target.value) || 0})} />
+             </div>
+             <div className="space-y-1.5">
+               <label className="text-xs font-bold text-slate-500 ml-1">ชั่วโมง/ปี (ชม.)</label>
+               <input type="number" step="1" min="0" max="400" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold font-mono text-sm" placeholder="เช่น 200, 160, 80" value={formData.hours_per_year ?? 80} onChange={e => setFormData({...formData, hours_per_year: parseInt(e.target.value, 10) || 0})} />
              </div>
           </div>
 
-          <button type="submit" disabled={isSaving} className="w-full bg-brand-primary text-white py-4.5 rounded-[24px] font-bold flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all active:scale-[0.98]">
+          {/* Quick preset buttons for common hours */}
+          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+            <span className="text-[11px] font-bold text-slate-400">เลือกชั่วโมงเร็ว:</span>
+            {[40, 80, 120, 160, 200].map(h => (
+              <button
+                key={h}
+                type="button"
+                onClick={() => setFormData({ ...formData, hours_per_year: h })}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition border ${
+                  Number(formData.hours_per_year) === h
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'
+                }`}
+              >
+                {h} ชม.
+              </button>
+            ))}
+          </div>
+
+          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
+            <span>💡</span>
+            <span>คะแนนและผลการเรียนที่บันทึกไว้ในระบบ ปพ. จะยังคงอยู่ครบถ้วน ไม่สูญหายเมื่อแก้ไขข้อมูลวิชา</span>
+          </div>
+
+          <button type="submit" disabled={isSaving} className="w-full bg-brand-primary text-white py-4 rounded-[24px] font-bold flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:bg-green-700 transition-all active:scale-[0.98]">
             {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />} บันทึกข้อมูลวิชา
           </button>
         </form>
