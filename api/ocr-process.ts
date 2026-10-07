@@ -218,15 +218,53 @@ export default async function handler(req: any, res?: any): Promise<any> {
       const apiKey = rawApiKey.split(',')[0].trim();
       botToken = settings.telegram_bot_token;
 
-      // ดึงรายชื่อครูเพื่อแมตช์ผู้รับมอบหมาย
-      const { data: teachers } = await supabase
-        .from('teachers')
-        .select('id, prefix, first_name, last_name, position, department')
-        .eq('status', 'active');
+      // ดึงรายชื่อครูและประวัติการมอบหมายงาน 120 รายการล่าสุดคู่ขนานกัน (Historical Assignment Telemetry)
+      const [teachersRes, assignmentsRes] = await Promise.all([
+        supabase
+          .from('teachers')
+          .select('id, prefix, first_name, last_name, position, department')
+          .eq('status', 'active'),
+        supabase
+          .from('doc_assignments')
+          .select('assignee_id, status, incoming_docs(subject, from_agency)')
+          .order('created_at', { ascending: false })
+          .limit(120)
+      ]);
 
-      const teachersListStr = (teachers || []).map((t: any) =>
-        `- ${t.prefix || ''}${t.first_name} ${t.last_name} (ฝ่าย: ${t.department || 'ไม่ระบุ'})`
-      ).join('\n');
+      const teachers = teachersRes.data || [];
+      const recentAssignments = assignmentsRes.data || [];
+
+      // สรุปสถิติภาระงานค้าง (Active Workload) และประวัติงานจริงในอดีต (Expertise Profile Tags)
+      const teacherWorkloads: Record<string, number> = {};
+      const teacherPastTopics: Record<string, string[]> = {};
+
+      recentAssignments.forEach((asg: any) => {
+        const tId = asg.assignee_id;
+        if (!tId) return;
+        if (asg.status === 'pending') {
+          teacherWorkloads[tId] = (teacherWorkloads[tId] || 0) + 1;
+        }
+        const incDoc = asg.incoming_docs;
+        const subj = incDoc?.subject;
+        if (subj && subj !== '-' && subj !== 'หนังสือรับ' && !subj.startsWith('จองเลข')) {
+          if (!teacherPastTopics[tId]) teacherPastTopics[tId] = [];
+          const cleanSubj = subj.length > 38 ? subj.substring(0, 35) + '...' : subj;
+          if (teacherPastTopics[tId].length < 4 && !teacherPastTopics[tId].includes(cleanSubj)) {
+            teacherPastTopics[tId].push(cleanSubj);
+          }
+        }
+      });
+
+      const teachersListStr = teachers.map((t: any) => {
+        const name = `${t.prefix || ''}${t.first_name} ${t.last_name}`;
+        const dept = t.department || 'ไม่ระบุ';
+        const pos = t.position || 'ครู';
+        const pendingCount = teacherWorkloads[t.id] || 0;
+        const topics = teacherPastTopics[t.id] || [];
+        const topicsStr = topics.length > 0 ? ` | งานที่เคยรับผิดชอบในอดีต: [${topics.join(', ')}]` : ' | (ยังไม่มีประวัติงานในระบบ)';
+        const workloadStr = `ภาระงานค้าง: ${pendingCount} เรื่อง`;
+        return `- ครู ID: "${t.id}" | ชื่อ: ${name} (${pos}, ฝ่าย: ${dept}) [${workloadStr}${topicsStr}]`;
+      }).join('\n');
 
       // 2. ดาวน์โหลดไฟล์เอกสารเพื่อนำมาทำ OCR (พร้อม Timeout 7 วินาที)
       let inlineImageData: { mimeType: string, data: string } | undefined = undefined;
@@ -251,7 +289,7 @@ export default async function handler(req: any, res?: any): Promise<any> {
 
       const customSop = (settings?.custom_sop || '').trim();
 
-      // 3. Single-Pass Multimodal Extraction: สกัดทั้ง Text ฉบับเต็ม และ Metadata JSON ในรอบเดียว!
+      // 3. Single-Pass Multimodal Extraction: สกัดทั้ง Text ฉบับเต็ม, Metadata และวิเคราะห์ผู้รับมอบหมายจากประวัติจริง
       const systemPrompt = `คุณคือผู้เชี่ยวชาญสารบรรณอิเล็กทรอนิกส์และ OCR เอกสารราชการไทย
 หน้าที่ของคุณคืออ่านเอกสารที่ได้รับ และตอบกลับเป็น JSON เท่านั้น โดยมีโครงสร้างดังนี้:
 {
@@ -263,11 +301,19 @@ export default async function handler(req: any, res?: any): Promise<any> {
   "urgency": "ปกติ หรือ ด่วน หรือ ด่วนมาก หรือ ด่วนที่สุด",
   "summary": "สรุปสาระสำคัญของหนังสือ 1-2 ประโยค ระบุวัตถุประสงค์และสิ่งที่ต้องดำเนินการ",
   "action_deadline": "วันที่ต้องส่งงาน/หมดเขต ในรูปแบบ YYYY-MM-DDTHH:mm:ssZ (ถ้าไม่มีใส่ null)",
+  "suggested_assignee_id": "ID ของครูจากรายชื่อด้านล่างที่เหมาะสมที่สุดในการรับผิดชอบงานนี้ (หากไม่แน่ใจให้ใส่ null)",
   "suggested_assignee_name": "ชื่อ-นามสกุลครูจากรายชื่อที่เหมาะสมที่สุดในการรับผิดชอบงานนี้",
-  "suggested_assignee_dept": "ฝ่ายที่ควรรับผิดชอบ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน"
+  "suggested_assignee_dept": "ฝ่ายที่ควรรับผิดชอบ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน",
+  "suggested_reason": "เหตุผลสั้นๆ 1 ประโยค ทำไมจึงแนะนำครูท่านนี้ โดยวิเคราะห์เปรียบเทียบจากงานที่เคยรับผิดชอบในอดีต หรือสายงานบังคับบัญชา พร้อมระบุสถานะงานค้าง"
 }
 
-รายชื่อครูและบุคลากรในโรงเรียนสำหรับพิจารณา:
+กฎการวิเคราะห์ผู้รับผิดชอบงานที่เหมาะสม (Smart Assignee Engine):
+1. นำสาระสำคัญและชื่อเรื่องของหนังสือฉบับนี้ ไปเปรียบเทียบกับ "งานที่เคยรับผิดชอบในอดีต" ของครูแต่ละท่านเป็นอันดับแรก หากตรงกับงานเฉพาะ (เช่น ปัจจัยพื้นฐาน CCT, นม/อาหารกลางวัน, พัสดุ/จัดซื้อจัดจ้าง, สอบ O-NET/NT, งานบุคลากร/อัตราจ้าง) ให้แนะนำครูท่านที่เคยปฏิบัติงานนั้น
+2. หากเป็นเรื่องใหม่ที่ไม่เคยมีในประวัติงาน ให้แนะนำ "หัวหน้าฝ่าย" ที่ตรงกับฝ่ายงานนั้นตามสายการบังคับบัญชา
+3. พิจารณาภาระงานค้าง (หากงานค้างสะสมเกิน 5 เรื่อง ให้ชั่งน้ำหนักเลือกผู้ร่วมฝ่ายท่านอื่นหากเหมาะสมใกล้เคียงกัน)
+4. ระบุ ID ของครูที่เลือกในฟิลด์ "suggested_assignee_id" และชื่อใน "suggested_assignee_name" พร้อมเหตุผลสรุปใน "suggested_reason"
+
+รายชื่อครูและบุคลากรในโรงเรียน พร้อมประวัติงานจริงและภาระงานค้าง:
 ${teachersListStr}
 ${customSop ? `\n[แนวปฏิบัติเฉพาะและภาระงานของโรงเรียน (SOP)]:\n${customSop}\n` : ''}
 `;
@@ -285,14 +331,22 @@ ${customSop ? `\n[แนวปฏิบัติเฉพาะและภา�
 
       const extractedText = parsedInfo.extracted_text || '';
 
-      // Phase 2: Fuzzy Matching หาครูที่ตรงจาก suggested_assignee_name / dept ตามกฎสายการบังคับบัญชา (Department Head Hierarchy)
+      // Phase 2: Matching หาครูที่ตรงจาก ID, ชื่อ (SOP/ประวัติงาน) หรือฝ่ายงานตามกฎสายการบังคับบัญชา
       let matchedTeacher: any = null;
+      let suggestedReason = (parsedInfo.suggested_reason || '').trim();
+
       if (teachers && teachers.length > 0) {
+        const rawSuggestedId = (parsedInfo.suggested_assignee_id || '').trim();
         const suggestedName = (parsedInfo.suggested_assignee_name || '').toLowerCase().trim();
         const suggestedDept = (parsedInfo.suggested_assignee_dept || '').toLowerCase().trim();
 
-        // 1. ตรวจสอบชื่อตรงจาก SOP / เนื้อหา
-        if (suggestedName) {
+        // 1. ตรวจสอบจาก ID ที่ AI ระบุตรงจากรายการ
+        if (rawSuggestedId) {
+          matchedTeacher = teachers.find((t: any) => t.id === rawSuggestedId) || null;
+        }
+
+        // 2. หากยังไม่พบ ID ให้ตรวจสอบชื่อตรงจาก SOP / ประวัติงานในอดีต
+        if (!matchedTeacher && suggestedName) {
           matchedTeacher = teachers.find((t: any) => {
             const firstName = (t.first_name || '').toLowerCase().trim();
             const lastName = (t.last_name || '').toLowerCase().trim();
@@ -303,7 +357,7 @@ ${customSop ? `\n[แนวปฏิบัติเฉพาะและภา�
           }) || null;
         }
 
-        // 2. แมตช์ตามฝ่ายงาน โดยส่งหา "หัวหน้าฝ่าย" ก่อนเสมอ
+        // 3. แมตช์ตามฝ่ายงาน โดยส่งหา "หัวหน้าฝ่าย" ก่อนเสมอ (Department Head Hierarchy)
         if (!matchedTeacher && suggestedDept) {
           const deptKeywords = [
             { key: 'วิชาการ', label: 'วิชาการ' },
@@ -317,7 +371,7 @@ ${customSop ? `\n[แนวปฏิบัติเฉพาะและภา�
           const matchedKeyword = deptKeywords.find(k => suggestedDept.includes(k.key));
           if (matchedKeyword) {
             const targetKey = matchedKeyword.key;
-            // 2.1 First Priority: หัวหน้าฝ่าย
+            // 3.1 First Priority: หัวหน้าฝ่าย
             const headTeacher = teachers.find((t: any) => {
               const d = (t.department || '').toLowerCase();
               const p = (t.position || '').toLowerCase();
@@ -327,14 +381,28 @@ ${customSop ? `\n[แนวปฏิบัติเฉพาะและภา�
 
             if (headTeacher) {
               matchedTeacher = headTeacher;
+              if (!suggestedReason) suggestedReason = `แนะนำตามสายงานหัวหน้าฝ่าย${targetKey} (โครงการใหม่/ยังไม่มีประวัติเฉพาะ)`;
             } else {
-              // 2.2 Second Priority: ครูคนอื่นในฝ่าย
+              // 3.2 Second Priority: ครูคนอื่นในฝ่าย
               matchedTeacher = teachers.find((t: any) => {
                 const d = (t.department || '').toLowerCase();
                 const p = (t.position || '').toLowerCase();
                 return d.includes(targetKey) || p.includes(targetKey);
               }) || null;
+              if (matchedTeacher && !suggestedReason) {
+                suggestedReason = `แนะนำตามบุคลากรในฝ่าย${targetKey}`;
+              }
             }
+          }
+        }
+
+        // หากยังไม่มีเหตุผล ให้สร้างเหตุผลอัตโนมัติตามประวัติงาน
+        if (matchedTeacher && !suggestedReason) {
+          const pastList = teacherPastTopics[matchedTeacher.id] || [];
+          if (pastList.length > 0) {
+            suggestedReason = `ตรงตามประวัติที่เคยรับผิดชอบงานในอดีต (${pastList.slice(0, 2).join(', ')})`;
+          } else {
+            suggestedReason = `แนะนำตามสายงาน ${matchedTeacher.department || 'ประจำฝ่าย'}`;
           }
         }
       }
@@ -374,6 +442,9 @@ ${customSop ? `\n[แนวปฏิบัติเฉพาะและภา�
       if (matchedTeacher) {
         existingRemarkObj.suggested_teacher_id = matchedTeacher.id;
         existingRemarkObj.suggested_teacher_name = `${matchedTeacher.prefix || ''}${matchedTeacher.first_name} ${matchedTeacher.last_name}`;
+        if (suggestedReason) {
+          existingRemarkObj.suggested_reason = suggestedReason;
+        }
       }
 
       const updatePayload: any = {
@@ -456,6 +527,9 @@ ${customSop ? `\n[แนวปฏิบัติเฉพาะและภา�
 
         if (suggestedTeacherName) {
           notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <b>${escapeHtml(suggestedTeacherName)}</b>\n`;
+          if (suggestedReason) {
+            notifyMsg += `🎯 <b>เหตุผลที่แนะนำ:</b> <i>${escapeHtml(suggestedReason)}</i>\n`;
+          }
         } else if (parsedInfo.suggested_assignee_dept) {
           notifyMsg += `🧑‍🏫 <b>ครูผู้รับงานที่ AI แนะนำ:</b> <i>(ฝ่ายที่ควรรับ: ${escapeHtml(parsedInfo.suggested_assignee_dept)})</i>\n`;
         } else {

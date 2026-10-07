@@ -365,6 +365,8 @@ export interface DocumentInfo {
   action_deadline?: string;
   suggested_assignee_dept?: string;
   suggested_assignee_name?: string;
+  suggested_assignee_id?: string;
+  suggested_reason?: string;
 }
 
 export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string): Promise<DocumentInfo> {
@@ -375,11 +377,38 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
     const keys = getApiKeyList(apiKey);
     if (keys.length > 0) {
       let customSop = '';
+      let teachersListStr = '';
       try {
-        const { data: s } = await supabase.from('settings').select('custom_sop').maybeSingle();
-        if (s?.custom_sop) customSop = s.custom_sop.trim();
+        const [setsRes, teachersRes, asgRes] = await Promise.all([
+          supabase.from('settings').select('custom_sop').maybeSingle(),
+          supabase.from('teachers').select('id, prefix, first_name, last_name, position, department').eq('status', 'active'),
+          supabase.from('doc_assignments').select('assignee_id, status, incoming_docs(subject)').order('created_at', { ascending: false }).limit(60)
+        ]);
+        if (setsRes.data?.custom_sop) customSop = setsRes.data.custom_sop.trim();
+
+        const tList = teachersRes.data || [];
+        const asgList = asgRes.data || [];
+        const tPast: Record<string, string[]> = {};
+        asgList.forEach((a: any) => {
+          const tid = a.assignee_id;
+          const subj = a.incoming_docs?.subject;
+          if (tid && subj && subj !== '-' && subj !== 'หนังสือรับ' && !subj.startsWith('จองเลข')) {
+            if (!tPast[tid]) tPast[tid] = [];
+            const clean = subj.length > 32 ? subj.substring(0, 29) + '...' : subj;
+            if (tPast[tid].length < 3 && !tPast[tid].includes(clean)) tPast[tid].push(clean);
+          }
+        });
+
+        if (tList.length > 0) {
+          teachersListStr = tList.map((t: any) => {
+            const name = `${t.prefix || ''}${t.first_name} ${t.last_name}`;
+            const past = tPast[t.id] || [];
+            const pastStr = past.length > 0 ? ` (เคยรับผิดชอบ: ${past.join(', ')})` : '';
+            return `- ID: "${t.id}" | ${name} (${t.position || 'ครู'}, ฝ่าย: ${t.department || 'ไม่ระบุ'})${pastStr}`;
+          }).join('\n');
+        }
       } catch (e) {
-        console.warn('Error fetching custom_sop in summarizeDocument:', e);
+        console.warn('Error fetching settings/teachers in summarizeDocument:', e);
       }
 
       let modelsToTry = await getAvailableModels(apiKey);
@@ -405,9 +434,12 @@ export async function summarizeDocument(pdfBuffer: ArrayBuffer, apiKey?: string)
         "urgency": "ปกติ หรือ ด่วน หรือ ด่วนมาก หรือ ด่วนที่สุด",
         "summary": "สรุปสาระสำคัญสั้นๆ 1-2 ประโยค ระบุวัตถุประสงค์ เจตนา และสิ่งที่ต้องดำเนินการ (ห้ามตอบว่าไม่มีเนื้อหา ให้สรุปจากเจตนาของเรื่องเสมอ)",
         "action_deadline": "วันที่ต้องส่งงาน/วันจัดกิจกรรม/หมดเขต ในรูปแบบ YYYY-MM-DD (ค.ศ.) หากไม่พบให้ใส่ null",
+        "suggested_assignee_id": "ID ของครูจากรายชื่อที่เหมาะสมที่สุดในการรับผิดชอบงานนี้ (หากไม่แน่ใจให้ใส่ null)",
+        "suggested_assignee_name": "ชื่อ-นามสกุลครูผู้รับผิดชอบงานนี้โดยตรง (ถ้าวิเคราะห์ได้จากประวัติงานเดิมหรือ SOP)",
         "suggested_assignee_dept": "ฝ่ายที่ควรรับผิดชอบ เช่น งานวิชาการ, งานบริหารงานบุคคล, งานงบประมาณและแผน, งานบริหารทั่วไป, กิจการนักเรียน",
-        "suggested_assignee_name": "ชื่อ-นามสกุลครูผู้รับผิดชอบงานนี้โดยตรง (ถ้าวิเคราะห์ได้จากแนวปฏิบัติ SOP หากไม่ชัดเจนให้ใส่ null)"
+        "suggested_reason": "เหตุผลสั้นๆ 1 ประโยค ทำไมจึงแนะนำครูท่านนี้ เช่น ตรงกับประวัติงาน CCT / เป็นหัวหน้าฝ่ายวิชาการ"
       }
+      ${teachersListStr ? `\nรายชื่อครูและตัวอย่างงานที่เคยรับผิดชอบในอดีต:\n${teachersListStr}\n` : ''}
       ${customSop ? `\n[แนวปฏิบัติเฉพาะและภาระงานของโรงเรียน (SOP)]:\n${customSop}\n` : ''}
       ตอบกลับเฉพาะ JSON ล้วนๆ ห้ามมีข้อความอื่นนอก JSON`;
 

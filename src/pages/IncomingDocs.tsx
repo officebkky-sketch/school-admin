@@ -70,7 +70,8 @@ export default function IncomingDocs() {
   const [assignForm, setAssignForm] = useState({
     teacher_id: '',
     instruction: '',
-    stamp_page: 1
+    stamp_page: 1,
+    suggested_reason: ''
   });
 
   const [formData, setFormData] = useState({
@@ -106,6 +107,7 @@ export default function IncomingDocs() {
   const [suggestedTeacherId, setSuggestedTeacherId] = useState<string>('');
   const [suggestedTeacherName, setSuggestedTeacherName] = useState<string>('');
   const [suggestedMatchType, setSuggestedMatchType] = useState<string>('');
+  const [suggestedReason, setSuggestedReason] = useState<string>('');
 
   useEffect(() => { 
     fetchDocs(); 
@@ -511,7 +513,9 @@ export default function IncomingDocs() {
         proposal_summary: proposalData.summary,
         proposal_text: proposalData.proposal,
         stamp_page: formData.stamp_page, // เก็บเลขหน้าประทับเสนอ
-        suggested_teacher_id: suggestedTeacherId || null
+        suggested_teacher_id: suggestedTeacherId || null,
+        suggested_teacher_name: suggestedTeacherName || null,
+        suggested_reason: suggestedReason || null
       };
 
       const { data: insertedDocs, error } = await supabase.from('incoming_docs').insert([{
@@ -619,6 +623,9 @@ export default function IncomingDocs() {
 
         if (safeSuggestedName) {
           telegramMsg += `🧑‍🏫 <b>ครูผู้รับงานที่แนะนำ:</b> <b>${safeSuggestedName}</b>\n`;
+          if (suggestedReason) {
+            telegramMsg += `🎯 <b>เหตุผลที่แนะนำ:</b> <i>${escapeHtml(suggestedReason)}</i>\n`;
+          }
         }
 
         telegramMsg += `\n━━━━━━━━━━━━━━━━━━━━\n`;
@@ -854,13 +861,14 @@ export default function IncomingDocs() {
     setProposalData({ summary: '', proposal: 'เพื่อโปรดพิจารณา' });
     setMainFile(null);
     setAttachments([]);
-    setAssignForm({ teacher_id: '', instruction: '', stamp_page: 1 });
+    setAssignForm({ teacher_id: '', instruction: '', stamp_page: 1, suggested_reason: '' });
     setIsHolding(false);
     setIsScanningAI(false);
     setAiConfidence(null);
     setSuggestedTeacherId('');
     setSuggestedTeacherName('');
     setSuggestedMatchType('');
+    setSuggestedReason('');
   }
 
   const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -899,12 +907,18 @@ export default function IncomingDocs() {
       if (info.summary && info.summary !== 'ไม่สามารถสรุปเนื้อหาได้') score++;
       if (info.action_deadline) score++;
 
-      // แมตช์คุณครูตามกฎสายการบังคับบัญชา (Department Head Hierarchy) และ SOP
+      // แมตช์คุณครูตาม ID, ประวัติงานในอดีต (History Telemetry), SOP และกฎสายการบังคับบัญชา
       let matchedT: any = null;
       let matchType = '';
 
+      // 0. ตรวจสอบ ID ที่ AI วิเคราะห์และแนะนำตรงจากประวัติงานจริง
+      if (info.suggested_assignee_id && teachers.length > 0) {
+        matchedT = teachers.find(t => t.id === info.suggested_assignee_id);
+        if (matchedT) matchType = 'history_ai';
+      }
+
       // 1. ตรวจสอบชื่อตรงจาก SOP/เนื้อหาก่อน
-      if (info.suggested_assignee_name && teachers.length > 0) {
+      if (!matchedT && info.suggested_assignee_name && teachers.length > 0) {
         const sName = info.suggested_assignee_name.toLowerCase().trim();
         matchedT = teachers.find(t => {
           const fn = (t.first_name || '').toLowerCase().trim();
@@ -960,10 +974,12 @@ export default function IncomingDocs() {
         setSuggestedTeacherId(matchedT.id);
         setSuggestedTeacherName(`${matchedT.prefix || ''}${matchedT.first_name} ${matchedT.last_name}`);
         setSuggestedMatchType(matchType);
+        setSuggestedReason(info.suggested_reason || '');
       } else {
         setSuggestedTeacherId('');
         setSuggestedTeacherName('');
         setSuggestedMatchType('');
+        setSuggestedReason('');
       }
 
       setAiConfidence({ count: score, total });
@@ -1216,6 +1232,18 @@ export default function IncomingDocs() {
                           🧠 ชบาจำเนื้อหาแล้ว
                         </span>
                       )}
+                      {doc.status === 'pending' && (() => {
+                        let sName = '';
+                        try {
+                          const extra = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark || '{}');
+                          sName = extra?.suggested_teacher_name || '';
+                        } catch {}
+                        return sName ? (
+                          <span className="flex items-center gap-1 text-[9px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-sm border border-purple-200" title="AI วิเคราะห์แนะนำผู้รับผิดชอบงานนี้">
+                            <Sparkles size={10} className="text-purple-500" /> แนะนำ: {sName}
+                          </span>
+                        ) : null;
+                      })()}
                       <DocVerificationBadge doc={doc} />
                     </div>
                   </td>
@@ -1262,15 +1290,36 @@ export default function IncomingDocs() {
                         <button onClick={() => { 
                           setSelectedDoc(doc); 
                           let prevStampPage = 1;
+                          let initialTeacherId = doc.suggested_assignee_id || '';
+                          let initialInstruction = 'มอบดำเนินการตามภารกิจ';
+                          let suggestedReason = '';
+
                           if (doc.remark) {
                             try {
                               const extra = typeof doc.remark === 'object' ? doc.remark : JSON.parse(doc.remark);
                               if (extra && extra.stamp_page) {
                                 prevStampPage = parseInt(extra.stamp_page) || 1;
                               }
+                              if (!initialTeacherId && extra?.suggested_teacher_id) {
+                                initialTeacherId = extra.suggested_teacher_id;
+                              }
+                              if (extra?.suggested_reason) {
+                                suggestedReason = extra.suggested_reason;
+                              }
                             } catch (e) { console.warn('Failed to parse remark for stamp_page', e); }
                           }
-                          setAssignForm({ teacher_id: '', instruction: '', stamp_page: prevStampPage });
+
+                          if (doc.action_deadline) {
+                            const dlStr = formatDateDMY(doc.action_deadline);
+                            initialInstruction = `มอบดำเนินการ (กำหนดส่งภายในวันที่ ${dlStr})`;
+                          }
+
+                          setAssignForm({ 
+                            teacher_id: initialTeacherId, 
+                            instruction: initialInstruction, 
+                            stamp_page: prevStampPage,
+                            suggested_reason: suggestedReason
+                          });
                           setIsAssignModalOpen(true); 
                         }} className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-lg transition-colors flex items-center gap-1.5 font-bold text-xs" title="เกษียณสั่งการ/มอบหมาย">
                           <UserCheck size={14} /> มอบหมายงาน
@@ -1369,7 +1418,7 @@ export default function IncomingDocs() {
                   </span>
                   {suggestedTeacherName && (
                     <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
-                      {suggestedMatchType === 'direct_sop' ? '🎯 ตรงตามภาระงาน SOP' : (suggestedMatchType === 'head_of_dept' ? '👑 หัวหน้าฝ่าย' : 'ตรงตามฝ่ายงาน')}
+                      {suggestedMatchType === 'history_ai' ? '🎯 ตรงประวัติงานในอดีต' : (suggestedMatchType === 'direct_sop' ? '🎯 ตรงตามภาระงาน SOP' : (suggestedMatchType === 'head_of_dept' ? '👑 หัวหน้าฝ่าย' : 'ตรงตามฝ่ายงาน'))}
                     </span>
                   )}
                 </div>
@@ -1390,6 +1439,11 @@ export default function IncomingDocs() {
                     </option>
                   ))}
                 </select>
+                {suggestedReason && (
+                  <p className="text-[10px] text-purple-800 font-medium bg-purple-100/70 p-2 rounded-lg border border-purple-200/80">
+                    ✨ <b>เหตุผล:</b> {suggestedReason}
+                  </p>
+                )}
                 <p className="text-[9px] text-purple-600 font-medium">* ระบบเลือกชื่อแนะนำให้อัตโนมัติ สามารถคลิกเปลี่ยนชื่อผู้รับผิดชอบได้ทันทีก่อนส่งเสนอ</p>
               </div>
 
@@ -1551,15 +1605,33 @@ export default function IncomingDocs() {
              </div>
           </div>
 
+          {/* AI Smart Assignee Recommendation Banner */}
+          {assignForm.suggested_reason && (
+            <div className="p-3.5 bg-purple-50/80 rounded-2xl border border-purple-200/80 flex items-start gap-2.5 shadow-xs">
+              <Sparkles size={18} className="text-purple-600 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-0.5">
+                <span className="font-bold text-purple-900 block">AI Smart Assignee แนะนำ:</span>
+                <span className="text-purple-700 font-medium leading-relaxed block">{assignForm.suggested_reason}</span>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-slate-400 uppercase ml-1">คำสั่งการผู้อำนวยการ (จะประทับตราลงใน PDF)</label>
             <textarea className="w-full p-4 bg-white border border-brand-primary/20 rounded-2xl font-bold text-blue-800 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all" rows={3} placeholder="เช่น มอบครู... ดำเนินการ, เห็นชอบตามเสนอ..." required value={assignForm.instruction} onChange={e => setAssignForm({...assignForm, instruction: e.target.value})} />
           </div>
           <div className="space-y-1.5 border-t pt-4">
-            <label className="text-[10px] font-black text-slate-400 uppercase ml-1">มอบหมายผู้ปฏิบัติในระบบ</label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">มอบหมายผู้ปฏิบัติในระบบ</label>
+              {assignForm.teacher_id && (
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
+                  {teachers.find(t => t.id === assignForm.teacher_id)?.id === selectedDoc?.suggested_assignee_id ? '🎯 ตรงตามที่ AI แนะนำ' : '✍️ ปรับเปลี่ยนผู้รับผิดชอบแล้ว'}
+                </span>
+              )}
+            </div>
             <select className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary" required value={assignForm.teacher_id} onChange={e => setAssignForm({...assignForm, teacher_id: e.target.value})}>
               <option value="">-- กรุณาเลือกรายชื่อผู้ปฏิบัติ --</option>
-              {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name} ({t.position})</option>)}
+              {teachers.map(t => <option key={t.id} value={t.id}>{t.prefix}{t.first_name} {t.last_name} ({t.position || t.department || 'ครู'})</option>)}
             </select>
           </div>
           <button type="submit" disabled={isSaving || !assignForm.teacher_id || !assignForm.instruction} className="w-full py-5 bg-slate-800 text-white rounded-[24px] font-black text-lg flex items-center justify-center gap-3 shadow-xl shadow-slate-200 hover:bg-slate-900 transition-all disabled:opacity-50">
