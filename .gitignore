@@ -9,3 +9,4 @@ dist-installer
 .env*.local
 scratch/
 backup*.json
+*.bat
