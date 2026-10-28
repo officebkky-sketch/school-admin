@@ -577,29 +577,38 @@ export async function generateAIDraft(prompt: string, apiKey?: string): Promise<
 export async function generateEmbedding(
   text: string, 
   apiKey: string, 
-  retries = 5, 
-  delay = 2000
+  retries = 3, 
+  delay = 1500
 ): Promise<number[]> {
-  const candidateModels = ["models/text-embedding-004", "text-embedding-004"];
-  const versions = ['v1beta'];
+  // รองรับโมเดล Embedding มาตรฐานของ Google Generative Language API
+  const candidateModels = [
+    "models/gemini-embedding-001",
+    "models/gemini-embedding-2",
+    "models/gemini-embedding-2-preview",
+    "gemini-embedding-001",
+    "models/text-embedding-004"
+  ];
+  const versions = ['v1beta', 'v1'];
   const keys = getApiKeyList(apiKey);
   if (keys.length === 0) throw new Error("กรุณาตั้งค่า Gemini API Key");
   let lastError = "";
 
-  for (let attempt = 0; attempt < retries; attempt++) {
-    // หมุนเวียนคีย์ตามความพยายามเพื่อหลีกเลี่ยง Rate Limit
-    const currentKey = keys[(attempt + Math.floor(Math.random() * keys.length)) % keys.length];
-    
-    for (const targetModel of candidateModels) {
-      for (const version of versions) {
+  for (const targetModel of candidateModels) {
+    const formattedModel = targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`;
+    for (const version of versions) {
+      for (let attempt = 0; attempt < retries; attempt++) {
+        // หมุนเวียนคีย์ตามความพยายามเพื่อหลีกเลี่ยง Rate Limit
+        const currentKey = keys[(attempt + Math.floor(Math.random() * keys.length)) % keys.length];
+        
         try {
-          const url = `https://generativelanguage.googleapis.com/${version}/${targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`}:embedContent?key=${currentKey}`;
+          const url = `https://generativelanguage.googleapis.com/${version}/${formattedModel}:embedContent?key=${currentKey}`;
           const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: targetModel.startsWith('models/') ? targetModel : `models/${targetModel}`,
-              content: { parts: [{ text }] }
+              model: formattedModel,
+              content: { parts: [{ text }] },
+              outputDimensionality: 768 // กำหนด 768 มิติ ให้ตรงกับสคีมาฐานข้อมูล Supabase vector(768)
             })
           });
 
@@ -608,25 +617,30 @@ export async function generateEmbedding(
             return data.embedding.values;
           }
 
-        lastError = data.error?.message || 'Unknown error';
-        
-        const isRateLimit = response.status === 429 || 
-          lastError.toLowerCase().includes('quota') || 
-          lastError.toLowerCase().includes('rate limit') ||
-          lastError.toLowerCase().includes('resource');
+          lastError = data.error?.message || `HTTP ${response.status}`;
           
-        if (isRateLimit && attempt < retries - 1) {
-          console.warn(`Rate limit on embedding. Retrying with next key in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 1.5;
-          break; // Break the version loop to start next retry attempt
+          // หากโมเดลไม่มีอยู่ (404 Not Found) ให้ข้ามไปโมเดลถัดไปทันที
+          if (response.status === 404 || lastError.includes('not found') || lastError.includes('not supported')) {
+            break; // ข้าม attempt loop ของโมเดลนี้
+          }
+
+          const isRateLimit = response.status === 429 || 
+            lastError.toLowerCase().includes('quota') || 
+            lastError.toLowerCase().includes('rate limit') ||
+            lastError.toLowerCase().includes('resource');
+            
+          if (isRateLimit && attempt < retries - 1) {
+            console.warn(`[EMBEDDING] Rate limit on ${formattedModel}. Retrying with next key in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 1.5;
+            continue;
+          }
+        } catch (err: any) {
+          lastError = err.message || String(err);
         }
-      } catch (err: any) {
-        lastError = err.message || String(err);
       }
     }
   }
-}
 
   console.error('Embedding error after retries:', lastError);
   throw new Error(`ไม่พบโมเดลสร้างความรู้ที่รองรับ: ${lastError}`);
@@ -801,8 +815,14 @@ export async function processDocumentToKnowledge(
   for (let i = 0; i < chunks.length; i += batchSize) {
     const batch = chunks.slice(i, i + batchSize);
     const promises = batch.map(async (chunk) => {
+      let embedding: number[] | null = null;
       try {
-        const embedding = await generateEmbedding(chunk.text, apiKey);
+        embedding = await generateEmbedding(chunk.text, apiKey);
+      } catch (embErr: any) {
+        console.warn(`[INGEST KNOWLEDGE] Embedding warning (page ${chunk.page_number}), saving chunk text only:`, embErr.message);
+      }
+
+      try {
         const { error } = await supabase.from('school_knowledge').insert([{
           document_name: fileName,
           page_number: chunk.page_number,
@@ -812,10 +832,15 @@ export async function processDocumentToKnowledge(
         }]);
         if (!error) successCount++;
         else lastError = error.message;
-      } catch (err: any) { lastError = err.message; }
+      } catch (err: any) { 
+        lastError = err.message; 
+      }
     });
     await Promise.all(promises);
-    await new Promise(r => setTimeout(r, 1000));
+    if (onProgress) {
+      onProgress(Math.min(totalPages, Math.max(1, Math.round(((i + batch.length) / chunks.length) * totalPages))), totalPages);
+    }
+    await new Promise(r => setTimeout(r, 800));
   }
 
   if (successCount === 0) throw new Error(`ไม่สามารถจดจำข้อมูลได้: ${lastError}`);
@@ -1112,8 +1137,14 @@ export async function processPrivateDocumentToKnowledge(
   for (let i = 0; i < chunks.length; i += batchSize) {
     const batch = chunks.slice(i, i + batchSize);
     const promises = batch.map(async (chunk) => {
+      let embedding: number[] | null = null;
       try {
-        const embedding = await generateEmbedding(chunk.text, apiKey);
+        embedding = await generateEmbedding(chunk.text, apiKey);
+      } catch (embErr: any) {
+        console.warn(`[PRIVATE KB] Embedding warning (page ${chunk.page_number}), saving chunk text only:`, embErr.message);
+      }
+
+      try {
         const { error } = await supabase.from('ai_private_knowledge_chunks').insert([{
           file_id: fileId,
           teacher_id: teacherId,
@@ -1128,7 +1159,7 @@ export async function processPrivateDocumentToKnowledge(
       }
     });
     await Promise.all(promises);
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 800));
   }
 
   if (successCount === 0) throw new Error(`ไม่สามารถจดจำข้อมูลคลังส่วนตัวได้: ${lastError}`);
