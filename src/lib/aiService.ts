@@ -608,7 +608,7 @@ export async function generateEmbedding(
             body: JSON.stringify({
               model: formattedModel,
               content: { parts: [{ text }] },
-              outputDimensionality: 768 // กำหนด 768 มิติ ให้ตรงกับสคีมาฐานข้อมูล Supabase vector(768)
+              outputDimensionality: 3072 // กำหนด 3072 มิติ ให้ตรงกับสคีมาฐานข้อมูล Supabase vector(3072)
             })
           });
 
@@ -823,15 +823,28 @@ export async function processDocumentToKnowledge(
       }
 
       try {
-        const { error } = await supabase.from('school_knowledge').insert([{
+        let insertRes = await supabase.from('school_knowledge').insert([{
           document_name: fileName,
           page_number: chunk.page_number,
           chunk_text: chunk.text,
           embedding: embedding,
           created_by: user.id
         }]);
-        if (!error) successCount++;
-        else lastError = error.message;
+
+        // Fallback: หากพบปัญหาเรื่องมิติหรือ embedding ให้บันทึก chunk ข้อความโดยตัด embedding เป็น null เพื่อไม่ให้ข้อมูลสูญหาย
+        if (insertRes.error && embedding) {
+          console.warn('[INGEST KNOWLEDGE] Insert with embedding failed, falling back to text-only:', insertRes.error.message);
+          insertRes = await supabase.from('school_knowledge').insert([{
+            document_name: fileName,
+            page_number: chunk.page_number,
+            chunk_text: chunk.text,
+            embedding: null,
+            created_by: user.id
+          }]);
+        }
+
+        if (!insertRes.error) successCount++;
+        else lastError = insertRes.error.message;
       } catch (err: any) { 
         lastError = err.message; 
       }
@@ -1145,15 +1158,27 @@ export async function processPrivateDocumentToKnowledge(
       }
 
       try {
-        const { error } = await supabase.from('ai_private_knowledge_chunks').insert([{
+        let insertRes = await supabase.from('ai_private_knowledge_chunks').insert([{
           file_id: fileId,
           teacher_id: teacherId,
           page_number: chunk.page_number,
           chunk_text: chunk.text,
           embedding: embedding
         }]);
-        if (!error) successCount++;
-        else lastError = error.message;
+
+        if (insertRes.error && embedding) {
+          console.warn('[PRIVATE KB] Insert with embedding failed, falling back to text-only:', insertRes.error.message);
+          insertRes = await supabase.from('ai_private_knowledge_chunks').insert([{
+            file_id: fileId,
+            teacher_id: teacherId,
+            page_number: chunk.page_number,
+            chunk_text: chunk.text,
+            embedding: null
+          }]);
+        }
+
+        if (!insertRes.error) successCount++;
+        else lastError = insertRes.error.message;
       } catch (err: any) {
         lastError = err.message;
       }
