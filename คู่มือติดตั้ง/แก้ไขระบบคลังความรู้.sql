@@ -1,6 +1,6 @@
 -- ==========================================================
 -- 🧠 คำสั่ง SQL สำหรับสร้างระบบคลังสมองส่วนกลาง (RAG Knowledge Base)
--- สำหรับรันใน Supabase SQL Editor เพื่อแก้ไข Error 404
+-- สำหรับรันใน Supabase SQL Editor เพื่อรองรับ Gemini Embedding 3072 มิติ
 -- ==========================================================
 
 -- 1. เปิดการใช้งาน Extension สำหรับประมวลผล Vector ความรู้
@@ -12,10 +12,18 @@ CREATE TABLE IF NOT EXISTS public.school_knowledge (
   document_name TEXT NOT NULL,
   page_number INTEGER,
   chunk_text TEXT NOT NULL,
-  embedding vector(768),                         -- ขนาด 768 มิติสำหรับโมเดล gemini-embedding-2
+  embedding vector(3072),                        -- ขนาด 3072 มิติสำหรับโมเดล gemini-embedding-001 / gemini-embedding-2
   created_by UUID REFERENCES auth.users,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ปรับปรุงขนาดคอลัมน์หากมีตารางเดิมอยู่แล้ว
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'school_knowledge' AND column_name = 'embedding') THEN
+    ALTER TABLE public.school_knowledge ALTER COLUMN embedding TYPE vector(3072);
+  END IF;
+END $$;
 
 -- 3. สร้างวิวแสดงผลรายชื่อเอกสารที่ไม่ซ้ำ
 CREATE OR REPLACE VIEW public.unique_knowledge_docs AS
@@ -27,8 +35,12 @@ CREATE OR REPLACE VIEW public.unique_knowledge_docs AS
   ORDER BY document_name, created_at DESC;
 
 -- 4. สร้างฟังก์ชันการค้นหาความรู้ความแม่นยำสูง (Cosine Similarity RPC)
+DROP FUNCTION IF EXISTS public.match_knowledge(vector, float, int);
+DROP FUNCTION IF EXISTS public.match_knowledge(vector(768), float, int);
+DROP FUNCTION IF EXISTS public.match_knowledge(vector(3072), float, int);
+
 CREATE OR REPLACE FUNCTION public.match_knowledge(
-  query_embedding vector(768),
+  query_embedding vector(3072),
   match_threshold float,
   match_count int
 )
@@ -51,21 +63,31 @@ BEGIN
     sk.chunk_text,
     (1 - (sk.embedding <=> query_embedding))::float AS similarity
   FROM public.school_knowledge sk
-  WHERE (1 - (sk.embedding <=> query_embedding)) > match_threshold
+  WHERE sk.embedding IS NOT NULL
+    AND (1 - (sk.embedding <=> query_embedding)) > match_threshold
   ORDER BY (sk.embedding <=> query_embedding) ASC
   LIMIT match_count;
 END;
 $$;
 
--- 5. เปิดใช้งานระบบสิทธิ์ RLS สำหรับตารางความรู้
+-- 5. สิทธิ์ Data API ตาม Rule J
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_knowledge TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.school_knowledge TO service_role;
+GRANT SELECT ON public.school_knowledge TO anon;
+
+GRANT SELECT ON public.unique_knowledge_docs TO authenticated;
+GRANT SELECT ON public.unique_knowledge_docs TO service_role;
+GRANT SELECT ON public.unique_knowledge_docs TO anon;
+
+-- 6. เปิดใช้งานระบบสิทธิ์ RLS สำหรับตารางความรู้
 ALTER TABLE public.school_knowledge ENABLE ROW LEVEL SECURITY;
 
--- 6. กำหนดนโยบาย RLS ให้ทุกคนเข้าอ่านได้
+-- 7. กำหนดนโยบาย RLS ให้ทุกคนเข้าอ่านได้
 DROP POLICY IF EXISTS "Everyone can view school_knowledge" ON public.school_knowledge;
 CREATE POLICY "Everyone can view school_knowledge" ON public.school_knowledge
   FOR SELECT USING (true);
 
--- 7. กำหนดนโยบาย RLS ให้เฉพาะ admin/director จัดการข้อมูลได้
+-- 8. กำหนดนโยบาย RLS ให้เฉพาะ admin/director จัดการข้อมูลได้
 DROP POLICY IF EXISTS "Admins and directors can manage school_knowledge" ON public.school_knowledge;
 CREATE POLICY "Admins and directors can manage school_knowledge" ON public.school_knowledge
   FOR ALL USING (

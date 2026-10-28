@@ -978,7 +978,7 @@ CREATE TABLE IF NOT EXISTS public.school_knowledge (
   document_name TEXT NOT NULL,
   page_number INTEGER,
   chunk_text TEXT NOT NULL,
-  embedding vector(768),                         -- เวกเตอร์ขนาด 768 มิติ สำหรับรุ่น gemini-embedding-2
+  embedding vector(3072),                         -- เวกเตอร์ขนาด 768 มิติ สำหรับรุ่น gemini-embedding-2
   created_by UUID REFERENCES auth.users,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -994,7 +994,7 @@ CREATE OR REPLACE VIEW public.unique_knowledge_docs AS
 
 -- 4. ฟังก์ชันสำหรับการสืบค้นความรู้ด้วยเวกเตอร์ (Cosine Similarity Search)
 CREATE OR REPLACE FUNCTION public.match_knowledge(
-  query_embedding vector(768),
+  query_embedding vector(3072),
   match_threshold float,
   match_count int
 )
@@ -1084,7 +1084,7 @@ CREATE TABLE IF NOT EXISTS public.ai_private_knowledge_chunks (
   teacher_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   page_number INTEGER,
   chunk_text TEXT NOT NULL,
-  embedding vector(768),                         -- ขนาด 768 มิติสำหรับโมเดล gemini-embedding-2
+  embedding vector(3072),                         -- ขนาด 768 มิติสำหรับโมเดล gemini-embedding-2
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -1101,7 +1101,7 @@ CREATE POLICY "Users can manage their own private chunks" ON public.ai_private_k
 -- 🧠 ฟังก์ชันสืบค้นไฟล์เอกสารส่วนบุคคลความแม่นยำสูง (Private Cosine Similarity RPC)
 -- ==========================================================
 CREATE OR REPLACE FUNCTION public.match_private_knowledge(
-  query_embedding vector(768),
+  query_embedding vector(3072),
   match_threshold float,
   match_count int,
   p_teacher_id uuid
