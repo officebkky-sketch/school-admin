@@ -280,6 +280,15 @@
     - แก้ไข TypeScript Errors ทั้งหมด (๒๗ รายการ) รวมถึง Unused Variables และ Type Mismatches
     - ติดตั้ง Dependencies ที่ขาดหายไป (recharts) และยืนยันการ Build ผ่าน (npm run build) เพื่อความปลอดภัยบน Vercel
     - ปรับปรุงโครงสร้างไฟล์ `ProcurementDocGenerator.ts`, `Finance.tsx` และ `AICowork.tsx` ให้สะอาดและพร้อมพัฒนาต่อ
+- **๒๘ ตุลาคม ๒๕๖๙:**
+    - **อัปเกรดระบบ Intelligence Hub & Gemini Embedding สู่มาตรฐาน 3072 มิติ**:
+        - เปลี่ยนโมเดล Embedding เป็น `models/gemini-embedding-001` และ `models/gemini-embedding-2` (ยกเลิก `text-embedding-004` เก่าที่คืนค่า 404)
+        - ล็อกขนาดเวกเตอร์ที่ `3072 มิติ` ให้ตรงกับสคีมาฐานข้อมูล Supabase `vector(3072)` 100% (แก้ไขปัญหา `expected 3072 dimensions, not 768`)
+        - เพิ่มระบบ **Two-Tier Resilient Text Ingestion Fallback**: หาก Embedding ขัดข้องจะบันทึกข้อความ Chunk ลงฐานข้อมูลทันทีโดยไม่หยุดชะงัก
+        - สร้าง Migration สำหรับ Twin Schools: `supabase_migration_20261028_upgrade_vector_3072.sql`
+    - **ตอกย้ำ Production Deploy Disambiguation**:
+        - ยืนยันการผูก Vercel CLI กับ `officebkky-school-admin/school-admin`
+        - Deploy ขึ้น Production จริงของโรงเรียนบ้านควนโคกยาสำเร็จ: `https://school-admin-psi.vercel.app`
 - **๑๓ พฤษภาคม ๒๕๖๙:**
     - ติดตั้งโมดูล **AI Cowork** (Virtual Drive + Chat Hub) สมบูรณ์ 100%
     - แก้ปัญหา API Quota และระบบเชื่อมต่อ Gemini ให้มีความเสถียรสูง (Retry & Fallback)
