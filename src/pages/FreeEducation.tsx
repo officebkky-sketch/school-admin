@@ -8,6 +8,8 @@ import {
   Filter as FilterIcon
 } from 'lucide-react';
 
+import { formatThaiNationalId } from '../lib/validationUtils';
+
 interface Student {
   id: string;
   prefix: string;
@@ -17,6 +19,7 @@ interface Student {
   room: string;
   academic_year: string;
   parent_phone?: string;
+  national_id?: string;
 }
 
 // ฝังฟอนต์ Base64 เพื่อให้หน้าต่างพิมพ์แสดงผลถูกต้อง 100% ใน Electron
@@ -30,6 +33,9 @@ const FreeEducation = () => {
   const [selectedRoom, setSelectedRoom] = useState('ทั้งหมด');
   const [meetingDate, setMeetingDate] = useState('.......... พฤษภาคม ๒๕๖๙');
   const [schoolName, setSchoolName] = useState('โรงเรียนบ้านควนโคกยา');
+  const [meetingLocation, setMeetingLocation] = useState<string>(() => {
+    return localStorage.getItem('free_education_meeting_location') || 'ห้องประชุมโรงเรียนบ้านควนโคกยา';
+  });
   const [directorName, setDirectorName] = useState('');
   const [payerName, setPayerName] = useState('');
   const [paymentType, setPaymentType] = useState<'all' | 'uniform' | 'materials'>('all');
@@ -52,7 +58,22 @@ const FreeEducation = () => {
   const saveAmounts = () => {
     localStorage.setItem('free_education_amounts', JSON.stringify(amounts));
     localStorage.setItem('free_education_payers', JSON.stringify(payers));
-    alert('บันทึกการตั้งค่าจำนวนเงินและรายชื่อผู้จ่ายเงินเรียบร้อยแล้ว');
+    localStorage.setItem('free_education_meeting_location', meetingLocation);
+    alert('บันทึกการตั้งค่าจำนวนเงินและสถานที่ประชุมเรียบร้อยแล้ว');
+  };
+
+  const handleLocationChange = (val: string) => {
+    setMeetingLocation(val);
+    localStorage.setItem('free_education_meeting_location', val);
+  };
+
+  const formattedLocation = meetingLocation.trim()
+    ? (meetingLocation.trim().startsWith('ณ') ? meetingLocation.trim() : `ณ ${meetingLocation.trim()}`)
+    : `ณ ห้องประชุม${schoolName}`;
+
+  const formatNationalIdThai = (id?: string) => {
+    if (!id) return '-';
+    return toThaiDigits(formatThaiNationalId(id));
   };
 
   useEffect(() => {
@@ -73,7 +94,12 @@ const FreeEducation = () => {
   useEffect(() => {
     async function fetchSettings() {
       const { data } = await supabase.from('settings').select('school_name, current_academic_year, director_name').limit(1).maybeSingle();
-      if (data?.school_name) setSchoolName(data.school_name);
+      if (data?.school_name) {
+        setSchoolName(data.school_name);
+        if (!localStorage.getItem('free_education_meeting_location')) {
+          setMeetingLocation(`ห้องประชุม${data.school_name}`);
+        }
+      }
       if (data?.current_academic_year) setAcademicYear(data.current_academic_year);
       if (data?.director_name) setDirectorName(data.director_name);
     }
@@ -117,7 +143,8 @@ const FreeEducation = () => {
 
       const mappedData = filteredData.map(s => ({
         ...s,
-        parent_phone: s.phone_number || s.parent_phone || ''
+        parent_phone: s.phone_number || s.parent_phone || '',
+        national_id: s.national_id || ''
       }));
 
       const uniqueData = Array.from(new Map(mappedData.map(s => [s.student_id || s.id, s])).values());
@@ -226,19 +253,19 @@ const FreeEducation = () => {
         amountCols = `
           <td style="text-align:right;">${toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>
           <td style="text-align:right;">${toThaiDigits(studentAmounts.materials.toLocaleString())}</td>
-          <td style="text-align:right;">${toThaiDigits(studentAmounts.total.toLocaleString())}</td>
+          <td style="text-align:right; font-weight:bold;">${toThaiDigits(studentAmounts.total.toLocaleString())}</td>
         `;
       } else if (paymentType === 'uniform') {
-        amountCols = `<td style="text-align:right;">${toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>`;
+        amountCols = `<td style="text-align:right; font-weight:bold;">${toThaiDigits(studentAmounts.uniform.toLocaleString())}</td>`;
       } else {
-        amountCols = `<td style="text-align:right;">${toThaiDigits(studentAmounts.materials.toLocaleString())}</td>`;
+        amountCols = `<td style="text-align:right; font-weight:bold;">${toThaiDigits(studentAmounts.materials.toLocaleString())}</td>`;
       }
 
       return `
         <tr>
           <td style="text-align:center;">${toThaiDigits(i + 1)}</td>
           <td style="text-align:left; white-space:nowrap;">${student.prefix}${student.first_name} ${student.last_name}</td>
-          <td style="text-align:center;">${formatClassThai(student.class_level, student.room)}</td>
+          <td style="text-align:center; font-size:13.5pt; letter-spacing:0.5px; white-space:nowrap;">${formatNationalIdThai(student.national_id)}</td>
           ${amountCols}
           <td style="text-align:center;"></td>
           <td></td>
@@ -259,19 +286,19 @@ const FreeEducation = () => {
       </tr>
     ` : `
       <tr>
-        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 25px;">ที่</th>
-        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 210px;">ชื่อ - สกุล นักเรียน</th>
-        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 50px;">ชั้น</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 30px;">ที่</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 180px;">ชื่อ - สกุล นักเรียน</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 155px;">เลขประจำตัวประชาชน</th>
         <th ${paymentType === 'all' ? 'colspan="2"' : ''}>รายการที่ได้รับเงิน (บาท)</th>
-        ${paymentType === 'all' ? '<th rowspan="2" style="width: 70px;">รวมเงิน<br/>(บาท)</th>' : ''}
-        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 120px;">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
-        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 180px;">ลายมือชื่อผู้รับเงิน<br/>(ผู้ปกครอง)</th>
-        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 50px;">หมายเหตุ</th>
+        ${paymentType === 'all' ? '<th rowspan="2" style="width: 65px;">รวมเงิน<br/>(บาท)</th>' : ''}
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 90px;">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 145px;">ลายมือชื่อผู้รับเงิน<br/>(ผู้ปกครอง)</th>
+        <th ${paymentType === 'all' ? 'rowspan="2"' : ''} style="width: 45px;">หมายเหตุ</th>
       </tr>
       ${paymentType === 'all' ? `
         <tr>
-          <th style="width: 60px;">เครื่องแบบ</th>
-          <th style="width: 60px;">อุปกรณ์</th>
+          <th style="width: 55px;">เครื่องแบบ</th>
+          <th style="width: 55px;">อุปกรณ์</th>
         </tr>
       ` : ''}
     `;
@@ -332,9 +359,15 @@ const FreeEducation = () => {
           <div class="page">
             <div class="header">
               <h1 style="font-size: 18pt; font-weight: bold; margin: 0;">${docTitle}</h1>
-              <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">โครงการสนับสนุนค่าใช้จ่ายในการจัดการศึกษาตั้งแต่ระดับอนุบาลจนจบการศึกษาขั้นพื้นฐาน</h2>
-              <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">ภาคเรียนที่ ${toThaiDigits(semester)} ปีการศึกษา ${toThaiDigits(academicYear)} ${selectedClass !== 'ทั้งหมด' ? ` (ชั้น ${selectedClass})` : ''}</h2>
-              <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">${schoolName}</h2>
+              ${isPayment ? `
+                <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">โครงการสนับสนุนค่าใช้จ่ายในการจัดการศึกษาตั้งแต่ระดับอนุบาลจนจบการศึกษาขั้นพื้นฐาน</h2>
+                <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">ภาคเรียนที่ ${toThaiDigits(semester)} ปีการศึกษา ${toThaiDigits(academicYear)} ${selectedClass !== 'ทั้งหมด' ? ` (ชั้น ${selectedClass})` : ''}</h2>
+                <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">${schoolName}</h2>
+              ` : `
+                <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">ภาคเรียนที่ ${toThaiDigits(semester)} ปีการศึกษา ${toThaiDigits(academicYear)} ${selectedClass !== 'ทั้งหมด' ? ` (ชั้น ${selectedClass})` : ''}</h2>
+                <h2 style="font-size: 16pt; font-weight: normal; margin: 2px 0;">${formattedLocation}</h2>
+                <p style="font-size: 15pt; margin: 4px 0 0 0;">วันที่ ${toThaiDigits(meetingDate)}</p>
+              `}
             </div>
             <table>
               <thead>${headerRow}</thead>
@@ -343,6 +376,7 @@ const FreeEducation = () => {
                 ${footerTotal}
               </tbody>
             </table>
+            ${isPayment ? `
             <div class="footer-area">
               <p style="margin: 5px 0;">รวมเงินตัวอักษร (${bahttext(totalAmount)})</p>
               <table class="sign-table">
@@ -363,6 +397,7 @@ const FreeEducation = () => {
                 </tr>
               </table>
             </div>
+            ` : ''}
           </div>
           <script>window.onload = function() { setTimeout(() => { window.print(); }, 800); }</script>
         </body>
@@ -428,6 +463,16 @@ const FreeEducation = () => {
             <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">วันที่ประชุม/จ่ายเงิน</label>
             <input type="text" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-brand-primary" placeholder="เช่น .......... พฤษภาคม ๒๕๖๙" />
           </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">สถานที่ประชุม (ใบลงทะเบียน)</label>
+            <input 
+              type="text" 
+              value={meetingLocation} 
+              onChange={(e) => handleLocationChange(e.target.value)} 
+              className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-brand-primary" 
+              placeholder="เช่น ห้องประชุมโรงเรียนบ้านควนโคกยา" 
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6 p-6 bg-slate-50 rounded-3xl border border-slate-100">
@@ -481,7 +526,7 @@ const FreeEducation = () => {
                 <div className="text-center mb-6 leading-tight">
                   <h1 className="text-[20pt] font-bold">ใบลงทะเบียนเข้าร่วมประชุมผู้ปกครอง</h1>
                   <h2 className="text-[17pt]">ภาคเรียนที่ {toThaiDigits(semester)} ปีการศึกษา {toThaiDigits(academicYear)} {selectedClass !== 'ทั้งหมด' && ` (ชั้น ${selectedClass})`}</h2>
-                  <h2 className="text-[17pt]">ณ ห้องประชุม{schoolName}</h2>
+                  <h2 className="text-[17pt]">{formattedLocation}</h2>
                   <p className="text-[15pt] mt-2">วันที่ {toThaiDigits(meetingDate)}</p>
                 </div>
                 <table className="w-full border-collapse border border-black table-auto">
@@ -527,8 +572,8 @@ const FreeEducation = () => {
                   <thead>
                     <tr className="bg-slate-50">
                       <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-10 text-center">ที่</th>
-                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-[180px]">ชื่อ - สกุล นักเรียน</th>
-                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-16 text-center">ชั้น</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-[185px]">ชื่อ - สกุล นักเรียน</th>
+                      <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-[160px] text-center">เลขประจำตัวประชาชน</th>
                       <th colSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] text-center">รายการที่ได้รับเงิน (บาท)</th>
                       {paymentType === 'all' && <th rowSpan={2} className="border border-black p-1 text-[14pt] w-20 text-center">รวมเงิน<br/>(บาท)</th>}
                       <th rowSpan={paymentType === 'all' ? 2 : 1} className="border border-black p-1 text-[14pt] w-32 text-center">วัน/เดือน/ปี<br/>ที่รับเงิน</th>
@@ -549,7 +594,7 @@ const FreeEducation = () => {
                         <tr key={student.id}>
                           <td className="border border-black p-1 text-[15pt] text-center">{toThaiDigits(i + 1)}</td>
                           <td className="border border-black p-1 text-[15pt] whitespace-nowrap">{student.prefix}{student.first_name} {student.last_name}</td>
-                          <td className="border border-black p-1 text-[15pt] text-center whitespace-nowrap">{formatClassThai(student.class_level, student.room)}</td>
+                          <td className="border border-black p-1 text-[13.5pt] text-center tracking-tight whitespace-nowrap">{formatNationalIdThai(student.national_id)}</td>
                           
                           {paymentType === 'all' ? (
                             <>
