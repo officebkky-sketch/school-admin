@@ -379,19 +379,19 @@ const FreeEducation = () => {
             ${isPayment ? `
             <div class="footer-area">
               <p style="margin: 5px 0;">รวมเงินตัวอักษร (${bahttext(totalAmount)})</p>
-              <table class="sign-table">
+              <table class="sign-table" style="width: 100%; border: none !important; margin-top: 25px;">
                 <tr>
-                  <td style="width: 50%; text-align: center;">
+                  <td style="width: 45%; text-align: left; vertical-align: top; padding-left: 10px; border: none !important;">
                     <div style="display: inline-block; text-align: left;">
                       ลงชื่อ ........................................................... ผู้จ่ายเงิน<br/>
                       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( ${payerName || '...........................................................'} )
                     </div>
                   </td>
-                  <td style="width: 50%; text-align: center;">
-                    <div style="display: inline-block; text-align: left;">
+                  <td style="width: 55%; text-align: right; vertical-align: top; padding-right: 15px; border: none !important;">
+                    <div style="display: inline-block; text-align: center;">
                       ลงชื่อ ...........................................................<br/>
-                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( ${directorName || '...........................................................'} )<br/>
-                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ผู้อำนวยการสถานศึกษา
+                      ( ${directorName || '...........................................................'} )<br/>
+                      ผู้อำนวยการสถานศึกษา
                     </div>
                   </td>
                 </tr>
@@ -623,6 +623,28 @@ const FreeEducation = () => {
                     )}
                   </tbody>
                 </table>
+                <div className="mt-4 text-[16pt]">
+                  <p className="my-1">รวมเงินตัวอักษร ({bahttext(calculateGrandTotal())})</p>
+                  <table className="w-full mt-6 border-none">
+                    <tbody>
+                      <tr>
+                        <td className="w-[45%] text-left align-top pl-2 border-none!">
+                          <div className="inline-block text-left">
+                            ลงชื่อ ........................................................... ผู้จ่ายเงิน<br/>
+                            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;( {payerName || '...........................................................'} )
+                          </div>
+                        </td>
+                        <td className="w-[55%] text-right align-top pr-4 border-none!">
+                          <div className="inline-block text-center">
+                            ลงชื่อ ...........................................................<br/>
+                            ( {directorName || '...........................................................'} )<br/>
+                            ผู้อำนวยการสถานศึกษา
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </>
             )}
           </div>
