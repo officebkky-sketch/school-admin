@@ -200,9 +200,12 @@ export default function Students() {
     setIsSaving(true);
     try {
       const result: any = await importStudentData(selectedFile, importYear);
-      let msg = `✅ นำเข้าข้อมูลสำเร็จ ${result.count} รายการ`;
+      let msg = `✅ นำเข้าข้อมูลสำเร็จครบถ้วน ${result.count} รายการ (100%)`;
       if (result.validIdCount !== undefined) {
-        msg += `\n• เลขบัตร ปชช. ถูกต้องตามสูตร Modulo 11: ${result.validIdCount} คน`;
+        msg += `\n• บัตร ปปช. สัญชาติไทย (Modulo 11): ${result.validCitizenCount ?? result.validIdCount} คน`;
+        if (result.specialIdCount > 0) {
+          msg += `\n• รหัสประจำตัวพิเศษ (G-Code / บุคคลไม่มีสถานะ): ${result.specialIdCount} คน (นำเข้าเรียบร้อย)`;
+        }
         if (result.invalidIdCount > 0) {
           msg += `\n⚠️ พบเลขบัตรที่ไม่ตรงตามสูตรคำนวณ: ${result.invalidIdCount} คน (นำเข้าแล้ว โปรดตรวจเช็คความถูกต้องภายหลัง)`;
         }
@@ -374,6 +377,15 @@ export default function Students() {
 
   return (
     <div className="space-y-6">
+      {/* Total Students Counter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="flex items-center gap-2 bg-brand-primary/10 text-brand-primary px-3.5 py-1.5 rounded-xl font-bold text-xs border border-brand-primary/20">
+          <Users size={16} />
+          <span>นักเรียนในระบบ: <strong className="text-sm">{filteredStudents.length}</strong> คน</span>
+          {filterYear !== 'ทั้งหมด' && <span className="text-slate-400 font-normal">(ปีการศึกษา {filterYear})</span>}
+        </div>
+      </div>
+
       {/* Action Bar */}
       <div className="flex flex-col xl:flex-row justify-between items-center gap-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 w-full xl:flex-1">
@@ -641,7 +653,13 @@ export default function Students() {
                               : 'bg-slate-100 text-slate-500'
                         }`}>
                           {validateThaiNationalId(formData.national_id).isValid 
-                            ? '✓ ถูกต้อง (Modulo 11)' 
+                            ? `✓ ถูกต้อง (${
+                                validateThaiNationalId(formData.national_id).idType === 'g_code' 
+                                  ? 'G-Code' 
+                                  : validateThaiNationalId(formData.national_id).idType === 'non_thai_status' 
+                                    ? 'บุคคลไม่มีสถานะ' 
+                                    : 'Modulo 11'
+                              })` 
                             : formData.national_id.length === 13 
                               ? '✕ เลขไม่ถูกต้อง' 
                               : `${formData.national_id.length}/13`}
@@ -660,8 +678,8 @@ export default function Students() {
                       }`} 
                       required 
                       value={formData.national_id} 
-                      onChange={e => setFormData({...formData, national_id: e.target.value.replace(/\D/g, '').slice(0, 13)})} 
-                      placeholder="กรอกเลข 13 หลัก"
+                      onChange={e => setFormData({...formData, national_id: e.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 13)})} 
+                      placeholder="กรอกเลข 13 หลัก หรือ G-Code"
                     />
                  </div>
                </div>

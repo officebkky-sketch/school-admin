@@ -105,11 +105,17 @@ async function processAndUpload(jsonData: any[], academicYear: string) {
     graduation_status: row['สถานะจำหน่าย'] || 'ปกติ',
   }));
 
-  let validIdCount = 0;
+  let validCitizenCount = 0;
+  let specialIdCount = 0;
   let invalidIdCount = 0;
   for (const s of studentsToAdd) {
-    if (validateThaiNationalId(s.national_id).isValid) {
-      validIdCount++;
+    const res = validateThaiNationalId(s.national_id);
+    if (res.isValid) {
+      if (res.idType === 'thai_citizen') {
+        validCitizenCount++;
+      } else {
+        specialIdCount++;
+      }
     } else {
       invalidIdCount++;
     }
@@ -122,7 +128,9 @@ async function processAndUpload(jsonData: any[], academicYear: string) {
   if (error) throw error;
   return { 
     count: studentsToAdd.length, 
-    validIdCount, 
+    validCitizenCount,
+    specialIdCount,
+    validIdCount: validCitizenCount + specialIdCount, 
     invalidIdCount 
   };
 }
