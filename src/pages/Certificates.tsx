@@ -240,11 +240,9 @@ export default function Certificates() {
     try {
       const startingSeq = settings?.start_certificate_seq || 1;
       const nextSeq = await getAccurateNextSequence(supabase, 'certificates', year, startingSeq);
-      const prefix = settings?.certificate_doc_prefix !== undefined && settings?.certificate_doc_prefix !== null
-        ? settings.certificate_doc_prefix 
-        : 'ศธ 04225.016/';
-      
-      const formatted = prefix.trim() 
+      // มาตรฐานงานสารบรรณ: หนังสือรับรองใช้รูปแบบ "เลข/ปี พ.ศ." (เช่น 1/2569)
+      const prefix = (settings?.certificate_doc_prefix || '').trim();
+      const formatted = prefix 
         ? `${prefix}${nextSeq}/${year}` 
         : `${nextSeq}/${year}`;
 
@@ -1006,7 +1004,7 @@ export default function Certificates() {
                 value={formData.certificate_number}
                 onChange={e => setFormData(prev => ({ ...prev, certificate_number: e.target.value }))}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500"
-                placeholder="เช่น ศธ 04225.016/1/2569 หรือ 1/2569"
+                placeholder="เช่น 1/2569 หรือ 15/2569"
               />
             </div>
 

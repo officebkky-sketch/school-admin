@@ -51,7 +51,7 @@ export default function Settings() {
     start_order_seq: 1,
     start_certificate_seq: 1,
     school_doc_prefix: 'ศธ 04225.016/',
-    certificate_doc_prefix: 'ศธ 04225.016/',
+    certificate_doc_prefix: '', // ค่าเริ่มต้นว่าง เพื่อให้เป็นรูปแบบ "เลข/ปี พ.ศ." เช่น 1/2569
     custom_sop: ''
   });
 
@@ -573,10 +573,10 @@ CREATE TABLE IF NOT EXISTS orders (
                     className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-xs"
                     value={settings.certificate_doc_prefix || ''}
                     onChange={e => setSettings({...settings, certificate_doc_prefix: e.target.value})}
-                    placeholder="เช่น ศธ 04225.016/"
+                    placeholder="ค่าเริ่มต้นว่างไว้ เพื่อเป็นรูปแบบ เลข/ปี พ.ศ. (เช่น 1/2569)"
                   />
                   <span className="text-[10px] text-slate-400 font-medium ml-1">
-                    * เช่น <code>ศธ 04225.016/</code> (ออกเลขหนังสือรับรอง เช่น <code>ศธ 04225.016/1/2569</code>)
+                    * ระเบียบสารบรรณกำหนดเป็น <code>เลข/ปี พ.ศ.</code> (เช่น <code>1/2569</code>) ให้เว้นว่างไว้ หากต้องการเติมคำนำหน้าเฉพาะค่อยระบุที่นี่
                   </span>
                 </div>
               </div>

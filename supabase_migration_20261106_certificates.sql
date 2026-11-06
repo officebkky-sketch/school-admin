@@ -52,7 +52,7 @@ ON CONFLICT (series_code) DO UPDATE SET
 
 -- เพิ่มคอลัมน์การตั้งค่าหมวดเลขและเลขเริ่มต้นในตาราง settings
 ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS start_certificate_seq INTEGER DEFAULT 1;
-ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS certificate_doc_prefix TEXT DEFAULT 'ศธ 04225.016/';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS certificate_doc_prefix TEXT DEFAULT '';
 
 -- 3. Explicit GRANT ตาม Rule J (Supabase Post-October 30 Data API Invariant)
 GRANT ALL ON TABLE public.certificates TO authenticated;
@@ -65,10 +65,11 @@ ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
 DO $$ 
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_policies WHERE tablename = 'certificates' AND policyname = 'Allow authenticated read certificates'
+    SELECT 1 FROM pg_policies WHERE tablename = 'certificates' AND policyname = 'Allow public read certificates for verification'
   ) THEN
-    CREATE POLICY "Allow authenticated read certificates"
-      ON public.certificates FOR SELECT TO authenticated USING (true);
+    -- อนุญาตให้อ่านข้อมูลสาธารณะเพื่อใช้ในการสแกน QR Code ตรวจสอบความถูกต้อง (Anti-Forgery)
+    CREATE POLICY "Allow public read certificates for verification"
+      ON public.certificates FOR SELECT USING (true);
   END IF;
 
   IF NOT EXISTS (
