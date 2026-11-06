@@ -26,6 +26,7 @@ import {
   Sparkles,
   Paperclip,
   QrCode,
+  BookmarkCheck,
   FileCheck,
   Award,
   DollarSign,
@@ -157,7 +158,9 @@ export default function Certificates() {
     sign_name: 'นายเอกคณิต สิทธิศักดิ์',
     sign_position: 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา',
     status: 'approved',
-    remark: ''
+    remark: '',
+    is_reserved: false,
+    reserved_by_name: ''
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -292,6 +295,25 @@ export default function Certificates() {
   };
 
   // เปิด Modal สร้างใหม่
+  // เปิด Modal เพื่อจองเลขด่วน
+  const handleOpenReserveModal = async () => {
+    setEditingDocId(null);
+    const { sequence, formattedNumber } = await getNextNumber(currentYearBE);
+
+    setFormData({
+      ...initialFormState,
+      certificate_number: formattedNumber,
+      doc_year: currentYearBE,
+      doc_sequence: sequence,
+      is_reserved: true,
+      status: 'reserved',
+      reserved_by_name: (user as any)?.display_name || (user as any)?.user_metadata?.full_name || user?.email || 'เจ้าหน้าที่ธุรการ/สารบรรณ',
+      subject: 'ขอจองเลขหนังสือรับรอง (รอเอกสารฉบับสมบูรณ์)',
+      content: 'จองเลขหนังสือรับรอง (รอเอกสารฉบับสมบูรณ์)'
+    });
+    setIsModalOpen(true);
+  };
+
   const handleOpenCreateModal = async () => {
     setEditingDocId(null);
     const { sequence, formattedNumber } = await getNextNumber(currentYearBE);
@@ -439,8 +461,12 @@ export default function Certificates() {
   // บันทึกข้อมูล (DB-First & Instant UI)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.certificate_number || !formData.recipient_name || !formData.content) {
-      alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (เลขที่, ชื่อผู้รับรอง, และข้อความรับรอง)');
+    if (!formData.certificate_number || !formData.recipient_name) {
+      alert('กรุณากรอกข้อมูลที่จำเป็น (เลขที่หนังสือรับรอง และ ชื่อผู้ขอรับรอง)');
+      return;
+    }
+    if (!formData.is_reserved && !formData.content) {
+      alert('กรุณากรอกข้อความรับรอง หรือเลือกทำรายการเป็น "จองเลขไว้ก่อน"');
       return;
     }
 
@@ -467,7 +493,9 @@ export default function Certificates() {
         issuer: formData.issuer,
         sign_name: formData.sign_name,
         sign_position: formData.sign_position,
-        status: formData.status,
+        status: formData.is_reserved ? 'reserved' : formData.status,
+        is_reserved: formData.is_reserved || false,
+        reserved_by_name: formData.reserved_by_name || null,
         remark: formData.remark || null,
         created_by: user?.id || null
       };
@@ -535,8 +563,8 @@ export default function Certificates() {
     try {
       const fileUrl = await uploadFile(attachFile, 'certificates');
       if (fileUrl) {
-        await supabase.from('certificates').update({ file_url: fileUrl }).eq('id', selectedDocForAttach.id);
-        setDocs(prev => prev.map(d => d.id === selectedDocForAttach.id ? { ...d, file_url: fileUrl } : d));
+        await supabase.from('certificates').update({ file_url: fileUrl, is_reserved: false, status: 'approved' }).eq('id', selectedDocForAttach.id);
+        setDocs(prev => prev.map(d => d.id === selectedDocForAttach.id ? { ...d, file_url: fileUrl, is_reserved: false, status: 'approved' } : d));
       }
       setIsAttachModalOpen(false);
       setAttachFile(null);
@@ -653,6 +681,15 @@ export default function Certificates() {
               ทั้งหมด
             </button>
           </div>
+
+          <button
+            onClick={handleOpenReserveModal}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+            title="ขอจองเลขหนังสือรับรองไว้ล่วงหน้าโดยยังไม่ต้องกรอกข้อความสมบูรณ์"
+          >
+            <BookmarkCheck size={16} />
+            <span>จองเลขรับรอง</span>
+          </button>
 
           <button
             onClick={handleOpenCreateModal}
@@ -794,9 +831,16 @@ export default function Certificates() {
                   return (
                     <tr key={doc.id} className="hover:bg-slate-50/50 transition-colors group">
                       <td className="py-3.5 px-4 font-bold text-slate-800">
-                        <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 font-mono text-[11px]">
-                          {doc.certificate_number}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 font-mono text-[11px]">
+                            {doc.certificate_number}
+                          </span>
+                          {(doc.is_reserved || doc.status === 'reserved') && (
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-[10px] font-black inline-flex items-center gap-1" title="จองเลขไว้ก่อน ยังไม่มีไฟล์เอกสารสมบูรณ์">
+                              🟡 จองเลขแล้ว
+                            </span>
+                          )}
+                        </div>
                         {doc.header_type === 'no_garuda' && (
                           <span className="block text-[10px] text-slate-400 mt-0.5">
                             (กระดาษหัวครุฑ)
