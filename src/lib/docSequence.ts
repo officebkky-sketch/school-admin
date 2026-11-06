@@ -1,4 +1,4 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+﻿import { SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * คำนวณหาเลขลำดับถัดไป (Next Sequence Number) อย่างแม่นยำ
@@ -6,7 +6,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
  */
 export async function getAccurateNextSequence(
   supabase: SupabaseClient,
-  tableName: 'incoming_docs' | 'outgoing_docs' | 'memos' | 'orders',
+  tableName: 'incoming_docs' | 'outgoing_docs' | 'memos' | 'orders' | 'certificates',
   docYear: number,
   startingSeq: number = 1
 ): Promise<number> {
@@ -14,6 +14,7 @@ export async function getAccurateNextSequence(
     let numberColumn = 'doc_number';
     if (tableName === 'memos') numberColumn = 'memo_number';
     if (tableName === 'orders') numberColumn = 'order_number';
+    if (tableName === 'certificates') numberColumn = 'certificate_number';
 
     const { data: docs, error } = await supabase
       .from(tableName)

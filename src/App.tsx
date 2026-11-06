@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { supabase, getSchoolProfiles, getActiveSchoolProfile } from './lib/supabase';
 import Login from './pages/Login';
@@ -33,6 +33,7 @@ import Athletics from './pages/Athletics';
 import KnowledgeBase from './pages/KnowledgeBase';
 import StudentGradePortal from './pages/StudentGradePortal';
 import AnnualSarabanReport from './pages/AnnualSarabanReport';
+import Certificates from './pages/Certificates';
 import IdentityFooter from './components/IdentityFooter';
 import ResetPasswordModal from './components/ResetPasswordModal';
 import ToastContainer from './components/ToastContainer';
@@ -61,6 +62,7 @@ import {
   BarChart3,
   FileDown,
   FileUp,
+  FileCheck,
   User,
   Bot,
   Coins,
@@ -76,7 +78,7 @@ import {
 
 const { ipcRenderer } = (window as any).require ? (window as any).require('electron') : { ipcRenderer: null };
 
-type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'knowledge_base' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics' | 'grade_portal' | 'annual_saraban';
+type Tab = 'dashboard' | 'incoming' | 'outgoing' | 'orders' | 'memos' | 'students' | 'teachers' | 'tasks' | 'attendance' | 'attendance_report' | 'library' | 'wfh' | 'settings' | 'lec' | 'custom_print' | 'users' | 'academic' | 'finance' | 'reports' | 'profile' | 'ai_cowork' | 'knowledge_base' | 'free_education' | 'utilities' | 'ar_learning' | 'ar_admin' | 'service_area' | 'athletics' | 'grade_portal' | 'annual_saraban' | 'certificates';
 
 
 function App() {
@@ -215,7 +217,7 @@ function App() {
     if (user && profile && !isAdmin && !isDirector) {
       const extraPerms = profile.extra_permissions || {};
       
-      const isRestrictedDoc = activeTab === 'incoming' || activeTab === 'outgoing' || activeTab === 'orders';
+      const isRestrictedDoc = activeTab === 'incoming' || activeTab === 'outgoing' || activeTab === 'orders' || activeTab === 'certificates';
       const isRestrictedStaff = activeTab === 'teachers' || activeTab === 'wfh';
       const isRestrictedReport = activeTab === 'reports' || activeTab === 'lec';
       const isRestrictedStudent = activeTab === 'students' || activeTab === 'attendance_report';
@@ -310,6 +312,7 @@ function App() {
               {canAccessRegistration && <SidebarItem icon={<FileDown size={20} />} label="หนังสือรับ" active={activeTab === 'incoming'} onClick={() => setActiveTab('incoming')} />}
               {canAccessRegistration && <SidebarItem icon={<FileUp size={20} />} label="หนังสือส่ง" active={activeTab === 'outgoing'} onClick={() => setActiveTab('outgoing')} />}
               {canAccessRegistration && <SidebarItem icon={<Book size={20} />} label="คำสั่ง" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />}
+              {canAccessRegistration && <SidebarItem icon={<FileCheck size={20} />} label="หนังสือรับรอง" active={activeTab === 'certificates'} onClick={() => setActiveTab('certificates')} />}
               <SidebarItem icon={<MessageSquare size={20} />} label="บันทึกข้อความ" active={activeTab === 'memos'} onClick={() => setActiveTab('memos')} />
               <SidebarItem icon={<ClipboardList size={20} />} label="ติดตามงาน/สั่งการ" active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} />
               <SidebarItem icon={<Award size={20} />} label="สรุปสารบรรณประจำปี" active={activeTab === 'annual_saraban'} onClick={() => setActiveTab('annual_saraban')} />
@@ -424,6 +427,7 @@ function App() {
             {activeTab === 'service_area' && 'เด็กในเขตพื้นที่บริการ (ทร.14)'}
             {activeTab === 'athletics' && 'งานลงทะเบียนนักกีฬา'}
             {activeTab === 'annual_saraban' && 'รายงานสรุปงานสารบรรณประจำปี พ.ศ.'}
+            {activeTab === 'certificates' && 'ทะเบียนหนังสือรับรอง (งานสารบรรณ)'}
           </h2>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
@@ -474,6 +478,7 @@ function App() {
             {activeTab === 'service_area' && <ServiceArea />}
             {activeTab === 'athletics' && <Athletics />}
             {activeTab === 'annual_saraban' && <AnnualSarabanReport />}
+            {activeTab === 'certificates' && <Certificates />}
 
             
             <IdentityFooter schoolName={schoolName} schoolLogo={schoolLogo} localGovName={localGovName} />

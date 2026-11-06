@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { supabase, getActiveSchoolProfile } from '../lib/supabase';
 import { uploadToSupabase, uploadFileToDrive, deleteFromSupabase } from '../lib/storage';
 import { 
@@ -49,7 +49,9 @@ export default function Settings() {
     start_outgoing_seq: 1,
     start_memo_seq: 1,
     start_order_seq: 1,
+    start_certificate_seq: 1,
     school_doc_prefix: 'ศธ 04225.016/',
+    certificate_doc_prefix: 'ศธ 04225.016/',
     custom_sop: ''
   });
 
@@ -300,6 +302,7 @@ CREATE TABLE IF NOT EXISTS orders (
         { key: 'outgoing_docs', label: 'หนังสือส่ง' },
         { key: 'memos', label: 'บันทึกข้อความ' },
         { key: 'orders', label: 'คำสั่งโรงเรียน' },
+        { key: 'certificates', label: 'หนังสือรับรอง' },
       ];
       const failedDocs: string[] = [];
       for (const t of docTables) {
@@ -308,7 +311,7 @@ CREATE TABLE IF NOT EXISTS orders (
       }
       if (failedDocs.length === 0) {
         checks[3].status = 'pass';
-        checks[3].detail = 'ตารางงานสารบรรณครบ 4 ตาราง (หนังสือรับ, ส่ง, บันทึกข้อความ, คำสั่ง) พร้อมใช้งาน 100%';
+        checks[3].detail = 'ตารางงานสารบรรณครบ 5 ตาราง (หนังสือรับ, ส่ง, บันทึกข้อความ, คำสั่ง, หนังสือรับรอง) พร้อมใช้งาน 100%';
       } else {
         checks[3].status = 'error';
         checks[3].detail = `พบปัญหาในตาราง: ${failedDocs.join(', ')}`;
@@ -385,13 +388,11 @@ CREATE TABLE IF NOT EXISTS orders (
         ? await supabase.from('settings').update(payload).eq('id', existing.id)
         : await supabase.from('settings').insert([payload]);
 
-      // Fallback: หากตารางยังไม่มีคอลัมน์ school_doc_prefix ใน Supabase DB
-      if (error && error.message.includes('school_doc_prefix')) {
-        console.warn('Column school_doc_prefix not found in DB table settings, attempting save without it...');
-        const { school_doc_prefix, ...payloadWithoutPrefix } = payload as any;
-        const fallbackRes = existing 
-          ? await supabase.from('settings').update(payloadWithoutPrefix).eq('id', existing.id)
-          : await supabase.from('settings').insert([payloadWithoutPrefix]);
+      // Fallback: หากตารางยังไม่มีคอลัมน์ใหม่ใน Supabase DB
+      if (error && (error.message.includes('school_doc_prefix') || error.message.includes('certificate_doc_prefix') || error.message.includes('start_certificate_seq'))) {
+        console.warn('Columns not found in DB table settings, attempting save without new certificate columns...');
+        const { school_doc_prefix, certificate_doc_prefix, start_certificate_seq, ...payloadWithoutPrefix } = payload as any;
+        const fallbackRes = existing ? await supabase.from('settings').update(payloadWithoutPrefix).eq('id', (existing as any).id) : await supabase.from('settings').insert([payloadWithoutPrefix]);
         error = fallbackRes.error;
       }
 
@@ -546,29 +547,47 @@ CREATE TABLE IF NOT EXISTS orders (
                 กำหนดรหัสตัวเลขนำหน้าหนังสือราชการของโรงเรียน และเลขลำดับเริ่มต้นกรณีรันเลขต่อจากสมุดสารบรรณเดิม
               </p>
 
-              <div className="space-y-1.5 pb-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-brand-primary ml-1">
-                  รหัสตัวเลขนำหน้าหนังสือส่ง (Outgoing Document Prefix)
-                </label>
-                <input 
-                  type="text" 
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all"
-                  value={settings.school_doc_prefix || ''}
-                  onChange={e => setSettings({...settings, school_doc_prefix: e.target.value})}
-                  placeholder="เช่น ศธ 04225.016/ หรือ ศธ 04153/"
-                />
-                <span className="text-[10px] text-slate-400 font-medium ml-1">
-                  * กำหนดค่าตัวเลขหมวดหนังสือส่งของโรงเรียน เช่น <code>ศธ 04225.016/</code> (ระบบจะนำไปสร้างเลขหนังสือส่ง เช่น <code>ศธ 04225.016/175</code>)
-                </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-2">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-brand-primary ml-1">
+                    รหัสตัวเลขนำหน้าหนังสือส่ง (Outgoing Document Prefix)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary transition-all text-xs"
+                    value={settings.school_doc_prefix || ''}
+                    onChange={e => setSettings({...settings, school_doc_prefix: e.target.value})}
+                    placeholder="เช่น ศธ 04225.016/ หรือ ศธ 04153/"
+                  />
+                  <span className="text-[10px] text-slate-400 font-medium ml-1">
+                    * เช่น <code>ศธ 04225.016/</code> (ออกเลขหนังสือส่ง เช่น <code>ศธ 04225.016/175</code>)
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-emerald-600 ml-1">
+                    รหัสตัวเลขนำหน้าหนังสือรับรอง (Certificate Prefix)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full p-3.5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-hidden focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-xs"
+                    value={settings.certificate_doc_prefix || ''}
+                    onChange={e => setSettings({...settings, certificate_doc_prefix: e.target.value})}
+                    placeholder="เช่น ศธ 04225.016/"
+                  />
+                  <span className="text-[10px] text-slate-400 font-medium ml-1">
+                    * เช่น <code>ศธ 04225.016/</code> (ออกเลขหนังสือรับรอง เช่น <code>ศธ 04225.016/1/2569</code>)
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขรับเริ่มต้น</label>
                   <input 
                     type="number" 
                     min="1"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary text-xs"
                     value={settings.start_incoming_seq || 1}
                     onChange={e => setSettings({...settings, start_incoming_seq: parseInt(e.target.value) || 1})}
                   />
@@ -578,17 +597,17 @@ CREATE TABLE IF NOT EXISTS orders (
                   <input 
                     type="number" 
                     min="1"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary text-xs"
                     value={settings.start_outgoing_seq || 1}
                     onChange={e => setSettings({...settings, start_outgoing_seq: parseInt(e.target.value) || 1})}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขบันทึกข้อความเริ่มต้น</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">เลขบันทึกเริ่มต้น</label>
                   <input 
                     type="number" 
                     min="1"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary text-xs"
                     value={settings.start_memo_seq || 1}
                     onChange={e => setSettings({...settings, start_memo_seq: parseInt(e.target.value) || 1})}
                   />
@@ -598,9 +617,19 @@ CREATE TABLE IF NOT EXISTS orders (
                   <input 
                     type="number" 
                     min="1"
-                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-brand-primary/10 focus:border-brand-primary text-xs"
                     value={settings.start_order_seq || 1}
                     onChange={e => setSettings({...settings, start_order_seq: parseInt(e.target.value) || 1})}
+                  />
+                </div>
+                <div className="space-y-1 col-span-2 sm:col-span-1">
+                  <label className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">เลขรับรองเริ่มต้น</label>
+                  <input 
+                    type="number" 
+                    min="1"
+                    className="w-full p-3 bg-emerald-50/50 border border-emerald-100 rounded-xl font-bold text-emerald-800 focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 text-xs"
+                    value={settings.start_certificate_seq || 1}
+                    onChange={e => setSettings({...settings, start_certificate_seq: parseInt(e.target.value) || 1})}
                   />
                 </div>
               </div>

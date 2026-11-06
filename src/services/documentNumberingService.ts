@@ -1,6 +1,6 @@
-import { supabase } from '../lib/supabase';
+﻿import { supabase } from '../lib/supabase';
 
-export type DocSeriesCode = 'MEMO' | 'INCOMING' | 'OUTGOING' | 'SCHOOL_ORDER';
+export type DocSeriesCode = 'MEMO' | 'INCOMING' | 'OUTGOING' | 'SCHOOL_ORDER' | 'CERTIFICATE';
 
 export interface ReserveDocNumberParams {
   seriesCode: DocSeriesCode;
@@ -120,7 +120,8 @@ export class DocumentNumberingService {
       MEMO: 'memos',
       INCOMING: 'incoming_docs',
       OUTGOING: 'outgoing_docs',
-      SCHOOL_ORDER: 'orders'
+      SCHOOL_ORDER: 'orders',
+      CERTIFICATE: 'certificates'
     };
 
     const tableName = tableMap[params.seriesCode] || 'memos';
