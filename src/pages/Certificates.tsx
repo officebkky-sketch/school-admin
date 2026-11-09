@@ -152,6 +152,21 @@ export default function Certificates() {
   const [batchSuccessResult, setBatchSuccessResult] = useState<any[] | null>(null);
   const [isBulkPrintModalOpen, setIsBulkPrintModalOpen] = useState(false);
   const [bulkPrintDocs, setBulkPrintDocs] = useState<any[]>([]);
+
+  // --- P.P.7 (SchoolMIS Page 5) 6 Clauses State ---
+  const [pp7IncludeStudentStatus, setPp7IncludeStudentStatus] = useState(true);
+  const [pp7IncludeGradeLevel, setPp7IncludeGradeLevel] = useState(true);
+  const [pp7IncludeConduct, setPp7IncludeConduct] = useState(true);
+  const [pp7ConductText, setPp7ConductText] = useState('เรียบร้อย');
+  const [pp7IncludeHealth, setPp7IncludeHealth] = useState(false);
+  const [pp7HealthText, setPp7HealthText] = useState('แข็งแรง');
+  const [pp7IncludeTalent, setPp7IncludeTalent] = useState(false);
+  const [pp7TalentText, setPp7TalentText] = useState('-');
+  const [pp7IncludeGpa, setPp7IncludeGpa] = useState(false);
+  const [pp7GpaTerms, setPp7GpaTerms] = useState('5');
+  const [pp7GpaScore, setPp7GpaScore] = useState('');
+  const [pp7ValidityDays, setPp7ValidityDays] = useState<'45' | '60' | 'custom' | 'none'>('60');
+  const [pp7ValidityCustom, setPp7ValidityCustom] = useState('');
   const [printGarudaOption, setPrintGarudaOption] = useState<HeaderType>('garuda');
   const [printShowQr, setPrintShowQr] = useState(true);
 
@@ -369,6 +384,81 @@ export default function Certificates() {
     setIsModalOpen(true);
   };
 
+  // --- ตัวสร้างข้อความสถานภาพทางการเรียน 6 ข้อ ตามคู่มือ ปพ.7 SchoolMIS หน้า 5 ---
+  const buildPp7Content = (
+    gradeRoom: string,
+    overrides?: {
+      includeStatus?: boolean;
+      includeGrade?: boolean;
+      includeConduct?: boolean;
+      conduct?: string;
+      includeHealth?: boolean;
+      health?: string;
+      includeTalent?: boolean;
+      talent?: string;
+      includeGpa?: boolean;
+      terms?: string;
+      score?: string;
+    }
+  ) => {
+    const schoolName = settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
+    const incStatus = overrides?.includeStatus !== undefined ? overrides.includeStatus : pp7IncludeStudentStatus;
+    const incGrade = overrides?.includeGrade !== undefined ? overrides.includeGrade : pp7IncludeGradeLevel;
+    const incConduct = overrides?.includeConduct !== undefined ? overrides.includeConduct : pp7IncludeConduct;
+    const conduct = overrides?.conduct !== undefined ? overrides.conduct : pp7ConductText;
+    const incHealth = overrides?.includeHealth !== undefined ? overrides.includeHealth : pp7IncludeHealth;
+    const health = overrides?.health !== undefined ? overrides.health : pp7HealthText;
+    const incTalent = overrides?.includeTalent !== undefined ? overrides.includeTalent : pp7IncludeTalent;
+    const talent = overrides?.talent !== undefined ? overrides.talent : pp7TalentText;
+    const incGpa = overrides?.includeGpa !== undefined ? overrides.includeGpa : pp7IncludeGpa;
+    const terms = overrides?.terms !== undefined ? overrides.terms : pp7GpaTerms;
+    const score = overrides?.score !== undefined ? overrides.score : pp7GpaScore;
+
+    const clauses: string[] = [];
+    if (incStatus) clauses.push(`เป็นนักเรียนโรงเรียน${schoolName} จริง`);
+    if (incGrade) clauses.push(`กำลังศึกษาอยู่ระดับชั้น${gradeRoom || 'ประถมศึกษาปีที่ ...'}`);
+    if (incConduct) clauses.push(`ความประพฤติ ${conduct || 'เรียบร้อย'}`);
+    if (incHealth) clauses.push(`สุขภาพ ${health || 'แข็งแรง'}`);
+    if (incTalent) clauses.push(`ความสามารถพิเศษ ${talent || '-'}`);
+    if (incGpa) clauses.push(`มีผลการเรียนเฉลี่ย ${terms || '5'} ภาคเรียน ${score || '.........'}`);
+
+    if (clauses.length === 0) return 'มีสถานภาพทางการเรียน ตามที่ปรากฏในระเบียนประวัติของสถานศึกษา';
+
+    return `มีสถานภาพทางการเรียน ดังนี้\n` + clauses.map((c, i) => `${i + 1}. ${c}`).join('\n');
+  };
+
+  const buildPp7PurposeNote = (basePurpose: string, validity: '45' | '60' | 'custom' | 'none', custom?: string) => {
+    let note = '';
+    if (validity === '45') note = ' (ใบรับรองนี้ สามารถใช้ได้ 45 วัน นับแต่วันที่ออกให้)';
+    else if (validity === '60') note = ' (หนังสือรับรองนี้ มีอายุ 60 วัน)';
+    else if (validity === 'custom' && custom) note = ` (${custom})`;
+
+    const cleanBase = (basePurpose || '').replace(/\s*\((?:ใบรับรองนี้|หนังสือรับรองนี้)[^)]+\)/g, '').trim();
+    return cleanBase ? `${cleanBase}${note}` : note.trim();
+  };
+
+  const updateContentWithPp7 = (
+    overrides?: {
+      includeStatus?: boolean;
+      includeGrade?: boolean;
+      includeConduct?: boolean;
+      conduct?: string;
+      includeHealth?: boolean;
+      health?: string;
+      includeTalent?: boolean;
+      talent?: string;
+      includeGpa?: boolean;
+      terms?: string;
+      score?: string;
+    }
+  ) => {
+    const newContent = buildPp7Content(formData.recipient_position_or_grade, overrides);
+    setFormData(prev => ({
+      ...prev,
+      content: newContent
+    }));
+  };
+
   // จัดการเมื่อเปลี่ยนครูใน Dropdown
   const handleTeacherSelect = (teacherId: string) => {
     const t = teachers.find(item => item.id === teacherId);
@@ -417,14 +507,20 @@ export default function Certificates() {
       : 'นักเรียน';
     const idCard = s.national_id || s.citizen_id || s.student_id || '';
 
-    const newContent = generateTemplateContent(
-      formData.certificate_type,
-      fullName,
-      gradeRoom,
-      idCard,
-      '',
-      formData.purpose
-    );
+    const isStudentType = formData.certificate_type === 'student' || formData.recipient_type === 'student';
+    const newContent = isStudentType 
+      ? buildPp7Content(gradeRoom)
+      : generateTemplateContent(
+          formData.certificate_type,
+          fullName,
+          gradeRoom,
+          idCard,
+          '',
+          formData.purpose
+        );
+    const updatedPurpose = isStudentType && !formData.purpose
+      ? buildPp7PurposeNote('เพื่อใช้เป็นหลักฐานในการสมัครเข้าศึกษาต่อ', pp7ValidityDays)
+      : formData.purpose;
 
     setFormData(prev => ({
       ...prev,
@@ -432,7 +528,8 @@ export default function Certificates() {
       recipient_name: fullName,
       recipient_position_or_grade: gradeRoom,
       recipient_id_card: idCard,
-      content: newContent
+      content: newContent,
+      purpose: updatedPurpose
     }));
   };
 
@@ -530,7 +627,8 @@ export default function Certificates() {
                 : `ชั้น${rawClass}${s.room ? `/${s.room}` : ''}`)
           : 'นักเรียน';
         const idCard = s.national_id || s.citizen_id || s.student_id || '';
-        const content = generateTemplateContent('student', fullName, gradeRoom, idCard, '', batchPurpose);
+        const content = buildPp7Content(gradeRoom);
+        const fullPurpose = buildPp7PurposeNote(batchPurpose, pp7ValidityDays);
 
         return {
           certificate_number: certNum,
@@ -547,7 +645,7 @@ export default function Certificates() {
           recipient_department: 'ฝ่ายวิชาการ',
           certificate_date: todayIso,
           content,
-          purpose: batchPurpose,
+          purpose: fullPurpose,
           issuer: schoolName,
           sign_name: directorName,
           sign_position: directorPos,
@@ -1493,6 +1591,260 @@ export default function Certificates() {
             )}
           </div>
 
+          {/* ========================================================================= */}
+          {/* แผงตัวเลือกข้อความสถานภาพทางการเรียน (ตามคู่มือ ปพ.7 SchoolMIS หน้า 5)         */}
+          {/* ========================================================================= */}
+          {(formData.recipient_type === 'student' || formData.certificate_type === 'student') && (
+            <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200/90 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <div className="flex items-center gap-1.5">
+                  <GraduationCap size={16} className="text-indigo-600" />
+                  <span className="text-xs font-black text-indigo-950">
+                    ข้อความสถานภาพทางการเรียน (แบบ ปพ.7 SchoolMIS หน้า 5)
+                  </span>
+                </div>
+                <span className="text-[10px] text-indigo-700 font-bold bg-white border border-indigo-200 px-2 py-0.5 rounded-md shadow-2xs">
+                  เลือกติ๊กเฉพาะข้อที่ต้องการ (ระบบเรียงลำดับข้อให้อัตโนมัติ)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {/* ข้อ 1: เป็นนักเรียนจริง */}
+                <label className={`p-2.5 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-all ${
+                  pp7IncludeStudentStatus ? 'bg-white border-indigo-300 text-indigo-950 font-bold shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={pp7IncludeStudentStatus}
+                    onChange={e => {
+                      setPp7IncludeStudentStatus(e.target.checked);
+                      updateContentWithPp7({ includeStatus: e.target.checked });
+                    }}
+                    className="rounded text-indigo-600 h-4 w-4"
+                  />
+                  <span>1. เป็นนักเรียนโรงเรียน{settings?.school_name || '...'} จริง</span>
+                </label>
+
+                {/* ข้อ 2: กำลังศึกษาอยู่ระดับชั้น */}
+                <label className={`p-2.5 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-all ${
+                  pp7IncludeGradeLevel ? 'bg-white border-indigo-300 text-indigo-950 font-bold shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={pp7IncludeGradeLevel}
+                    onChange={e => {
+                      setPp7IncludeGradeLevel(e.target.checked);
+                      updateContentWithPp7({ includeGrade: e.target.checked });
+                    }}
+                    className="rounded text-indigo-600 h-4 w-4"
+                  />
+                  <span>2. กำลังศึกษาอยู่ระดับชั้น {formData.recipient_position_or_grade || '...'}</span>
+                </label>
+
+                {/* ข้อ 3: ความประพฤติ */}
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                  pp7IncludeConduct ? 'bg-white border-indigo-300 text-indigo-950 font-bold shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pp7IncludeConduct}
+                      onChange={e => {
+                        setPp7IncludeConduct(e.target.checked);
+                        updateContentWithPp7({ includeConduct: e.target.checked });
+                      }}
+                      className="rounded text-indigo-600 h-4 w-4"
+                    />
+                    <span>3. ความประพฤติ</span>
+                  </label>
+                  {pp7IncludeConduct && (
+                    <select
+                      value={pp7ConductText}
+                      onChange={e => {
+                        setPp7ConductText(e.target.value);
+                        updateContentWithPp7({ conduct: e.target.value });
+                      }}
+                      className="p-1 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900"
+                    >
+                      <option value="เรียบร้อย">เรียบร้อย (ตามคู่มือ)</option>
+                      <option value="ดีเยี่ยม">ดีเยี่ยม</option>
+                      <option value="ปฏิบัติตามกฎระเบียบของสถานศึกษา">ปฏิบัติตามกฎระเบียบฯ</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* ข้อ 4: สุขภาพ */}
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition-all ${
+                  pp7IncludeHealth ? 'bg-white border-indigo-300 text-indigo-950 font-bold shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pp7IncludeHealth}
+                      onChange={e => {
+                        setPp7IncludeHealth(e.target.checked);
+                        updateContentWithPp7({ includeHealth: e.target.checked });
+                      }}
+                      className="rounded text-indigo-600 h-4 w-4"
+                    />
+                    <span>4. สุขภาพ</span>
+                  </label>
+                  {pp7IncludeHealth && (
+                    <select
+                      value={pp7HealthText}
+                      onChange={e => {
+                        setPp7HealthText(e.target.value);
+                        updateContentWithPp7({ health: e.target.value });
+                      }}
+                      className="p-1 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900"
+                    >
+                      <option value="แข็งแรง">แข็งแรง (ตามคู่มือ)</option>
+                      <option value="สมบูรณ์แข็งแรง">สมบูรณ์แข็งแรง</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* ข้อ 5: ความสามารถพิเศษ */}
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 transition-all sm:col-span-2 ${
+                  pp7IncludeTalent ? 'bg-white border-indigo-300 text-indigo-950 font-bold shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  <label className="flex items-center gap-2.5 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={pp7IncludeTalent}
+                      onChange={e => {
+                        setPp7IncludeTalent(e.target.checked);
+                        updateContentWithPp7({ includeTalent: e.target.checked });
+                      }}
+                      className="rounded text-indigo-600 h-4 w-4"
+                    />
+                    <span>5. ความสามารถพิเศษ</span>
+                  </label>
+                  {pp7IncludeTalent && (
+                    <input
+                      type="text"
+                      value={pp7TalentText}
+                      onChange={e => {
+                        setPp7TalentText(e.target.value);
+                        updateContentWithPp7({ talent: e.target.value });
+                      }}
+                      placeholder="เช่น - หรือ ด้านกีฬา/ดนตรี"
+                      className="flex-1 p-1 px-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900"
+                    />
+                  )}
+                </div>
+
+                {/* ข้อ 6: ผลการเรียนเฉลี่ย */}
+                <div className={`p-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 transition-all sm:col-span-2 ${
+                  pp7IncludeGpa ? 'bg-white border-indigo-300 text-indigo-950 font-bold shadow-2xs' : 'bg-slate-50 border-slate-200 text-slate-400'
+                }`}>
+                  <label className="flex items-center gap-2.5 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={pp7IncludeGpa}
+                      onChange={e => {
+                        setPp7IncludeGpa(e.target.checked);
+                        updateContentWithPp7({ includeGpa: e.target.checked });
+                      }}
+                      className="rounded text-indigo-600 h-4 w-4"
+                    />
+                    <span>6. มีผลการเรียนเฉลี่ย</span>
+                  </label>
+                  {pp7IncludeGpa && (
+                    <div className="flex items-center gap-2 flex-1 justify-end">
+                      <select
+                        value={pp7GpaTerms}
+                        onChange={e => {
+                          setPp7GpaTerms(e.target.value);
+                          updateContentWithPp7({ terms: e.target.value });
+                        }}
+                        className="p-1 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900"
+                      >
+                        <option value="1">1 ภาคเรียน</option>
+                        <option value="2">2 ภาคเรียน</option>
+                        <option value="3">3 ภาคเรียน</option>
+                        <option value="4">4 ภาคเรียน</option>
+                        <option value="5">5 ภาคเรียน (สมัคร ม.1)</option>
+                        <option value="6">6 ภาคเรียน (จบการศึกษา)</option>
+                      </select>
+                      <span className="text-slate-500 font-bold">GPA:</span>
+                      <input
+                        type="text"
+                        value={pp7GpaScore}
+                        onChange={e => {
+                          setPp7GpaScore(e.target.value);
+                          updateContentWithPp7({ score: e.target.value });
+                        }}
+                        placeholder="เช่น 3.85"
+                        className="w-20 p-1 px-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 text-center"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ช่องหมายเหตุอายุเอกสาร (คู่มือหน้า 5 ข้อ 3) */}
+              <div className="pt-2 border-t border-indigo-200/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-[10px] font-bold text-indigo-950">หมายเหตุอายุเอกสาร (คู่มือ SchoolMIS หน้า 5):</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPp7ValidityDays('60');
+                      setFormData(prev => ({
+                        ...prev,
+                        purpose: buildPp7PurposeNote(prev.purpose, '60')
+                      }));
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      pp7ValidityDays === '60'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                    }`}
+                  >
+                    มีอายุ 60 วัน (มาตรฐาน)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPp7ValidityDays('45');
+                      setFormData(prev => ({
+                        ...prev,
+                        purpose: buildPp7PurposeNote(prev.purpose, '45')
+                      }));
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      pp7ValidityDays === '45'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                    }`}
+                  >
+                    ใช้ได้ 45 วัน
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPp7ValidityDays('none');
+                      setFormData(prev => ({
+                        ...prev,
+                        purpose: buildPp7PurposeNote(prev.purpose, 'none')
+                      }));
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      pp7ValidityDays === 'none'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50'
+                    }`}
+                  >
+                    ไม่ระบุอายุ
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* เรื่อง / ชื่อหนังสือรับรอง */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
@@ -1658,8 +2010,9 @@ export default function Certificates() {
             <div className="mb-4 indent-8 text-[16pt] text-justify">
               หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{formData.recipient_name || '[ชื่อ-นามสกุล]'}</strong>
               {formData.recipient_id_card ? ` เลขประจำตัวประชาชน ${formData.recipient_id_card}` : ''}
-              {formData.recipient_position_or_grade ? ` ตำแหน่ง/ชั้นเรียน ${formData.recipient_position_or_grade}` : ''}
-              {formData.recipient_department ? ` สังกัด${formData.recipient_department}` : ''} {formData.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}
+              {formData.recipient_type !== 'student' && formData.recipient_position_or_grade ? ` ตำแหน่ง ${formData.recipient_position_or_grade}` : ''}
+              {formData.recipient_type !== 'student' && formData.recipient_department ? ` สังกัด${formData.recipient_department}` : ''}
+              {formData.recipient_type !== 'student' ? ` ${formData.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}` : ''}
             </div>
 
             {/* ข้อความรับรองรายละเอียด */}
@@ -1925,8 +2278,9 @@ export default function Certificates() {
               <div className="mb-4 indent-8 text-[16pt] text-justify">
                 หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{printDoc.recipient_name}</strong>
                 {printDoc.recipient_id_card ? ` เลขประจำตัวประชาชน ${printDoc.recipient_id_card}` : ''}
-                {printDoc.recipient_position_or_grade ? ` ตำแหน่ง ${printDoc.recipient_position_or_grade}` : ''}
-                {printDoc.recipient_department ? ` สังกัด${printDoc.recipient_department}` : ''} {printDoc.issuer || 'โรงเรียนบ้านควนโคกยา'}
+                {printDoc.recipient_type !== 'student' && printDoc.recipient_position_or_grade ? ` ตำแหน่ง ${printDoc.recipient_position_or_grade}` : ''}
+                {printDoc.recipient_type !== 'student' && printDoc.recipient_department ? ` สังกัด${printDoc.recipient_department}` : ''}
+                {printDoc.recipient_type !== 'student' ? ` ${printDoc.issuer || 'โรงเรียนบ้านควนโคกยา'}` : ''}
               </div>
 
               {/* ข้อความรับรองรายละเอียด */}
@@ -2101,6 +2455,106 @@ export default function Certificates() {
                 </div>
               </div>
 
+              {/* 4. กำหนดข้อความสถานภาพทางการเรียน (แบบ ปพ.7 สพฐ. 6 ข้อ) */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-indigo-950 flex items-center gap-1.5">
+                    <GraduationCap size={15} className="text-indigo-600" />
+                    4. ข้อความสถานภาพทางการเรียน ปพ.7 ทั้งห้อง (เลือกติ๊กตามต้องการ)
+                  </span>
+                  <span className="text-[10px] text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded font-bold">
+                    เรียงเลขข้อให้อัตโนมัติ
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-indigo-200 font-bold text-indigo-950 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pp7IncludeStudentStatus}
+                      onChange={e => setPp7IncludeStudentStatus(e.target.checked)}
+                      className="rounded text-indigo-600 h-4 w-4"
+                    />
+                    <span>1. เป็นนักเรียน รร.{settings?.school_name || '...'} จริง</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-indigo-200 font-bold text-indigo-950 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pp7IncludeGradeLevel}
+                      onChange={e => setPp7IncludeGradeLevel(e.target.checked)}
+                      className="rounded text-indigo-600 h-4 w-4"
+                    />
+                    <span>2. กำลังศึกษาอยู่ระดับชั้น {batchClassLevel}</span>
+                  </label>
+
+                  <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-200 font-bold text-indigo-950">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pp7IncludeConduct}
+                        onChange={e => setPp7IncludeConduct(e.target.checked)}
+                        className="rounded text-indigo-600 h-4 w-4"
+                      />
+                      <span>3. ความประพฤติ</span>
+                    </label>
+                    {pp7IncludeConduct && (
+                      <select
+                        value={pp7ConductText}
+                        onChange={e => setPp7ConductText(e.target.value)}
+                        className="p-0.5 bg-indigo-50 border border-indigo-200 rounded text-xs font-bold text-indigo-900"
+                      >
+                        <option value="เรียบร้อย">เรียบร้อย</option>
+                        <option value="ดีเยี่ยม">ดีเยี่ยม</option>
+                      </select>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-200 font-bold text-indigo-950">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pp7IncludeHealth}
+                        onChange={e => setPp7IncludeHealth(e.target.checked)}
+                        className="rounded text-indigo-600 h-4 w-4"
+                      />
+                      <span>4. สุขภาพ</span>
+                    </label>
+                    {pp7IncludeHealth && (
+                      <select
+                        value={pp7HealthText}
+                        onChange={e => setPp7HealthText(e.target.value)}
+                        className="p-0.5 bg-indigo-50 border border-indigo-200 rounded text-xs font-bold text-indigo-900"
+                      >
+                        <option value="แข็งแรง">แข็งแรง</option>
+                        <option value="สมบูรณ์แข็งแรง">สมบูรณ์แข็งแรง</option>
+                      </select>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-200 font-bold text-indigo-950 sm:col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pp7IncludeTalent}
+                        onChange={e => setPp7IncludeTalent(e.target.checked)}
+                        className="rounded text-indigo-600 h-4 w-4"
+                      />
+                      <span>5. ความสามารถพิเศษ</span>
+                    </label>
+                    {pp7IncludeTalent && (
+                      <input
+                        type="text"
+                        value={pp7TalentText}
+                        onChange={e => setPp7TalentText(e.target.value)}
+                        placeholder="-"
+                        className="p-0.5 px-2 bg-indigo-50 border border-indigo-200 rounded text-xs font-bold text-indigo-900"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* ตารางเลือกรายชื่อนักเรียนในห้อง */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
@@ -2261,8 +2715,9 @@ export default function Certificates() {
                 <div className="mb-4 indent-8 text-[16pt] text-justify">
                   หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{doc.recipient_name}</strong>
                   {doc.recipient_id_card ? ` เลขประจำตัวประชาชน ${doc.recipient_id_card}` : ''}
-                  {doc.recipient_position_or_grade ? ` ตำแหน่ง/ชั้นเรียน ${doc.recipient_position_or_grade}` : ''}
-                  {doc.recipient_department ? ` สังกัด${doc.recipient_department}` : ''} {doc.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}
+                  {doc.recipient_type !== 'student' && doc.recipient_position_or_grade ? ` ตำแหน่ง ${doc.recipient_position_or_grade}` : ''}
+                  {doc.recipient_type !== 'student' && doc.recipient_department ? ` สังกัด${doc.recipient_department}` : ''}
+                  {doc.recipient_type !== 'student' ? ` ${doc.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}` : ''}
                 </div>
 
                 {/* ข้อความรับรองรายละเอียด */}
