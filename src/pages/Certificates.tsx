@@ -42,7 +42,8 @@ import {
   Copy,
   Users,
   CheckSquare,
-  Square
+  Square,
+  Edit2
 } from 'lucide-react';
 import garuda3cm from '../assets/saraban/garuda-3cm.png';
 
@@ -167,6 +168,7 @@ export default function Certificates() {
   const [pp7GpaScore, setPp7GpaScore] = useState('');
   const [pp7ValidityDays, setPp7ValidityDays] = useState<'45' | '60' | 'custom' | 'none'>('60');
   const [pp7ValidityCustom, setPp7ValidityCustom] = useState('');
+  const [pp7RegistrarName, setPp7RegistrarName] = useState('นางสาวปาริชาติ แก้วนวน');
   const [printGarudaOption, setPrintGarudaOption] = useState<HeaderType>('garuda');
   const [printShowQr, setPrintShowQr] = useState(true);
 
@@ -195,7 +197,15 @@ export default function Certificates() {
     status: 'approved',
     remark: '',
     is_reserved: false,
-    reserved_by_name: ''
+    reserved_by_name: '',
+    // ข้อมูลจำเพาะสำหรับ ปพ.7 (ใบรับรองผลการเรียน)
+    pp7_student_id: '',
+    pp7_birth_date: '',
+    pp7_father_name: '',
+    pp7_mother_name: '',
+    pp7_district: 'เขาชัยสน',
+    pp7_province: 'พัทลุง',
+    pp7_registrar_name: 'นางสาวปาริชาติ แก้วนวน'
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -506,6 +516,9 @@ export default function Certificates() {
             : `ชั้น${rawClass}${s.room ? `/${s.room}` : ''}`)
       : 'นักเรียน';
     const idCard = s.national_id || s.citizen_id || s.student_id || '';
+    const fatherName = s.father_first_name ? `${s.father_first_name} ${s.father_last_name || ''}`.trim() : '';
+    const motherName = s.mother_first_name ? `${s.mother_first_name} ${s.mother_last_name || ''}`.trim() : '';
+    const { district, province } = parseSchoolAddress(settings?.school_address);
 
     const isStudentType = formData.certificate_type === 'student' || formData.recipient_type === 'student';
     const newContent = isStudentType 
@@ -528,9 +541,474 @@ export default function Certificates() {
       recipient_name: fullName,
       recipient_position_or_grade: gradeRoom,
       recipient_id_card: idCard,
+      pp7_student_id: s.student_id || idCard || '',
+      pp7_birth_date: s.birth_date || '',
+      pp7_father_name: fatherName,
+      pp7_mother_name: motherName,
+      pp7_district: prev.pp7_district || district,
+      pp7_province: prev.pp7_province || province,
+      pp7_registrar_name: prev.pp7_registrar_name || pp7RegistrarName || 'นางสาวปาริชาติ แก้วนวน',
       content: newContent,
       purpose: updatedPurpose
     }));
+  };
+
+  // สกัดข้อมูลอำเภอและจังหวัดจากที่อยู่ของโรงเรียน
+  const parseSchoolAddress = (address?: string) => {
+    const raw = address || 'หมู่ที่ 1 ตำบลเขาชัยสน อำเภอเขาชัยสน จังหวัดพัทลุง 93130';
+    let district = 'เขาชัยสน';
+    let province = 'พัทลุง';
+    const distMatch = raw.match(/(?:อำเภอ|เขต)\s*([^\s]+)/);
+    if (distMatch) district = distMatch[1];
+    const provMatch = raw.match(/(?:จังหวัด)\s*([^\s]+)/);
+    if (provMatch) province = provMatch[1];
+    return { district, province };
+  };
+
+  // แปลงวันที่ ISO เป็น ชิ้นส่วน วัน, เดือนไทย, ปี พ.ศ.
+  const getThaiDateParts = (dateStr?: string) => {
+    if (!dateStr) return { day: '', month: '', year: '' };
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { day: '', month: '', year: '' };
+    const thaiMonths = [
+      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ];
+    return {
+      day: d.getDate().toString(),
+      month: thaiMonths[d.getMonth()],
+      year: (d.getFullYear() + 543).toString()
+    };
+  };
+
+  // ตรวจสอบว่าเป็นเอกสาร ปพ.7 หรือไม่
+  const isPp7Doc = (doc: any) => {
+    if (!doc) return false;
+    return (
+      doc.certificate_type === 'student' ||
+      doc.recipient_type === 'student' ||
+      (doc.subject && doc.subject.includes('ปพ.7')) ||
+      (doc.subject && doc.subject.includes('ใบรับรองผลการเรียน'))
+    );
+  };
+
+  // ดึงข้อมูลเสริมสำหรับ ปพ.7 (วันเกิด, บิดา, มารดา, อำเภอ, จังหวัด, นายทะเบียน)
+  const getPp7DocData = (doc: any) => {
+    let pp7Meta: any = {};
+    try {
+      if (doc?.remark && typeof doc.remark === 'string' && doc.remark.startsWith('{')) {
+        const parsed = JSON.parse(doc.remark);
+        if (parsed.pp7) pp7Meta = parsed.pp7;
+      }
+    } catch { }
+
+    const s = students.find(item => 
+      (doc?.recipient_id && item.id === doc.recipient_id) ||
+      (doc?.recipient_id_card && (item.national_id === doc.recipient_id_card || item.student_id === doc.recipient_id_card)) ||
+      (`${item.prefix || item.title || ''}${item.first_name} ${item.last_name}`.trim() === doc?.recipient_name)
+    );
+
+    const { district: defaultDist, province: defaultProv } = parseSchoolAddress(settings?.school_address);
+    const fatherFromStudent = s ? `${s.father_first_name || ''} ${s.father_last_name || ''}`.trim() : '';
+    const motherFromStudent = s ? `${s.mother_first_name || ''} ${s.mother_last_name || ''}`.trim() : '';
+
+    const studentId = doc?.pp7_student_id || pp7Meta.student_id || s?.student_id || doc?.recipient_id_card || '';
+    const birthDate = doc?.pp7_birth_date || pp7Meta.birth_date || s?.birth_date || '';
+    const fatherName = doc?.pp7_father_name || pp7Meta.father_name || fatherFromStudent || '';
+    const motherName = doc?.pp7_mother_name || pp7Meta.mother_name || motherFromStudent || '';
+    const district = doc?.pp7_district || pp7Meta.district || defaultDist || 'เขาชัยสน';
+    const province = doc?.pp7_province || pp7Meta.province || defaultProv || 'พัทลุง';
+    const registrarName = doc?.pp7_registrar_name || pp7Meta.registrar_name || pp7RegistrarName || 'นางสาวปาริชาติ แก้วนวน';
+    const photoUrl = s?.photo_url || s?.image_url || null;
+
+    return {
+      studentId,
+      birthDate,
+      birthParts: getThaiDateParts(birthDate),
+      fatherName,
+      motherName,
+      district,
+      province,
+      registrarName,
+      photoUrl
+    };
+  };
+
+  // สกัดแยกข้อสถานภาพ 1-6 จาก content
+  const parseStatusClauses = (content?: string) => {
+    if (!content) return [];
+    const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+    const clauses: { number: string; text: string; isGpa?: boolean; terms?: string; score?: string }[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('มีสถานภาพทางการเรียน')) continue;
+      const match = line.match(/^(\d+)[\.\)]\s*(.*)$/);
+      const text = match ? match[2] : line;
+      const num = match ? match[1] : (clauses.length + 1).toString();
+
+      const gpaMatch = text.match(/มีผลการเรียนเฉลี่ย\s*(\d+)?\s*ภาคเรียน\s*([\d\.]+)?/);
+      if (gpaMatch) {
+        clauses.push({
+          number: num,
+          text,
+          isGpa: true,
+          terms: gpaMatch[1] || '5',
+          score: gpaMatch[2] || '.........'
+        });
+      } else {
+        clauses.push({ number: num, text });
+      }
+    }
+    return clauses;
+  };
+
+  // สกัดหมายเหตุอายุเอกสารจาก purpose
+  const parseValidityNote = (purpose?: string) => {
+    if (!purpose) return 'ใบรับรองนี้สามารถใช้ได้ 45 วัน นับแต่วันที่ออกให้';
+    const match = purpose.match(/\(([^)]+)\)/);
+    if (match) return match[1];
+    return purpose;
+  };
+
+  // เปิดดูหน้าแก้ไขหนังสือรับรอง
+  const handleOpenEdit = (doc: any) => {
+    setEditingDocId(doc.id);
+    setFormTab('editor');
+    setStudentSearchQuery('');
+
+    let pp7Meta: any = {};
+    try {
+      if (doc.remark && typeof doc.remark === 'string' && doc.remark.startsWith('{')) {
+        const parsed = JSON.parse(doc.remark);
+        if (parsed.pp7) pp7Meta = parsed.pp7;
+      }
+    } catch { }
+
+    const s = students.find(item => 
+      (doc.recipient_id && item.id === doc.recipient_id) ||
+      (doc.recipient_id_card && (item.national_id === doc.recipient_id_card || item.student_id === doc.recipient_id_card)) ||
+      (`${item.prefix || item.title || ''}${item.first_name} ${item.last_name}`.trim() === doc.recipient_name)
+    );
+
+    const { district, province } = parseSchoolAddress(settings?.school_address);
+    const fatherFromStudent = s ? `${s.father_first_name || ''} ${s.father_last_name || ''}`.trim() : '';
+    const motherFromStudent = s ? `${s.mother_first_name || ''} ${s.mother_last_name || ''}`.trim() : '';
+
+    setFormData({
+      ...initialFormState,
+      ...doc,
+      pp7_student_id: pp7Meta.student_id || s?.student_id || doc.recipient_id_card || '',
+      pp7_birth_date: pp7Meta.birth_date || s?.birth_date || '',
+      pp7_father_name: pp7Meta.father_name || fatherFromStudent || '',
+      pp7_mother_name: pp7Meta.mother_name || motherFromStudent || '',
+      pp7_district: pp7Meta.district || district,
+      pp7_province: pp7Meta.province || province,
+      pp7_registrar_name: pp7Meta.registrar_name || pp7RegistrarName || 'นางสาวปาริชาติ แก้วนวน'
+    });
+    setIsModalOpen(true);
+  };
+
+  // เรนเดอร์เอกสาร A4 (แยกระหว่าง แบบ ปพ.7 ตามตัวอย่างจริง และ หนังสือรับรองทั่วไป)
+  const renderCertificateSheet = (
+    doc: any,
+    options?: {
+      headerType?: HeaderType;
+      showQr?: boolean;
+      isBulk?: boolean;
+      isPreview?: boolean;
+    }
+  ) => {
+    if (!doc) return null;
+    const headerOption = options?.headerType || doc.header_type || 'garuda';
+    const showQr = options?.showQr ?? true;
+    const isPp7 = isPp7Doc(doc);
+    const schoolName = doc.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
+    const issueParts = getThaiDateParts(doc.certificate_date);
+
+    if (isPp7) {
+      const pp7 = getPp7DocData(doc);
+      const clauses = parseStatusClauses(doc.content);
+      const validityNote = parseValidityNote(doc.purpose);
+
+      return (
+        <div className="relative font-sarabun text-slate-900 leading-normal text-[15pt]">
+          {/* แถวบนสุด: ที่มุมซ้าย และ ปพ.7 ที่มุมขวา */}
+          <div className="flex justify-between items-baseline mb-1">
+            <div className="text-[15pt]">
+              ที่ <span className="font-bold px-1">{doc.certificate_number || '[รอระบบออกเลขอัตโนมัติ]'}</span>
+            </div>
+            <div className="font-bold text-[18pt] tracking-wider pr-1">
+              ปพ.7
+            </div>
+          </div>
+
+          {/* ตราครุฑ 3 ซม. กลางหน้ากระดาษ */}
+          {headerOption === 'garuda' ? (
+            <div className="flex justify-center -mt-1 mb-2">
+              <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
+            </div>
+          ) : headerOption === 'school_logo' && settings?.school_logo_url ? (
+            <div className="flex justify-center -mt-1 mb-2">
+              <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
+            </div>
+          ) : (
+            <div className="h-[3cm] mb-2 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs font-sans print:hidden">
+              [เว้นระยะ 3 ซม. สำหรับกระดาษหัวครุฑพิมพ์สำเร็จรูป]
+            </div>
+          )}
+
+          {/* ชื่อเอกสาร: ใบรับรองผลการเรียน */}
+          <div className="text-center font-bold text-[24pt] leading-tight mb-5">
+            ใบรับรองผลการเรียน
+          </div>
+
+          {/* บล็อกข้อมูลประวัตินักเรียนและสถานศึกษาพร้อมเส้นจุดไข่ปลา (5 บรรทัดตามแบบ ปพ.7 สพฐ.) */}
+          <div className="space-y-1.5 mb-3 text-[15pt]">
+            {/* บรรทัด 1: โรงเรียน */}
+            <div className="flex items-baseline w-full">
+              <span className="shrink-0 font-medium">โรงเรียน</span>
+              <span className="font-bold px-2">{schoolName}</span>
+              <span className="grow border-b border-dotted border-black mb-1"></span>
+            </div>
+
+            {/* บรรทัด 2: อำเภอ/เขต ... จังหวัด ... */}
+            <div className="flex items-baseline w-full">
+              <span className="shrink-0 font-medium">อำเภอ/เขต</span>
+              <span className="font-bold px-2 min-w-[120px]">{pp7.district}</span>
+              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
+              <span className="shrink-0 font-medium ml-4">จังหวัด</span>
+              <span className="font-bold px-2 min-w-[120px]">{pp7.province}</span>
+              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
+            </div>
+
+            {/* บรรทัด 3: ขอรับรองว่า */}
+            <div className="flex items-baseline w-full">
+              <span className="shrink-0 font-medium">ขอรับรองว่า</span>
+              <span className="font-bold px-2">{doc.recipient_name || '[ชื่อ-นามสกุลนักเรียน]'}</span>
+              <span className="grow border-b border-dotted border-black mb-1"></span>
+            </div>
+
+            {/* บรรทัด 4: เลขประจำตัว ... เกิดวันที่ .. เดือน ... พ.ศ. ... */}
+            <div className="flex items-baseline w-full">
+              <span className="shrink-0 font-medium">เลขประจำตัว</span>
+              <span className="font-bold px-3 min-w-[80px]">{pp7.studentId || '-'}</span>
+              <span className="shrink-0 font-medium ml-3">เกิดวันที่</span>
+              <span className="font-bold px-2 min-w-[32px] text-center border-b border-dotted border-black mb-1">
+                {pp7.birthParts.day || '-'}
+              </span>
+              <span className="shrink-0 font-medium ml-2">เดือน</span>
+              <span className="font-bold px-2 min-w-[76px] text-center border-b border-dotted border-black mb-1">
+                {pp7.birthParts.month || '-'}
+              </span>
+              <span className="shrink-0 font-medium ml-2">พ.ศ.</span>
+              <span className="font-bold px-2 min-w-[50px] text-center border-b border-dotted border-black mb-1">
+                {pp7.birthParts.year || '-'}
+              </span>
+              <span className="grow border-b border-dotted border-black mb-1 ml-1 min-w-[20px]"></span>
+            </div>
+
+            {/* บรรทัด 5: ชื่อ-ชื่อสกุลบิดา ... ชื่อ-ชื่อสกุลมารดา ... */}
+            <div className="flex items-baseline w-full">
+              <span className="shrink-0 font-medium">ชื่อ-ชื่อสกุลบิดา</span>
+              <span className="font-bold px-2 min-w-[140px]">{pp7.fatherName || '-'}</span>
+              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
+              <span className="shrink-0 font-medium ml-3">ชื่อ-ชื่อสกุลมารดา</span>
+              <span className="font-bold px-2 min-w-[140px]">{pp7.motherName || '-'}</span>
+              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
+            </div>
+          </div>
+
+          {/* บรรทัด 6: มีสถานภาพทางการเรียน ดังนี้ */}
+          <div className="mb-2 font-medium text-[15pt]">
+            มีสถานภาพทางการเรียน ดังนี้
+          </div>
+
+          {/* รายการข้อความสถานภาพ 6 ข้อ (เยื้องหน้า ชัดเจนตามตัวอย่าง) */}
+          <div className="pl-10 sm:pl-14 space-y-1 mb-4 text-[15pt] leading-relaxed">
+            {clauses.map((clause, idx) => (
+              <div key={idx} className="flex items-baseline">
+                <span className="font-medium mr-1.5 shrink-0">{clause.number}.</span>
+                {clause.isGpa ? (
+                  <div className="flex items-baseline">
+                    <span>มีผลการเรียนเฉลี่ย</span>
+                    <span className="font-bold px-4 text-center min-w-[40px]">{clause.terms}</span>
+                    <span>ภาคเรียน</span>
+                    <span className="font-bold px-6 text-center min-w-[60px]">{clause.score}</span>
+                  </div>
+                ) : (
+                  <span>{clause.text}</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* บรรทัดวันที่ออกให้ (ฝั่งขวา) */}
+          <div className="flex justify-end mb-4 text-[15pt]">
+            <div className="flex items-baseline">
+              <span className="shrink-0 font-medium">ออกให้ ณ วันที่</span>
+              <span className="font-bold px-2 min-w-[30px] text-center border-b border-dotted border-black mb-1">
+                {issueParts.day || '-'}
+              </span>
+              <span className="shrink-0 font-medium ml-2">เดือน</span>
+              <span className="font-bold px-2 min-w-[76px] text-center border-b border-dotted border-black mb-1">
+                {issueParts.month || '-'}
+              </span>
+              <span className="shrink-0 font-medium ml-2">พ.ศ.</span>
+              <span className="font-bold px-2 min-w-[50px] text-center border-b border-dotted border-black mb-1">
+                {issueParts.year || '-'}
+              </span>
+              <span className="w-10 border-b border-dotted border-black mb-1 ml-1"></span>
+            </div>
+          </div>
+
+          {/* บล็อกคู่: ซ้าย (รูปถ่าย 1.5 นิ้ว + นายทะเบียน) / ขวา (ผู้อำนวยการโรงเรียน) */}
+          <div className="grid grid-cols-2 gap-8 items-end mb-6 pt-1">
+            {/* ซ้าย: รูปถ่าย 1.5 นิ้ว + นายทะเบียน */}
+            <div className="flex flex-col items-center">
+              <div className="w-[3.2cm] h-[4.2cm] border border-black flex flex-col items-center justify-center bg-white mb-6 text-center">
+                {pp7.photoUrl ? (
+                  <img src={pp7.photoUrl} alt="รูปถ่ายนักเรียน" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="p-2 text-slate-400 text-xs">
+                    <span>รูปถ่าย</span><br />
+                    <span className="text-[10px]">1.5 นิ้ว</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="text-center w-full max-w-[240px]">
+                <div className="border-b border-dotted border-black w-full mb-2"></div>
+                <div className="font-bold text-[15pt]">({pp7.registrarName || '...........................................'})</div>
+                <div className="text-[14pt] text-slate-800">นายทะเบียน</div>
+              </div>
+            </div>
+
+            {/* ขวา: ผู้อำนวยการโรงเรียน */}
+            <div className="flex flex-col items-center justify-end h-full">
+              <div className="text-center w-full max-w-[260px] pb-1">
+                <div className="h-14 flex items-center justify-center mb-1">
+                  {settings?.director_signature_url ? (
+                    <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-12 object-contain" />
+                  ) : (
+                    <div className="border-b border-dotted border-black w-full mb-2"></div>
+                  )}
+                </div>
+                <div className="font-bold text-[15pt]">({doc.sign_name || settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์'})</div>
+                <div className="text-[14pt] text-slate-800">{doc.sign_position || settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา'}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* บรรทัดล่างสุด: หมายเหตุ (ขีดเส้นใต้คำว่า หมายเหตุ ตามตัวอย่างจริง) */}
+          <div className="pt-2 text-[13pt] text-slate-900 border-t border-slate-100 print:border-none">
+            <u className="font-bold">หมายเหตุ</u> <span>({validityNote})</span>
+          </div>
+
+          {/* QR Code ตรวจสอบเอกสาร (ถ้าเปิดใช้งาน) */}
+          {showQr && (
+            <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-[9pt] text-slate-500 font-sans print:hidden">
+              <div className="flex items-center gap-2">
+                <QrCode size={28} className="text-slate-700" />
+                <div>
+                  <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
+                  <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณ {schoolName}</div>
+                </div>
+              </div>
+              <div className="text-right font-mono text-[8pt]">
+                DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'PREVIEW'} | {doc.certificate_number || 'AUTO'}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // กรณีเป็นหนังสือรับรองทั่วไป (สำหรับครู/บุคลากร/เงินเดือน/ปฏิบัติงาน)
+    return (
+      <div className="relative font-sarabun text-slate-900 leading-relaxed text-[15pt]">
+        {/* ตราครุฑ 3 ซม. กลางหน้ากระดาษ (หรือเว้นระยะกรณีไม่มีครุฑ) */}
+        {headerOption === 'garuda' ? (
+          <div className="flex justify-center mb-3">
+            <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
+          </div>
+        ) : headerOption === 'school_logo' && settings?.school_logo_url ? (
+          <div className="flex justify-center mb-3">
+            <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
+          </div>
+        ) : (
+          <div className="h-[3cm] mb-3 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs print:hidden">
+            [เว้นระยะสำหรับกระดาษที่มีหัวครุฑพิมพ์สำเร็จรูป]
+          </div>
+        )}
+
+        {/* ชื่อหนังสือรับรอง */}
+        <div className="text-center font-bold text-[26pt] leading-tight mb-2">
+          หนังสือรับรอง
+        </div>
+
+        {/* เลขที่ */}
+        <div className="text-center font-bold text-[16pt] mb-6">
+          เลขที่ {doc.certificate_number || '[ระบบจะออกเลขอัตโนมัติเมื่อกดบันทึก]'}
+        </div>
+
+        {/* คำขึ้นต้น */}
+        <div className="mb-4 indent-8 text-[16pt] text-justify">
+          หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{doc.recipient_name || '[ชื่อ-นามสกุล]'}</strong>
+          {doc.recipient_id_card ? ` เลขประจำตัวประชาชน ${doc.recipient_id_card}` : ''}
+          {doc.recipient_type !== 'student' && doc.recipient_position_or_grade ? ` ตำแหน่ง ${doc.recipient_position_or_grade}` : ''}
+          {doc.recipient_type !== 'student' && doc.recipient_department ? ` สังกัด${doc.recipient_department}` : ''}
+          {doc.recipient_type !== 'student' ? ` ${doc.issuer || schoolName}` : ''}
+        </div>
+
+        {/* ข้อความรับรองรายละเอียด */}
+        <div className="mb-6 indent-8 text-[16pt] text-justify leading-relaxed whitespace-pre-wrap">
+          {doc.content || '[ยังไม่มีเนื้อหาหนังสือรับรอง]'}
+        </div>
+
+        {/* วัตถุประสงค์ (ถ้ามี) */}
+        {doc.purpose && (
+          <div className="mb-6 indent-8 text-[16pt] text-justify">
+            ออกให้ ณ {formatThaiFullDate(doc.certificate_date)} {doc.purpose}
+          </div>
+        )}
+
+        {/* วันที่ให้ไว้ */}
+        <div className="text-center mb-10 text-[16pt]">
+          ให้ไว้ ณ {formatThaiFullDate(doc.certificate_date)}
+        </div>
+
+        {/* กล่องลงนาม ผอ. */}
+        <div className="flex justify-end pr-8 mb-6">
+          <div className="text-center min-w-[200px]">
+            <div className="h-16 flex items-center justify-center">
+              {settings?.director_signature_url ? (
+                <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-14 object-contain" />
+              ) : (
+                <div className="border-b border-dotted border-black w-full mb-2"></div>
+              )}
+            </div>
+            <div className="font-bold text-[16pt]">({doc.sign_name || settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์'})</div>
+            <div className="text-[14pt] text-slate-700">{doc.sign_position || settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา'}</div>
+          </div>
+        </div>
+
+        {/* ท้ายเอกสาร: QR Code ตรวจสอบความถูกต้อง */}
+        {showQr && (
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans print:hidden">
+            <div className="flex items-center gap-2">
+              <QrCode size={36} className="text-slate-700" />
+              <div>
+                <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
+                <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณ {schoolName}</div>
+              </div>
+            </div>
+            <div className="text-right font-mono text-[9pt]">
+              DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'PREVIEW'} | {doc.certificate_number || 'AUTO-SEQ'}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // กรองรายชื่อนักเรียนสำหรับ Smart Search
@@ -630,13 +1108,17 @@ export default function Certificates() {
         const content = buildPp7Content(gradeRoom);
         const fullPurpose = buildPp7PurposeNote(batchPurpose, pp7ValidityDays);
 
+        const fatherName = s.father_first_name ? `${s.father_first_name} ${s.father_last_name || ''}`.trim() : '';
+        const motherName = s.mother_first_name ? `${s.mother_first_name} ${s.mother_last_name || ''}`.trim() : '';
+        const { district, province } = parseSchoolAddress(settings?.school_address);
+
         return {
           certificate_number: certNum,
           doc_year: currentYearBE,
           doc_sequence: seq,
           certificate_type: 'student',
           header_type: batchHeaderType,
-          subject: `หนังสือรับรองการเป็นนักเรียน - ${fullName}`,
+          subject: `ใบรับรองผลการเรียน (ปพ.7) - ${fullName}`,
           recipient_type: 'student',
           recipient_id: s.id,
           recipient_name: fullName,
@@ -650,7 +1132,18 @@ export default function Certificates() {
           sign_name: directorName,
           sign_position: directorPos,
           status: 'approved',
-          is_reserved: false
+          is_reserved: false,
+          remark: JSON.stringify({
+            pp7: {
+              student_id: s.student_id || idCard || '',
+              birth_date: s.birth_date || '',
+              father_name: fatherName,
+              mother_name: motherName,
+              district,
+              province,
+              registrar_name: pp7RegistrarName || 'นางสาวปาริชาติ แก้วนวน'
+            }
+          })
         };
       });
 
@@ -788,6 +1281,30 @@ export default function Certificates() {
         remark: formData.remark || null,
         created_by: user?.id || null
       };
+
+      // บันทึก Metadata จำเพาะของแบบ ปพ.7 ลงใน remark (JSON) โดยไม่กระทบโครงสร้างฐานข้อมูลเดิม
+      if (formData.certificate_type === 'student' || formData.recipient_type === 'student') {
+        let existingRemarkObj: any = {};
+        try {
+          if (formData.remark && typeof formData.remark === 'string' && formData.remark.startsWith('{')) {
+            existingRemarkObj = JSON.parse(formData.remark);
+          }
+        } catch { }
+
+        existingRemarkObj = {
+          ...existingRemarkObj,
+          pp7: {
+            student_id: formData.pp7_student_id,
+            birth_date: formData.pp7_birth_date,
+            father_name: formData.pp7_father_name,
+            mother_name: formData.pp7_mother_name,
+            district: formData.pp7_district,
+            province: formData.pp7_province,
+            registrar_name: formData.pp7_registrar_name
+          }
+        };
+        payload.remark = JSON.stringify(existingRemarkObj);
+      }
 
       if (editingDocId) {
         // อัปเดตรายการเดิม
@@ -1200,6 +1717,13 @@ export default function Certificates() {
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            onClick={() => handleOpenEdit(doc)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="แก้ไขหนังสือรับรอง"
+                          >
+                            <Edit2 size={15} />
+                          </button>
+                          <button
                             onClick={() => handleOpenPrint(doc)}
                             className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
                             title="พิมพ์หนังสือรับรอง (A4 Portrait)"
@@ -1596,6 +2120,97 @@ export default function Certificates() {
           {/* ========================================================================= */}
           {(formData.recipient_type === 'student' || formData.certificate_type === 'student') && (
             <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200/90 space-y-3">
+              {/* ข้อมูลประวัตินักเรียนและสถานศึกษาสำหรับแบบ ปพ.7 */}
+              <div className="p-3 bg-white border border-indigo-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                    <User size={14} className="text-indigo-600" />
+                    ข้อมูลประวัตินักเรียนและสถานศึกษา (สำหรับพิมพ์แบบ ปพ.7)
+                  </span>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-bold">
+                    ดึงอัตโนมัติจากทะเบียนนักเรียน
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">เลขประจำตัวนักเรียน</label>
+                    <input
+                      type="text"
+                      value={formData.pp7_student_id}
+                      onChange={e => setFormData(prev => ({ ...prev, pp7_student_id: e.target.value }))}
+                      placeholder="เช่น 2455"
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">วัน/เดือน/ปีเกิด</label>
+                    <input
+                      type="date"
+                      value={formData.pp7_birth_date}
+                      onChange={e => setFormData(prev => ({ ...prev, pp7_birth_date: e.target.value }))}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ผู้ลงนามนายทะเบียน</label>
+                    <input
+                      type="text"
+                      value={formData.pp7_registrar_name}
+                      onChange={e => {
+                        setFormData(prev => ({ ...prev, pp7_registrar_name: e.target.value }));
+                        setPp7RegistrarName(e.target.value);
+                      }}
+                      placeholder="ชื่อ-สกุล นายทะเบียน"
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ชื่อ-ชื่อสกุลบิดา</label>
+                    <input
+                      type="text"
+                      value={formData.pp7_father_name}
+                      onChange={e => setFormData(prev => ({ ...prev, pp7_father_name: e.target.value }))}
+                      placeholder="เช่น นายสมคิด เรียนดี"
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ชื่อ-ชื่อสกุลมารดา</label>
+                    <input
+                      type="text"
+                      value={formData.pp7_mother_name}
+                      onChange={e => setFormData(prev => ({ ...prev, pp7_mother_name: e.target.value }))}
+                      placeholder="เช่น นางสมศรี เรียนดี"
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">อำเภอ/เขต</label>
+                    <input
+                      type="text"
+                      value={formData.pp7_district}
+                      onChange={e => setFormData(prev => ({ ...prev, pp7_district: e.target.value }))}
+                      placeholder="เช่น เขาชัยสน"
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">จังหวัด</label>
+                    <input
+                      type="text"
+                      value={formData.pp7_province}
+                      onChange={e => setFormData(prev => ({ ...prev, pp7_province: e.target.value }))}
+                      placeholder="เช่น พัทลุง"
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <div className="flex items-center gap-1.5">
                   <GraduationCap size={16} className="text-indigo-600" />
@@ -1980,86 +2595,8 @@ export default function Certificates() {
           </div>
 
           {/* แผ่นกระดาษ A4 จำลอง */}
-          <div className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm max-h-[60vh] overflow-y-auto font-sarabun text-slate-900 leading-relaxed text-[15pt]">
-            {/* ตราครุฑ / โลโก้ / ระยะเว้น */}
-            {formData.header_type === 'garuda' ? (
-              <div className="flex justify-center mb-3">
-                <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
-              </div>
-            ) : formData.header_type === 'school_logo' && settings?.school_logo_url ? (
-              <div className="flex justify-center mb-3">
-                <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
-              </div>
-            ) : (
-              <div className="h-[3cm] mb-3 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs font-sans">
-                [เว้นระยะ 3 ซม. สำหรับกระดาษหัวครุฑพิมพ์สำเร็จรูป]
-              </div>
-            )}
-
-            {/* ชื่อหนังสือรับรอง */}
-            <div className="text-center font-bold text-[26pt] leading-tight mb-2">
-              หนังสือรับรอง
-            </div>
-
-            {/* เลขที่ */}
-            <div className="text-center font-bold text-[16pt] mb-6">
-              เลขที่ {formData.certificate_number || '[ระบบจะออกเลขอัตโนมัติเมื่อกดบันทึก]'}
-            </div>
-
-            {/* คำขึ้นต้น */}
-            <div className="mb-4 indent-8 text-[16pt] text-justify">
-              หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{formData.recipient_name || '[ชื่อ-นามสกุล]'}</strong>
-              {formData.recipient_id_card ? ` เลขประจำตัวประชาชน ${formData.recipient_id_card}` : ''}
-              {formData.recipient_type !== 'student' && formData.recipient_position_or_grade ? ` ตำแหน่ง ${formData.recipient_position_or_grade}` : ''}
-              {formData.recipient_type !== 'student' && formData.recipient_department ? ` สังกัด${formData.recipient_department}` : ''}
-              {formData.recipient_type !== 'student' ? ` ${formData.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}` : ''}
-            </div>
-
-            {/* ข้อความรับรองรายละเอียด */}
-            <div className="mb-6 indent-8 text-[16pt] text-justify leading-relaxed whitespace-pre-wrap">
-              {formData.content || '[ยังไม่มีเนื้อหาหนังสือรับรอง]'}
-            </div>
-
-            {/* วัตถุประสงค์ (ถ้ามี) */}
-            {formData.purpose && (
-              <div className="mb-6 indent-8 text-[16pt] text-justify">
-                ออกให้ ณ {formatThaiFullDate(formData.certificate_date)} {formData.purpose}
-              </div>
-            )}
-
-            {/* วันที่ให้ไว้ */}
-            <div className="text-center mb-10 text-[16pt]">
-              ให้ไว้ ณ {formatThaiFullDate(formData.certificate_date)}
-            </div>
-
-            {/* กล่องลงนาม ผอ. */}
-            <div className="flex justify-end pr-8 mb-6">
-              <div className="text-center min-w-[200px]">
-                <div className="h-16 flex items-center justify-center">
-                  {settings?.director_signature_url ? (
-                    <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-14 object-contain" />
-                  ) : (
-                    <span className="text-slate-300 text-xs italic font-sans">[ลงนาม]</span>
-                  )}
-                </div>
-                <div className="font-bold text-[16pt]">({formData.sign_name || settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์'})</div>
-                <div className="text-[14pt] text-slate-700">{formData.sign_position || settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา'}</div>
-              </div>
-            </div>
-
-            {/* ส่วนท้าย QR Code */}
-            <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans">
-              <div className="flex items-center gap-2">
-                <QrCode size={36} className="text-slate-700" />
-                <div>
-                  <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
-                  <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณโรงเรียนบ้านควนโคกยา</div>
-                </div>
-              </div>
-              <div className="text-right font-mono text-[9pt]">
-                DOC-REF: PREVIEW | {formData.certificate_number || 'AUTO-SEQ'}
-              </div>
-            </div>
+          <div className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm max-h-[60vh] overflow-y-auto">
+            {renderCertificateSheet(formData, { headerType: formData.header_type, showQr: true, isPreview: true })}
           </div>
 
           {/* ปุ่มควบคุมในแท็บตัวอย่าง */}
@@ -2247,90 +2784,8 @@ export default function Certificates() {
             </div>
 
             {/* แผ่นกระดาษจำลอง A4 Portrait (Print Preview Sheet) */}
-            <div className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm max-h-[65vh] overflow-y-auto font-sarabun text-slate-900 leading-relaxed text-[15pt]">
-              {/* ตราครุฑ 3 ซม. กลางหน้ากระดาษ (หรือเว้นระยะกรณีไม่มีครุฑ) */}
-              {printGarudaOption === 'garuda' ? (
-                <div className="flex justify-center mb-3">
-                  <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
-                </div>
-              ) : printGarudaOption === 'school_logo' && settings?.school_logo_url ? (
-                <div className="flex justify-center mb-3">
-                  <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
-                </div>
-              ) : (
-                // เว้นระยะหัวกระดาษสำหรับกระดาษที่มีหัวครุฑพิมพ์อยู่แล้ว
-                <div className="h-[3cm] mb-3 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs print:border-none print:bg-transparent print:text-transparent">
-                  [เว้นระยะสำหรับกระดาษที่มีหัวครุฑพิมพ์สำเร็จรูป]
-                </div>
-              )}
-
-              {/* ชื่อหนังสือรับรอง */}
-              <div className="text-center font-bold text-[26pt] leading-tight mb-2">
-                หนังสือรับรอง
-              </div>
-
-              {/* เลขที่ และ ส่วนราชการ */}
-              <div className="text-center font-bold text-[16pt] mb-6">
-                เลขที่ {printDoc.certificate_number}
-              </div>
-
-              {/* คำขึ้นต้น */}
-              <div className="mb-4 indent-8 text-[16pt] text-justify">
-                หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{printDoc.recipient_name}</strong>
-                {printDoc.recipient_id_card ? ` เลขประจำตัวประชาชน ${printDoc.recipient_id_card}` : ''}
-                {printDoc.recipient_type !== 'student' && printDoc.recipient_position_or_grade ? ` ตำแหน่ง ${printDoc.recipient_position_or_grade}` : ''}
-                {printDoc.recipient_type !== 'student' && printDoc.recipient_department ? ` สังกัด${printDoc.recipient_department}` : ''}
-                {printDoc.recipient_type !== 'student' ? ` ${printDoc.issuer || 'โรงเรียนบ้านควนโคกยา'}` : ''}
-              </div>
-
-              {/* ข้อความรับรองรายละเอียด */}
-              <div className="mb-6 indent-8 text-[16pt] text-justify leading-relaxed whitespace-pre-wrap">
-                {printDoc.content}
-              </div>
-
-              {/* วัตถุประสงค์ (ถ้ามี) */}
-              {printDoc.purpose && (
-                <div className="mb-6 indent-8 text-[16pt] text-justify">
-                  ออกให้ ณ {formatThaiFullDate(printDoc.certificate_date)} {printDoc.purpose}
-                </div>
-              )}
-
-              {/* วันที่ให้ไว้ */}
-              <div className="text-center mb-10 text-[16pt]">
-                ให้ไว้ ณ {formatThaiFullDate(printDoc.certificate_date)}
-              </div>
-
-              {/* กล่องลงนาม ผอ. */}
-              <div className="flex justify-end pr-8 mb-6">
-                <div className="text-center min-w-[200px]">
-                  {/* ช่องลายเซ็น */}
-                  <div className="h-16 flex items-center justify-center">
-                    {settings?.director_signature_url ? (
-                      <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-14 object-contain" />
-                    ) : (
-                      <span className="text-slate-300 text-xs italic">[ลงนาม]</span>
-                    )}
-                  </div>
-                  <div className="font-bold text-[16pt]">({printDoc.sign_name})</div>
-                  <div className="text-[14pt] text-slate-700">{printDoc.sign_position}</div>
-                </div>
-              </div>
-
-              {/* ท้ายเอกสาร: QR Code ตรวจสอบความถูกต้อง */}
-              {printShowQr && (
-                <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500">
-                  <div className="flex items-center gap-2">
-                    <QrCode size={36} className="text-slate-700" />
-                    <div>
-                      <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
-                      <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณโรงเรียนบ้านควนโคกยา</div>
-                    </div>
-                  </div>
-                  <div className="text-right font-mono text-[9pt]">
-                    DOC-REF: {printDoc.id?.slice(0, 8)} | {printDoc.certificate_number}
-                  </div>
-                </div>
-              )}
+            <div id="certificate-print-sheet" className="print-active-sheet bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm max-h-[65vh] overflow-y-auto">
+              {renderCertificateSheet(printDoc, { headerType: printGarudaOption, showQr: printShowQr })}
             </div>
           </div>
         )}
@@ -2680,96 +3135,54 @@ export default function Certificates() {
           </div>
 
           {/* รายการแผ่นกระดาษ A4 ต่อเนื่อง */}
-          <div className="space-y-6">
+          <div id="certificate-print-sheet" className="print-active-sheet space-y-6">
             {bulkPrintDocs.map((doc, idx) => (
               <div
                 key={doc.id || idx}
-                className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm font-sarabun text-slate-900 leading-relaxed text-[15pt] print:break-after-page print:page-break-after-always print:p-0 print:border-none print:shadow-none"
+                className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm print:p-0 print:border-none print:shadow-none print-page-break"
               >
-                {/* ตราครุฑ / โลโก้ / เว้นระยะ */}
-                {doc.header_type === 'garuda' ? (
-                  <div className="flex justify-center mb-3">
-                    <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
-                  </div>
-                ) : doc.header_type === 'school_logo' && settings?.school_logo_url ? (
-                  <div className="flex justify-center mb-3">
-                    <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
-                  </div>
-                ) : (
-                  <div className="h-[3cm] mb-3 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs print:border-none print:bg-transparent print:text-transparent font-sans">
-                    [เว้นระยะสำหรับกระดาษที่มีหัวครุฑพิมพ์สำเร็จรูป]
-                  </div>
-                )}
-
-                {/* ชื่อหนังสือรับรอง */}
-                <div className="text-center font-bold text-[26pt] leading-tight mb-2">
-                  หนังสือรับรอง
-                </div>
-
-                {/* เลขที่ */}
-                <div className="text-center font-bold text-[16pt] mb-6">
-                  เลขที่ {doc.certificate_number}
-                </div>
-
-                {/* คำขึ้นต้น */}
-                <div className="mb-4 indent-8 text-[16pt] text-justify">
-                  หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{doc.recipient_name}</strong>
-                  {doc.recipient_id_card ? ` เลขประจำตัวประชาชน ${doc.recipient_id_card}` : ''}
-                  {doc.recipient_type !== 'student' && doc.recipient_position_or_grade ? ` ตำแหน่ง ${doc.recipient_position_or_grade}` : ''}
-                  {doc.recipient_type !== 'student' && doc.recipient_department ? ` สังกัด${doc.recipient_department}` : ''}
-                  {doc.recipient_type !== 'student' ? ` ${doc.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}` : ''}
-                </div>
-
-                {/* ข้อความรับรองรายละเอียด */}
-                <div className="mb-6 indent-8 text-[16pt] text-justify leading-relaxed whitespace-pre-wrap">
-                  {doc.content}
-                </div>
-
-                {/* วัตถุประสงค์ (ถ้ามี) */}
-                {doc.purpose && (
-                  <div className="mb-6 indent-8 text-[16pt] text-justify">
-                    ออกให้ ณ {formatThaiFullDate(doc.certificate_date)} {doc.purpose}
-                  </div>
-                )}
-
-                {/* วันที่ให้ไว้ */}
-                <div className="text-center mb-10 text-[16pt]">
-                  ให้ไว้ ณ {formatThaiFullDate(doc.certificate_date)}
-                </div>
-
-                {/* กล่องลงนาม ผอ. */}
-                <div className="flex justify-end pr-8 mb-6">
-                  <div className="text-center min-w-[200px]">
-                    <div className="h-16 flex items-center justify-center">
-                      {settings?.director_signature_url ? (
-                        <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-14 object-contain" />
-                      ) : (
-                        <span className="text-slate-300 text-xs italic font-sans">[ลงนาม]</span>
-                      )}
-                    </div>
-                    <div className="font-bold text-[16pt]">({doc.sign_name || settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์'})</div>
-                    <div className="text-[14pt] text-slate-700">{doc.sign_position || settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา'}</div>
-                  </div>
-                </div>
-
-                {/* ท้ายเอกสาร QR Code */}
-                <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans">
-                  <div className="flex items-center gap-2">
-                    <QrCode size={36} className="text-slate-700" />
-                    <div>
-                      <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
-                      <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณโรงเรียนบ้านควนโคกยา</div>
-                    </div>
-                  </div>
-                  <div className="text-right font-mono text-[9pt]">
-                    DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'BULK'} | {doc.certificate_number}
-                  </div>
-                </div>
+                {renderCertificateSheet(doc, { headerType: batchHeaderType, showQr: false, isBulk: true })}
               </div>
             ))}
           </div>
         </div>
       </Modal>
+
+      {/* สไตล์สำหรับการสั่งพิมพ์เอกสาร A4 ผ่านเบราว์เซอร์ (Window Print Stylesheet) */}
+      <style>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 1.5cm 1.5cm 1.2cm 1.5cm;
+          }
+          body {
+            background: white !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          body * {
+            visibility: hidden;
+          }
+          .print-active-sheet, .print-active-sheet * {
+            visibility: visible;
+          }
+          .print-active-sheet {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            background: white !important;
+          }
+          .print-page-break {
+            page-break-after: always;
+            break-after: page;
+          }
+        }
+      `}</style>
     </div>
   );
 }
