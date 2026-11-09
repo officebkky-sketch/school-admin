@@ -39,7 +39,10 @@ import {
   Filter,
   Eye,
   Check,
-  Copy
+  Copy,
+  Users,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import garuda3cm from '../assets/saraban/garuda-3cm.png';
 
@@ -132,6 +135,23 @@ export default function Certificates() {
   // Print Preview Modal
   const [printDoc, setPrintDoc] = useState<any>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+
+  // --- Feature 1: Live A4 Preview State ---
+  const [formTab, setFormTab] = useState<'editor' | 'preview'>('editor');
+
+  // --- Feature 2: Smart Student Search State ---
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
+
+  // --- Feature 3: Batch Classroom Issuance States ---
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchClassLevel, setBatchClassLevel] = useState<string>('');
+  const [batchPurpose, setBatchPurpose] = useState<string>('เพื่อใช้เป็นหลักฐานในการศึกษาต่อ / สมัครเข้าเรียน');
+  const [batchHeaderType, setBatchHeaderType] = useState<HeaderType>('garuda');
+  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set());
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [batchSuccessResult, setBatchSuccessResult] = useState<any[] | null>(null);
+  const [isBulkPrintModalOpen, setIsBulkPrintModalOpen] = useState(false);
+  const [bulkPrintDocs, setBulkPrintDocs] = useState<any[]>([]);
   const [printGarudaOption, setPrintGarudaOption] = useState<HeaderType>('garuda');
   const [printShowQr, setPrintShowQr] = useState(true);
 
@@ -194,13 +214,20 @@ export default function Certificates() {
         .order('first_name', { ascending: true });
       if (tData) setTeachers(tData);
 
-      // ดึงรายชื่อนักเรียน (จำกัดเพื่อความเร็ว)
-      const { data: sData } = await supabase
+      // ดึงรายชื่อนักเรียนทั้งหมด
+      const { data: sData, error: sErr } = await supabase
         .from('students')
-        .select('id, student_id, citizen_id, title, first_name, last_name, grade, room')
-        .order('grade', { ascending: true })
-        .limit(200);
-      if (sData) setStudents(sData);
+        .select('*')
+        .order('class_level', { ascending: true })
+        .order('student_id', { ascending: true });
+      if (sData && sData.length > 0) {
+        setStudents(sData);
+        // กำหนดชั้นเรียนเริ่มต้นสำหรับ Batch modal
+        const firstClass = sData[0]?.class_level || sData[0]?.grade;
+        if (firstClass) setBatchClassLevel(firstClass);
+      } else if (sErr) {
+        console.warn('Note on fetching students:', sErr.message);
+      }
 
     } catch (err) {
       console.error('Error fetching settings/teachers:', err);
@@ -315,6 +342,8 @@ export default function Certificates() {
   };
 
   const handleOpenCreateModal = async () => {
+    setFormTab('editor');
+    setStudentSearchQuery('');
     setEditingDocId(null);
     const { sequence, formattedNumber } = await getNextNumber(currentYearBE);
     
@@ -371,14 +400,22 @@ export default function Certificates() {
     }));
   };
 
-  // จัดการเมื่อเปลี่ยนนักเรียนใน Dropdown
+  // จัดการเมื่อเปลี่ยนนักเรียน (Smart Student Selection)
   const handleStudentSelect = (studentId: string) => {
     const s = students.find(item => item.id === studentId);
     if (!s) return;
 
-    const fullName = `${s.title || ''}${s.first_name} ${s.last_name}`.trim();
-    const gradeRoom = `ประถมศึกษาปีที่ ${s.grade || ''}${s.room ? `/${s.room}` : ''}`;
-    const idCard = s.citizen_id || s.student_id || '';
+    const prefix = s.prefix || s.title || '';
+    const fullName = `${prefix}${s.first_name} ${s.last_name}`.trim();
+    const rawClass = s.class_level || s.grade || '';
+    const gradeRoom = rawClass 
+      ? (rawClass.startsWith('ป.') 
+          ? `ชั้นประถมศึกษาปีที่ ${rawClass.replace('ป.', '')}${s.room ? `/${s.room}` : ''}`
+          : rawClass.startsWith('อ.')
+            ? `ชั้นอนุบาล ${rawClass.replace('อ.', '')}${s.room ? `/${s.room}` : ''}`
+            : `ชั้น${rawClass}${s.room ? `/${s.room}` : ''}`)
+      : 'นักเรียน';
+    const idCard = s.national_id || s.citizen_id || s.student_id || '';
 
     const newContent = generateTemplateContent(
       formData.certificate_type,
@@ -397,6 +434,160 @@ export default function Certificates() {
       recipient_id_card: idCard,
       content: newContent
     }));
+  };
+
+  // กรองรายชื่อนักเรียนสำหรับ Smart Search
+  const filteredStudents = useMemo(() => {
+    if (!studentSearchQuery.trim()) return students.slice(0, 30);
+    const q = studentSearchQuery.toLowerCase().trim();
+    return students.filter(s => {
+      const fullName = `${s.prefix || s.title || ''}${s.first_name || ''} ${s.last_name || ''}`.toLowerCase();
+      const stdId = String(s.student_id || '').toLowerCase();
+      const natId = String(s.national_id || s.citizen_id || '').toLowerCase();
+      const cls = String(s.class_level || s.grade || '').toLowerCase();
+      return fullName.includes(q) || stdId.includes(q) || natId.includes(q) || cls.includes(q);
+    }).slice(0, 40);
+  }, [students, studentSearchQuery]);
+
+  // รายการระดับชั้นทั้งหมดสำหรับ Batch Modal
+  const availableClassLevels = useMemo(() => {
+    const classes = Array.from(new Set(students.map(s => s.class_level || s.grade).filter(Boolean)));
+    return classes.sort();
+  }, [students]);
+
+  // รายชื่อนักเรียนในชั้นที่เลือกสำหรับ Batch
+  const batchStudents = useMemo(() => {
+    if (!batchClassLevel) return [];
+    return students.filter(s => (s.class_level || s.grade) === batchClassLevel);
+  }, [students, batchClassLevel]);
+
+  // เมื่อเปลี่ยนห้องใน Batch ให้เลือกเด็กทั้งหมดในห้องเป็นค่าเริ่มต้น
+  const handleBatchClassChange = (newClass: string) => {
+    setBatchClassLevel(newClass);
+    const inClass = students.filter(s => (s.class_level || s.grade) === newClass);
+    setBatchSelectedIds(new Set(inClass.map(s => s.id)));
+    setBatchSuccessResult(null);
+  };
+
+  // สลับเลือกทั้งหมด / ปลดทั้งหมด ใน Batch
+  const handleToggleSelectAllBatch = () => {
+    if (batchSelectedIds.size === batchStudents.length) {
+      setBatchSelectedIds(new Set());
+    } else {
+      setBatchSelectedIds(new Set(batchStudents.map(s => s.id)));
+    }
+  };
+
+  // สลับเลือกนักเรียนรายคนใน Batch
+  const handleToggleStudentBatch = (id: string) => {
+    setBatchSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // เปิด Batch Modal
+  const handleOpenBatchModal = () => {
+    const initialClass = batchClassLevel || availableClassLevels[0] || 'ป.6';
+    setBatchClassLevel(initialClass);
+    const inClass = students.filter(s => (s.class_level || s.grade) === initialClass);
+    setBatchSelectedIds(new Set(inClass.map(s => s.id)));
+    setBatchSuccessResult(null);
+    setIsBatchModalOpen(true);
+  };
+
+  // ยืนยันการออกหนังสือรับรองยกห้องเรียน
+  const handleBatchSubmit = async () => {
+    if (batchSelectedIds.size === 0) {
+      alert('กรุณาเลือกนักเรียนอย่างน้อย 1 คน');
+      return;
+    }
+
+    setBatchSubmitting(true);
+    try {
+      const startingSeq = settings?.start_certificate_seq || 1;
+      const nextSeq = await getAccurateNextSequence(supabase, 'certificates', currentYearBE, startingSeq);
+      const prefix = (settings?.certificate_doc_prefix || '').trim();
+      const schoolName = settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
+      const directorName = settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์';
+      const directorPos = settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา';
+      const todayIso = new Date().toISOString().split('T')[0];
+
+      const selectedStudentsList = batchStudents.filter(s => batchSelectedIds.has(s.id));
+      const newRecords = selectedStudentsList.map((s, idx) => {
+        const seq = nextSeq + idx;
+        const certNum = prefix ? `${prefix}${seq}/${currentYearBE}` : `${seq}/${currentYearBE}`;
+        const pfx = s.prefix || s.title || '';
+        const fullName = `${pfx}${s.first_name} ${s.last_name}`.trim();
+        const rawClass = s.class_level || s.grade || batchClassLevel;
+        const gradeRoom = rawClass 
+          ? (rawClass.startsWith('ป.') 
+              ? `ชั้นประถมศึกษาปีที่ ${rawClass.replace('ป.', '')}${s.room ? `/${s.room}` : ''}`
+              : rawClass.startsWith('อ.')
+                ? `ชั้นอนุบาล ${rawClass.replace('อ.', '')}${s.room ? `/${s.room}` : ''}`
+                : `ชั้น${rawClass}${s.room ? `/${s.room}` : ''}`)
+          : 'นักเรียน';
+        const idCard = s.national_id || s.citizen_id || s.student_id || '';
+        const content = generateTemplateContent('student', fullName, gradeRoom, idCard, '', batchPurpose);
+
+        return {
+          certificate_number: certNum,
+          doc_year: currentYearBE,
+          doc_sequence: seq,
+          certificate_type: 'student',
+          header_type: batchHeaderType,
+          subject: `หนังสือรับรองการเป็นนักเรียน - ${fullName}`,
+          recipient_type: 'student',
+          recipient_id: s.id,
+          recipient_name: fullName,
+          recipient_id_card: idCard,
+          recipient_position_or_grade: gradeRoom,
+          recipient_department: 'ฝ่ายวิชาการ',
+          certificate_date: todayIso,
+          content,
+          purpose: batchPurpose,
+          issuer: schoolName,
+          sign_name: directorName,
+          sign_position: directorPos,
+          status: 'approved',
+          is_reserved: false
+        };
+      });
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('certificates')
+        .insert(newRecords)
+        .select('*');
+
+      if (insertErr) throw insertErr;
+
+      // ส่งแจ้งเตือน Telegram (Non-blocking)
+      const firstNum = newRecords[0]?.certificate_number;
+      const lastNum = newRecords[newRecords.length - 1]?.certificate_number;
+      const batchMsg = `👥 <b>ออกหนังสือรับรองยกห้องเรียนสำเร็จ</b>\n` +
+        `• 🏫 <b>${escapeHtml(schoolName)}</b>\n` +
+        `• 📚 ชั้นเรียน: <b>${escapeHtml(batchClassLevel)}</b>\n` +
+        `• 👥 จำนวน: <b>${newRecords.length} คน</b>\n` +
+        `• 🔢 ช่วงเลขที่: <code>${firstNum}</code> ถึง <code>${lastNum}</code>\n` +
+        `• 🎯 วัตถุประสงค์: ${escapeHtml(batchPurpose)}`;
+      sendTelegramNotification(batchMsg).catch(e => console.warn('Telegram batch notify error:', e));
+
+      setBatchSuccessResult(inserted || newRecords);
+      fetchDocs();
+    } catch (err: any) {
+      console.error('Error batch issuing certificates:', err);
+      alert('เกิดข้อผิดพลาดในการออกหนังสือรับรองยกห้อง: ' + err.message);
+    } finally {
+      setBatchSubmitting(false);
+    }
+  };
+
+  // เปิดหน้าต่างสั่งพิมพ์ชุดใหญ่ (Bulk Print)
+  const handleOpenBulkPrint = (docs: any[]) => {
+    setBulkPrintDocs(docs);
+    setIsBulkPrintModalOpen(true);
   };
 
   // จัดการเมื่อเปลี่ยนประเภทหนังสือรับรอง
@@ -692,6 +883,15 @@ export default function Certificates() {
           </button>
 
           <button
+            onClick={handleOpenBatchModal}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+            title="ออกหนังสือรับรองนักเรียนยกห้องเรียน พร้อมรันเลขลำดับต่อเนื่องอัตโนมัติ"
+          >
+            <Users size={16} />
+            <span>ออกรับรองยกห้องเรียน</span>
+          </button>
+
+          <button
             onClick={handleOpenCreateModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
           >
@@ -944,7 +1144,41 @@ export default function Certificates() {
         onClose={() => setIsModalOpen(false)}
         title={editingDocId ? 'แก้ไขหนังสือรับรอง' : 'ออกเลข & จัดทำหนังสือรับรองใหม่'}
       >
-        <form onSubmit={handleSubmit} className="space-y-4 max-h-[80vh] overflow-y-auto px-1">
+        <div className="space-y-4 max-h-[85vh] overflow-y-auto px-1">
+          {/* Dual-Tab Control: Editor vs Live A4 Preview */}
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2.5 sticky top-0 bg-white z-10">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setFormTab('editor')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  formTab === 'editor'
+                    ? 'bg-white text-emerald-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                📝 กรอกข้อมูล / ร่างเนื้อหา
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormTab('preview')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  formTab === 'preview'
+                    ? 'bg-white text-emerald-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Eye size={14} />
+                <span>ดูตัวอย่าง A4 เสมือนจริง</span>
+              </button>
+            </div>
+            <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+              {formTab === 'preview' ? 'จำลองหน้ากระดาษ A4 เสมือนพิมพ์จริง' : 'จัดทำข้อมูลสารบรรณ'}
+            </span>
+          </div>
+
+          {formTab === 'editor' ? (
+            <form onSubmit={handleSubmit} className="space-y-4">
           {/* แถบเลือกรูปแบบหัวเอกสาร (มีครุฑ / ไม่มีครุฑ / ตราโรงเรียน) */}
           <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
@@ -1106,20 +1340,105 @@ export default function Certificates() {
             )}
 
             {formData.recipient_type === 'student' && (
-              <div className="space-y-1">
-                <label className="text-[10px] text-slate-600 font-bold">เลือกนักเรียนในโรงเรียน:</label>
-                <select
-                  onChange={e => handleStudentSelect(e.target.value)}
-                  className="w-full p-2 bg-white border border-emerald-200 rounded-xl text-xs font-bold text-slate-800"
-                  defaultValue=""
-                >
-                  <option value="" disabled>-- คลิกเลือกนักเรียนเพื่อเติมข้อมูลอัตโนมัติ --</option>
-                  {students.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.title}{s.first_name} {s.last_name} (ป.{s.grade}/{s.room})
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-2 p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200/80">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-emerald-900 font-bold flex items-center gap-1.5">
+                    <Search size={13} className="text-emerald-600" />
+                    <span>ค้นหานักเรียนอัจฉริยะ (รหัส / เลข ปชช. / ชื่อ-สกุล):</span>
+                  </label>
+                  {formData.recipient_name && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-300 px-2 py-0.5 rounded-md shadow-2xs">
+                      ✓ เลือกแล้ว: {formData.recipient_name}
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={studentSearchQuery}
+                    onChange={e => setStudentSearchQuery(e.target.value)}
+                    placeholder="พิมพ์ค้นหา เช่น 5402, 19302..., หรือชื่อนักเรียน..."
+                    className="w-full pl-8 pr-7 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  {studentSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setStudentSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* กล่องผลการค้นหาแบบด่วน */}
+                {studentSearchQuery.trim() && (
+                  <div className="max-h-48 overflow-y-auto bg-white border border-emerald-300 rounded-xl shadow-lg divide-y divide-slate-100 z-10">
+                    {filteredStudents.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400 font-medium">
+                        ไม่พบข้อมูลนักเรียนที่ตรงกับ "{studentSearchQuery}"
+                      </div>
+                    ) : (
+                      filteredStudents.map(s => {
+                        const pfx = s.prefix || s.title || '';
+                        const fullName = `${pfx}${s.first_name} ${s.last_name}`.trim();
+                        const cls = s.class_level || s.grade || '';
+                        const clsDisplay = cls ? `${cls}${s.room ? `/${s.room}` : ''}` : '-';
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              handleStudentSelect(s.id);
+                              setStudentSearchQuery('');
+                            }}
+                            className="w-full p-2.5 text-left hover:bg-emerald-50/80 transition-colors flex items-center justify-between text-xs group cursor-pointer"
+                          >
+                            <div>
+                              <div className="font-bold text-slate-800 group-hover:text-emerald-700">
+                                {fullName}
+                              </div>
+                              <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                  รหัส: {s.student_id || '-'}
+                                </span>
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                  ปชช: {s.national_id || s.citizen_id || '-'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                              {clsDisplay}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* ตัวเลือกลิสต์สำรองตามห้อง */}
+                <div className="flex items-center gap-2 pt-0.5">
+                  <span className="text-[10px] text-slate-500 font-medium shrink-0">หรือเลือกจากรายชื่อ:</span>
+                  <select
+                    onChange={e => handleStudentSelect(e.target.value)}
+                    value={formData.recipient_id || ''}
+                    className="flex-1 p-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-bold text-slate-700"
+                  >
+                    <option value="" disabled>-- คลิกเลือกนักเรียน --</option>
+                    {students.map(s => {
+                      const pfx = s.prefix || s.title || '';
+                      const cls = s.class_level || s.grade || '';
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {pfx}{s.first_name} {s.last_name} ({cls}{s.room ? `/${s.room}` : ''} | รหัส: {s.student_id || '-'})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
               </div>
             )}
 
@@ -1256,26 +1575,163 @@ export default function Certificates() {
             </div>
           </div>
 
-          {/* ปุ่มบันทึก */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          {/* ปุ่มควบคุมในแท็บกรอกข้อมูล */}
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              onClick={() => setFormTab('preview')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold text-xs hover:bg-emerald-100 transition-all cursor-pointer"
             >
-              ยกเลิก
+              <Eye size={14} />
+              <span>ดูตัวอย่าง A4 (Live Preview)</span>
             </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
-            >
-              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกหนังสือรับรอง'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+              >
+                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกหนังสือรับรอง'}</span>
+              </button>
+            </div>
           </div>
         </form>
-      </Modal>
+      ) : (
+        /* --- แท็บที่ 2: ดูตัวอย่าง A4 เสมือนจริง (Live A4 Preview Sheet) --- */
+        <div className="space-y-4">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-700">จำลองการแสดงผล A4 เสมือนจริง:</span>
+              <span className="text-emerald-700 font-bold">
+                {formData.header_type === 'garuda' 
+                  ? '🦅 มีตราครุฑ (3 ซม.)' 
+                  : formData.header_type === 'school_logo' 
+                    ? '🏫 ตราสัญลักษณ์โรงเรียน' 
+                    : '📄 กระดาษมีหัวสำเร็จรูป (เว้น 3 ซม.)'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFormTab('editor')}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-bold hover:bg-slate-50 flex items-center gap-1 cursor-pointer"
+            >
+              📝 กลับไปแก้ไขข้อมูล
+            </button>
+          </div>
+
+          {/* แผ่นกระดาษ A4 จำลอง */}
+          <div className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm max-h-[60vh] overflow-y-auto font-sarabun text-slate-900 leading-relaxed text-[15pt]">
+            {/* ตราครุฑ / โลโก้ / ระยะเว้น */}
+            {formData.header_type === 'garuda' ? (
+              <div className="flex justify-center mb-3">
+                <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
+              </div>
+            ) : formData.header_type === 'school_logo' && settings?.school_logo_url ? (
+              <div className="flex justify-center mb-3">
+                <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
+              </div>
+            ) : (
+              <div className="h-[3cm] mb-3 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs font-sans">
+                [เว้นระยะ 3 ซม. สำหรับกระดาษหัวครุฑพิมพ์สำเร็จรูป]
+              </div>
+            )}
+
+            {/* ชื่อหนังสือรับรอง */}
+            <div className="text-center font-bold text-[26pt] leading-tight mb-2">
+              หนังสือรับรอง
+            </div>
+
+            {/* เลขที่ */}
+            <div className="text-center font-bold text-[16pt] mb-6">
+              เลขที่ {formData.certificate_number || '[ระบบจะออกเลขอัตโนมัติเมื่อกดบันทึก]'}
+            </div>
+
+            {/* คำขึ้นต้น */}
+            <div className="mb-4 indent-8 text-[16pt] text-justify">
+              หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{formData.recipient_name || '[ชื่อ-นามสกุล]'}</strong>
+              {formData.recipient_id_card ? ` เลขประจำตัวประชาชน ${formData.recipient_id_card}` : ''}
+              {formData.recipient_position_or_grade ? ` ตำแหน่ง/ชั้นเรียน ${formData.recipient_position_or_grade}` : ''}
+              {formData.recipient_department ? ` สังกัด${formData.recipient_department}` : ''} {formData.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}
+            </div>
+
+            {/* ข้อความรับรองรายละเอียด */}
+            <div className="mb-6 indent-8 text-[16pt] text-justify leading-relaxed whitespace-pre-wrap">
+              {formData.content || '[ยังไม่มีเนื้อหาหนังสือรับรอง]'}
+            </div>
+
+            {/* วัตถุประสงค์ (ถ้ามี) */}
+            {formData.purpose && (
+              <div className="mb-6 indent-8 text-[16pt] text-justify">
+                ออกให้ ณ {formatThaiFullDate(formData.certificate_date)} {formData.purpose}
+              </div>
+            )}
+
+            {/* วันที่ให้ไว้ */}
+            <div className="text-center mb-10 text-[16pt]">
+              ให้ไว้ ณ {formatThaiFullDate(formData.certificate_date)}
+            </div>
+
+            {/* กล่องลงนาม ผอ. */}
+            <div className="flex justify-end pr-8 mb-6">
+              <div className="text-center min-w-[200px]">
+                <div className="h-16 flex items-center justify-center">
+                  {settings?.director_signature_url ? (
+                    <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-14 object-contain" />
+                  ) : (
+                    <span className="text-slate-300 text-xs italic font-sans">[ลงนาม]</span>
+                  )}
+                </div>
+                <div className="font-bold text-[16pt]">({formData.sign_name || settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์'})</div>
+                <div className="text-[14pt] text-slate-700">{formData.sign_position || settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา'}</div>
+              </div>
+            </div>
+
+            {/* ส่วนท้าย QR Code */}
+            <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans">
+              <div className="flex items-center gap-2">
+                <QrCode size={36} className="text-slate-700" />
+                <div>
+                  <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
+                  <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณโรงเรียนบ้านควนโคกยา</div>
+                </div>
+              </div>
+              <div className="text-right font-mono text-[9pt]">
+                DOC-REF: PREVIEW | {formData.certificate_number || 'AUTO-SEQ'}
+              </div>
+            </div>
+          </div>
+
+          {/* ปุ่มควบคุมในแท็บตัวอย่าง */}
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setFormTab('editor')}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+            >
+              📝 กลับไปแก้ไขข้อมูล
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSaving}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 cursor-pointer"
+            >
+              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              <span>{isSaving ? 'กำลังบันทึก...' : 'ยืนยันและบันทึกหนังสือรับรอง'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  </Modal>
 
       {/* ========================================================================= */}
       {/* MODAL 2: แนบไฟล์สแกนหนังสือรับรอง                                          */}
@@ -1524,6 +1980,340 @@ export default function Certificates() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: ออกหนังสือรับรองแบบยกห้องเรียน (Batch Classroom Issuance)          */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        title="ออกหนังสือรับรองนักเรียนยกห้องเรียน (Batch Classroom Issuance)"
+      >
+        <div className="space-y-4 max-h-[85vh] overflow-y-auto px-1">
+          {batchSuccessResult ? (
+            /* ผลลัพธ์เมื่อออกชุดหนังสือรับรองสำเร็จ */
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2">
+                <div className="flex items-center gap-2 font-black text-base text-emerald-800">
+                  <CheckCircle size={22} className="text-emerald-600 shrink-0" />
+                  <span>ออกหนังสือรับรองยกห้องเรียนสำเร็จเรียบร้อยแล้ว!</span>
+                </div>
+                <p className="text-xs text-emerald-700">
+                  ระบบได้ออกเลขหนังสือรับรอง บันทึกลงฐานข้อมูล และแจ้งเตือนผ่าน Telegram แล้วจำนวน{' '}
+                  <strong>{batchSuccessResult.length} ฉบับ</strong>
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-2 text-xs">
+                  <span className="px-2.5 py-1 bg-white border border-emerald-200 rounded-lg font-mono font-bold text-emerald-800">
+                    เลขที่เริ่มต้น: {batchSuccessResult[0]?.certificate_number}
+                  </span>
+                  <span className="text-emerald-600 font-bold">➔</span>
+                  <span className="px-2.5 py-1 bg-white border border-emerald-200 rounded-lg font-mono font-bold text-emerald-800">
+                    เลขที่สิ้นสุด: {batchSuccessResult[batchSuccessResult.length - 1]?.certificate_number}
+                  </span>
+                </div>
+              </div>
+
+              {/* ปุ่มสั่งพิมพ์ชุดเอกสารทั้งหมด (Bulk Print) */}
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  ปิดหน้าต่าง
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenBulkPrint(batchSuccessResult)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs shadow-md shadow-indigo-600/20 cursor-pointer"
+                >
+                  <Printer size={16} />
+                  <span>สั่งพิมพ์ชุดเอกสารทั้งหมด ({batchSuccessResult.length} ฉบับ)</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* ฟอร์มเลือกห้องและนักเรียน */
+            <div className="space-y-4">
+              {/* แถวตั้งค่าชั้นเรียน และหัวกระดาษ */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                    1. เลือกระดับชั้นเรียน *
+                  </label>
+                  <select
+                    value={batchClassLevel}
+                    onChange={e => handleBatchClassChange(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl font-bold text-indigo-900 text-xs focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    {availableClassLevels.map(cls => (
+                      <option key={cls} value={cls}>
+                        {cls.startsWith('ป.') ? `ชั้นประถมศึกษาปีที่ ${cls.replace('ป.', '')}` : cls.startsWith('อ.') ? `ชั้นอนุบาล ${cls.replace('อ.', '')}` : cls}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                    2. รูปแบบหัวเอกสาร
+                  </label>
+                  <select
+                    value={batchHeaderType}
+                    onChange={e => setBatchHeaderType(e.target.value as any)}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-xs"
+                  >
+                    <option value="garuda">🦅 มีตราครุฑ 3 ซม. (พิมพ์ลงกระดาษ A4 เปล่า)</option>
+                    <option value="no_garuda">📄 ไม่มีตราครุฑ (พิมพ์ลงกระดาษมีหัวสำเร็จรูป)</option>
+                    <option value="school_logo">🏫 ตราสัญลักษณ์โรงเรียน</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* วัตถุประสงค์ในการออกหนังสือรับรอง */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  3. วัตถุประสงค์ในการออกหนังสือรับรอง
+                </label>
+                <input
+                  type="text"
+                  value={batchPurpose}
+                  onChange={e => setBatchPurpose(e.target.value)}
+                  placeholder="เช่น เพื่อใช้เป็นหลักฐานในการศึกษาต่อ / สมัครเข้าเรียน"
+                  className="w-full p-2.5 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-xs"
+                />
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    'เพื่อใช้เป็นหลักฐานในการศึกษาต่อ / สมัครเข้าเรียน',
+                    'เพื่อใช้เป็นหลักฐานในการขอรับทุนการศึกษา',
+                    'เพื่อรับรองความประพฤติและผลการเรียน'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setBatchPurpose(preset)}
+                      className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-medium transition-colors cursor-pointer"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ตารางเลือกรายชื่อนักเรียนในห้อง */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleToggleSelectAllBatch}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+                    >
+                      {batchSelectedIds.size === batchStudents.length ? (
+                        <>
+                          <CheckSquare size={14} />
+                          <span>ปลดเลือกทั้งหมด</span>
+                        </>
+                      ) : (
+                        <>
+                          <Square size={14} />
+                          <span>เลือกทั้งหมด ({batchStudents.length} คน)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <span className="text-slate-500 font-bold">
+                    เลือกแล้ว: <strong className="text-indigo-600">{batchSelectedIds.size}</strong> จาก {batchStudents.length} คน
+                  </span>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
+                  {batchStudents.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      ไม่พบข้อมูลนักเรียนในชั้นเรียนที่เลือก
+                    </div>
+                  ) : (
+                    batchStudents.map(s => {
+                      const isSelected = batchSelectedIds.has(s.id);
+                      const pfx = s.prefix || s.title || '';
+                      const fullName = `${pfx}${s.first_name} ${s.last_name}`.trim();
+                      return (
+                        <label
+                          key={s.id}
+                          className={`flex items-center justify-between p-2.5 text-xs cursor-pointer transition-colors ${
+                            isSelected ? 'bg-indigo-50/60 font-bold text-indigo-900' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleStudentBatch(s.id)}
+                              className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <div>
+                              <span>{fullName}</span>
+                              <span className="text-[10px] text-slate-400 font-mono ml-2">
+                                (รหัส: {s.student_id || '-'})
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono text-slate-500">
+                            {s.national_id || s.citizen_id || '-'}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* ปุ่มยืนยันออกหนังสือรับรองยกห้อง */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchSubmit}
+                  disabled={batchSubmitting || batchSelectedIds.size === 0}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {batchSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+                  <span>
+                    {batchSubmitting 
+                      ? 'กำลังรันเลขและบันทึก...' 
+                      : `ยืนยันออกหนังสือรับรองทั้งห้อง (${batchSelectedIds.size} ฉบับ)`}
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL 6: พิมพ์ชุดหนังสือรับรองทั้งหมด (Continuous Bulk Print Modal)         */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isBulkPrintModalOpen}
+        onClose={() => setIsBulkPrintModalOpen(false)}
+        title={`พิมพ์ชุดหนังสือรับรอง (${bulkPrintDocs.length} ฉบับ)`}
+      >
+        <div className="space-y-4 max-h-[85vh] overflow-y-auto px-1">
+          {/* แถบควบคุมก่อนพิมพ์ */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs sticky top-0 bg-white z-10">
+            <div>
+              <span className="font-bold text-slate-800">ชุดเอกสารพร้อมสั่งพิมพ์: </span>
+              <span className="text-indigo-700 font-bold">{bulkPrintDocs.length} ฉบับต่อเนื่อง</span>
+              <span className="text-[10px] text-slate-400 block sm:inline sm:ml-2">
+                (ระบบแยก 1 แผ่น A4 ต่อ 1 คนอัตโนมัติ)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handlePrintTrigger}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-xs cursor-pointer"
+            >
+              <Printer size={15} />
+              <span>สั่งพิมพ์ทั้งชุดทันที</span>
+            </button>
+          </div>
+
+          {/* รายการแผ่นกระดาษ A4 ต่อเนื่อง */}
+          <div className="space-y-6">
+            {bulkPrintDocs.map((doc, idx) => (
+              <div
+                key={doc.id || idx}
+                className="bg-white p-8 sm:p-12 border border-slate-300 rounded-lg shadow-sm font-sarabun text-slate-900 leading-relaxed text-[15pt] print:break-after-page print:page-break-after-always print:p-0 print:border-none print:shadow-none"
+              >
+                {/* ตราครุฑ / โลโก้ / เว้นระยะ */}
+                {doc.header_type === 'garuda' ? (
+                  <div className="flex justify-center mb-3">
+                    <img src={garuda3cm} alt="ตราครุฑ" className="w-[3cm] h-auto object-contain" />
+                  </div>
+                ) : doc.header_type === 'school_logo' && settings?.school_logo_url ? (
+                  <div className="flex justify-center mb-3">
+                    <img src={settings.school_logo_url} alt="ตราโรงเรียน" className="w-[2.5cm] h-auto object-contain" />
+                  </div>
+                ) : (
+                  <div className="h-[3cm] mb-3 flex items-center justify-center border border-dashed border-amber-300 bg-amber-50/50 rounded-lg text-amber-700 text-xs print:border-none print:bg-transparent print:text-transparent font-sans">
+                    [เว้นระยะสำหรับกระดาษที่มีหัวครุฑพิมพ์สำเร็จรูป]
+                  </div>
+                )}
+
+                {/* ชื่อหนังสือรับรอง */}
+                <div className="text-center font-bold text-[26pt] leading-tight mb-2">
+                  หนังสือรับรอง
+                </div>
+
+                {/* เลขที่ */}
+                <div className="text-center font-bold text-[16pt] mb-6">
+                  เลขที่ {doc.certificate_number}
+                </div>
+
+                {/* คำขึ้นต้น */}
+                <div className="mb-4 indent-8 text-[16pt] text-justify">
+                  หนังสือฉบับนี้ให้ไว้เพื่อรับรองว่า <strong className="font-bold">{doc.recipient_name}</strong>
+                  {doc.recipient_id_card ? ` เลขประจำตัวประชาชน ${doc.recipient_id_card}` : ''}
+                  {doc.recipient_position_or_grade ? ` ตำแหน่ง/ชั้นเรียน ${doc.recipient_position_or_grade}` : ''}
+                  {doc.recipient_department ? ` สังกัด${doc.recipient_department}` : ''} {doc.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา'}
+                </div>
+
+                {/* ข้อความรับรองรายละเอียด */}
+                <div className="mb-6 indent-8 text-[16pt] text-justify leading-relaxed whitespace-pre-wrap">
+                  {doc.content}
+                </div>
+
+                {/* วัตถุประสงค์ (ถ้ามี) */}
+                {doc.purpose && (
+                  <div className="mb-6 indent-8 text-[16pt] text-justify">
+                    ออกให้ ณ {formatThaiFullDate(doc.certificate_date)} {doc.purpose}
+                  </div>
+                )}
+
+                {/* วันที่ให้ไว้ */}
+                <div className="text-center mb-10 text-[16pt]">
+                  ให้ไว้ ณ {formatThaiFullDate(doc.certificate_date)}
+                </div>
+
+                {/* กล่องลงนาม ผอ. */}
+                <div className="flex justify-end pr-8 mb-6">
+                  <div className="text-center min-w-[200px]">
+                    <div className="h-16 flex items-center justify-center">
+                      {settings?.director_signature_url ? (
+                        <img src={settings.director_signature_url} alt="ลายเซ็น" className="max-h-14 object-contain" />
+                      ) : (
+                        <span className="text-slate-300 text-xs italic font-sans">[ลงนาม]</span>
+                      )}
+                    </div>
+                    <div className="font-bold text-[16pt]">({doc.sign_name || settings?.director_name || 'นายเอกคณิต สิทธิศักดิ์'})</div>
+                    <div className="text-[14pt] text-slate-700">{doc.sign_position || settings?.director_position || 'ผู้อำนวยการโรงเรียนบ้านควนโคกยา'}</div>
+                  </div>
+                </div>
+
+                {/* ท้ายเอกสาร QR Code */}
+                <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans">
+                  <div className="flex items-center gap-2">
+                    <QrCode size={36} className="text-slate-700" />
+                    <div>
+                      <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
+                      <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณโรงเรียนบ้านควนโคกยา</div>
+                    </div>
+                  </div>
+                  <div className="text-right font-mono text-[9pt]">
+                    DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'BULK'} | {doc.certificate_number}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </Modal>
     </div>
   );
