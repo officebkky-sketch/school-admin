@@ -274,7 +274,7 @@ function App() {
   }
 
   if (showDocVerifyPortal) {
-    return <PublicDocVerifyPortal onBack={() => setShowDocVerifyPortal(false)} />;
+    return <PublicDocVerifyPortal />;
   }
 
   if (!user) {
