@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { supabase, getSchoolProfiles, getActiveSchoolProfile, initSupabase, type SchoolProfile } from '../lib/supabase';
-import { LogIn, UserPlus, Loader2, ArrowLeft, Settings, School, GraduationCap } from 'lucide-react';
+import { LogIn, UserPlus, Loader2, ArrowLeft, Settings, School, GraduationCap, ShieldCheck } from 'lucide-react';
 import ForgotPasswordView from '../components/ForgotPasswordView';
 
 interface LoginProps {
   onManageSchools: () => void;
   onOpenGradePortal?: () => void;
+  onOpenDocVerify?: () => void;
 }
 
-export default function Login({ onManageSchools, onOpenGradePortal }: LoginProps) {
+export default function Login({ onManageSchools, onOpenGradePortal, onOpenDocVerify }: LoginProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -271,16 +272,27 @@ export default function Login({ onManageSchools, onOpenGradePortal }: LoginProps
               {isSignUp ? 'สร้างบัญชีผู้ใช้' : 'เข้าสู่ระบบ'}
             </button>
 
-            {/* ปุ่มเข้าสู่ระบบประกาศผลการเรียนสำหรับนักเรียนและผู้ปกครอง */}
-            {!isSignUp && onOpenGradePortal && (
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={onOpenGradePortal}
-                  className="w-full py-3.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl font-black text-sm border border-emerald-200 transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-95"
-                >
-                  <GraduationCap size={18} /> ตรวจสอบผลการเรียน (สำหรับนักเรียน/ผู้ปกครอง)
-                </button>
+            {/* ปุ่มบริการสาธารณะสำหรับบุคคลภายนอก/นักเรียน/ผู้ปกครอง */}
+            {!isSignUp && (
+              <div className="pt-2 space-y-2">
+                {onOpenGradePortal && (
+                  <button
+                    type="button"
+                    onClick={onOpenGradePortal}
+                    className="w-full py-3.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl font-black text-sm border border-emerald-200 transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <GraduationCap size={18} /> ตรวจสอบผลการเรียน (สำหรับนักเรียน/ผู้ปกครอง)
+                  </button>
+                )}
+                {onOpenDocVerify && (
+                  <button
+                    type="button"
+                    onClick={onOpenDocVerify}
+                    className="w-full py-3 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs border border-slate-200 transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <ShieldCheck size={16} className="text-emerald-600" /> ตรวจสอบความถูกต้องของเอกสารราชการ (Verify)
+                  </button>
+                )}
               </div>
             )}
           </form>

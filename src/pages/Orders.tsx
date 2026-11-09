@@ -1444,9 +1444,7 @@ ${groups.map(g => `<duty name="${g}">
       {/* Modal: QR Code ตรวจสอบเอกสารคำสั่ง */}
       <Modal isOpen={isQrModalOpen} onClose={() => setIsQrModalOpen(false)} title="📱 QR Code ตรวจสอบเอกสารคำสั่ง">
         {selectedDocForQr && (() => {
-          const verifyUrl = selectedDocForQr.file_url 
-            ? selectedDocForQr.file_url 
-            : `${window.location.origin}/#/orders?verify=${encodeURIComponent(selectedDocForQr.id || selectedDocForQr.order_number)}`;
+          const verifyUrl = `${window.location.origin}/?portal=verify&type=order&id=${encodeURIComponent(selectedDocForQr.id || '')}&num=${encodeURIComponent(selectedDocForQr.order_number || '')}`;
           const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(verifyUrl)}&format=png`;
 
           return (

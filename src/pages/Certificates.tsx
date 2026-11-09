@@ -412,6 +412,8 @@ export default function Certificates() {
     }
   ) => {
     const schoolName = settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
+    const cleanSchool = schoolName.replace(/^โรงเรียน\s*/, '');
+    const cleanGrade = (gradeRoom || '').replace(/^(?:ระดับชั้น|ชั้น)\s*/, '');
     const incStatus = overrides?.includeStatus !== undefined ? overrides.includeStatus : pp7IncludeStudentStatus;
     const incGrade = overrides?.includeGrade !== undefined ? overrides.includeGrade : pp7IncludeGradeLevel;
     const incConduct = overrides?.includeConduct !== undefined ? overrides.includeConduct : pp7IncludeConduct;
@@ -425,8 +427,8 @@ export default function Certificates() {
     const score = overrides?.score !== undefined ? overrides.score : pp7GpaScore;
 
     const clauses: string[] = [];
-    if (incStatus) clauses.push(`เป็นนักเรียนโรงเรียน${schoolName} จริง`);
-    if (incGrade) clauses.push(`กำลังศึกษาอยู่ระดับชั้น${gradeRoom || 'ประถมศึกษาปีที่ ...'}`);
+    if (incStatus) clauses.push(`เป็นนักเรียนโรงเรียน${cleanSchool} จริง`);
+    if (incGrade) clauses.push(`กำลังศึกษาอยู่ระดับชั้น${cleanGrade || 'ประถมศึกษาปีที่ ...'}`);
     if (incConduct) clauses.push(`ความประพฤติ ${conduct || 'เรียบร้อย'}`);
     if (incHealth) clauses.push(`สุขภาพ ${health || 'แข็งแรง'}`);
     if (incTalent) clauses.push(`ความสามารถพิเศษ ${talent || '-'}`);
@@ -643,8 +645,12 @@ export default function Certificates() {
     for (const line of lines) {
       if (line.startsWith('มีสถานภาพทางการเรียน')) continue;
       const match = line.match(/^(\d+)[\.\)]\s*(.*)$/);
-      const text = match ? match[2] : line;
+      let text = match ? match[2] : line;
       const num = match ? match[1] : (clauses.length + 1).toString();
+
+      // ป้องกันและตัดคำซ้ำซ้อนจากข้อมูลเดิม เช่น "เป็นนักเรียนโรงเรียนโรงเรียน..." หรือ "กำลังศึกษาอยู่ระดับชั้นชั้น..."
+      text = text.replace(/เป็นนักเรียนโรงเรียน(?:โรงเรียน)+/g, 'เป็นนักเรียนโรงเรียน')
+                 .replace(/กำลังศึกษาอยู่ระดับชั้น(?:ระดับชั้น|ชั้น)+/g, 'กำลังศึกษาอยู่ระดับชั้น');
 
       const gpaMatch = text.match(/มีผลการเรียนเฉลี่ย\s*(\d+)?\s*ภาคเรียน\s*([\d\.]+)?/);
       if (gpaMatch) {
@@ -723,6 +729,7 @@ export default function Certificates() {
     const showQr = options?.showQr ?? true;
     const isPp7 = isPp7Doc(doc);
     const schoolName = doc.issuer || settings?.school_name || 'โรงเรียนบ้านควนโคกยา';
+    const cleanSchool = schoolName.replace(/^โรงเรียน\s*/, '');
     const issueParts = getThaiDateParts(doc.certificate_date);
 
     if (isPp7) {
@@ -766,55 +773,63 @@ export default function Certificates() {
           <div className="space-y-1.5 mb-3 text-[15pt]">
             {/* บรรทัด 1: โรงเรียน */}
             <div className="flex items-baseline w-full">
-              <span className="shrink-0 font-medium">โรงเรียน</span>
-              <span className="font-bold px-2">{schoolName}</span>
-              <span className="grow border-b border-dotted border-black mb-1"></span>
+              <span className="shrink-0 font-medium mr-2">โรงเรียน</span>
+              <span className="grow border-b border-dotted border-black inline-flex items-baseline pb-0.5">
+                <span className="font-bold px-2">{cleanSchool}</span>
+              </span>
             </div>
 
             {/* บรรทัด 2: อำเภอ/เขต ... จังหวัด ... */}
             <div className="flex items-baseline w-full">
-              <span className="shrink-0 font-medium">อำเภอ/เขต</span>
-              <span className="font-bold px-2 min-w-[120px]">{pp7.district}</span>
-              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
-              <span className="shrink-0 font-medium ml-4">จังหวัด</span>
-              <span className="font-bold px-2 min-w-[120px]">{pp7.province}</span>
-              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
+              <span className="shrink-0 font-medium mr-2">อำเภอ/เขต</span>
+              <span className="grow border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[120px]">
+                <span className="font-bold px-2">{pp7.district}</span>
+              </span>
+              <span className="shrink-0 font-medium ml-4 mr-2">จังหวัด</span>
+              <span className="grow border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[120px]">
+                <span className="font-bold px-2">{pp7.province}</span>
+              </span>
             </div>
 
             {/* บรรทัด 3: ขอรับรองว่า */}
             <div className="flex items-baseline w-full">
-              <span className="shrink-0 font-medium">ขอรับรองว่า</span>
-              <span className="font-bold px-2">{doc.recipient_name || '[ชื่อ-นามสกุลนักเรียน]'}</span>
-              <span className="grow border-b border-dotted border-black mb-1"></span>
+              <span className="shrink-0 font-medium mr-2">ขอรับรองว่า</span>
+              <span className="grow border-b border-dotted border-black inline-flex items-baseline pb-0.5">
+                <span className="font-bold px-2">{doc.recipient_name || '[ชื่อ-นามสกุลนักเรียน]'}</span>
+              </span>
             </div>
 
             {/* บรรทัด 4: เลขประจำตัว ... เกิดวันที่ .. เดือน ... พ.ศ. ... */}
             <div className="flex items-baseline w-full">
-              <span className="shrink-0 font-medium">เลขประจำตัว</span>
-              <span className="font-bold px-3 min-w-[80px]">{pp7.studentId || '-'}</span>
-              <span className="shrink-0 font-medium ml-3">เกิดวันที่</span>
-              <span className="font-bold px-2 min-w-[32px] text-center border-b border-dotted border-black mb-1">
-                {pp7.birthParts.day || '-'}
+              <span className="shrink-0 font-medium mr-2">เลขประจำตัว</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[90px] justify-center">
+                <span className="font-bold px-2 text-center">{pp7.studentId || '-'}</span>
               </span>
-              <span className="shrink-0 font-medium ml-2">เดือน</span>
-              <span className="font-bold px-2 min-w-[76px] text-center border-b border-dotted border-black mb-1">
-                {pp7.birthParts.month || '-'}
+              <span className="shrink-0 font-medium ml-4 mr-2">เกิดวันที่</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[45px] justify-center">
+                <span className="font-bold px-2 text-center">{pp7.birthParts.day || '-'}</span>
               </span>
-              <span className="shrink-0 font-medium ml-2">พ.ศ.</span>
-              <span className="font-bold px-2 min-w-[50px] text-center border-b border-dotted border-black mb-1">
-                {pp7.birthParts.year || '-'}
+              <span className="shrink-0 font-medium ml-3 mr-2">เดือน</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[95px] justify-center">
+                <span className="font-bold px-2 text-center">{pp7.birthParts.month || '-'}</span>
               </span>
-              <span className="grow border-b border-dotted border-black mb-1 ml-1 min-w-[20px]"></span>
+              <span className="shrink-0 font-medium ml-3 mr-2">พ.ศ.</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[65px] justify-center">
+                <span className="font-bold px-2 text-center">{pp7.birthParts.year || '-'}</span>
+              </span>
+              <span className="grow border-b border-dotted border-black pb-0.5 min-w-[20px]"></span>
             </div>
 
             {/* บรรทัด 5: ชื่อ-ชื่อสกุลบิดา ... ชื่อ-ชื่อสกุลมารดา ... */}
             <div className="flex items-baseline w-full">
-              <span className="shrink-0 font-medium">ชื่อ-ชื่อสกุลบิดา</span>
-              <span className="font-bold px-2 min-w-[140px]">{pp7.fatherName || '-'}</span>
-              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
-              <span className="shrink-0 font-medium ml-3">ชื่อ-ชื่อสกุลมารดา</span>
-              <span className="font-bold px-2 min-w-[140px]">{pp7.motherName || '-'}</span>
-              <span className="grow border-b border-dotted border-black mb-1 min-w-[30px]"></span>
+              <span className="shrink-0 font-medium mr-2">ชื่อ-ชื่อสกุลบิดา</span>
+              <span className="grow border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[140px]">
+                <span className="font-bold px-2">{pp7.fatherName || '-'}</span>
+              </span>
+              <span className="shrink-0 font-medium ml-4 mr-2">ชื่อ-ชื่อสกุลมารดา</span>
+              <span className="grow border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[140px]">
+                <span className="font-bold px-2">{pp7.motherName || '-'}</span>
+              </span>
             </div>
           </div>
 
@@ -845,19 +860,19 @@ export default function Certificates() {
           {/* บรรทัดวันที่ออกให้ (ฝั่งขวา) */}
           <div className="flex justify-end mb-4 text-[15pt]">
             <div className="flex items-baseline">
-              <span className="shrink-0 font-medium">ออกให้ ณ วันที่</span>
-              <span className="font-bold px-2 min-w-[30px] text-center border-b border-dotted border-black mb-1">
-                {issueParts.day || '-'}
+              <span className="shrink-0 font-medium mr-2">ออกให้ ณ วันที่</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[45px] justify-center">
+                <span className="font-bold px-2 text-center">{issueParts.day || '-'}</span>
               </span>
-              <span className="shrink-0 font-medium ml-2">เดือน</span>
-              <span className="font-bold px-2 min-w-[76px] text-center border-b border-dotted border-black mb-1">
-                {issueParts.month || '-'}
+              <span className="shrink-0 font-medium ml-3 mr-2">เดือน</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[100px] justify-center">
+                <span className="font-bold px-2 text-center">{issueParts.month || '-'}</span>
               </span>
-              <span className="shrink-0 font-medium ml-2">พ.ศ.</span>
-              <span className="font-bold px-2 min-w-[50px] text-center border-b border-dotted border-black mb-1">
-                {issueParts.year || '-'}
+              <span className="shrink-0 font-medium ml-3 mr-2">พ.ศ.</span>
+              <span className="border-b border-dotted border-black inline-flex items-baseline pb-0.5 min-w-[65px] justify-center">
+                <span className="font-bold px-2 text-center">{issueParts.year || '-'}</span>
               </span>
-              <span className="w-10 border-b border-dotted border-black mb-1 ml-1"></span>
+              <span className="w-12 border-b border-dotted border-black pb-0.5 ml-1"></span>
             </div>
           </div>
 
@@ -905,20 +920,24 @@ export default function Certificates() {
           </div>
 
           {/* QR Code ตรวจสอบเอกสาร (ถ้าเปิดใช้งาน) */}
-          {showQr && (
-            <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-[9pt] text-slate-500 font-sans print:hidden">
-              <div className="flex items-center gap-2">
-                <QrCode size={28} className="text-slate-700" />
-                <div>
-                  <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
-                  <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณ {schoolName}</div>
+          {showQr && (() => {
+            const verifyUrl = `${window.location.origin}/?portal=verify&type=certificate&id=${encodeURIComponent(doc.id || '')}&num=${encodeURIComponent(doc.certificate_number || '')}`;
+            const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(verifyUrl)}&format=svg`;
+            return (
+              <div className="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-[9pt] text-slate-500 font-sans print:flex">
+                <div className="flex items-center gap-2">
+                  <img src={qrImgUrl} alt="QR Code" className="w-10 h-10 object-contain rounded border border-slate-200" />
+                  <div>
+                    <div className="font-bold text-slate-800 text-[10px]">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
+                    <div className="text-[9px]">สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณ {schoolName}</div>
+                  </div>
+                </div>
+                <div className="text-right font-mono text-[8pt]">
+                  DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'PREVIEW'} | {doc.certificate_number || 'AUTO'}
                 </div>
               </div>
-              <div className="text-right font-mono text-[8pt]">
-                DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'PREVIEW'} | {doc.certificate_number || 'AUTO'}
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       );
     }
@@ -993,20 +1012,24 @@ export default function Certificates() {
         </div>
 
         {/* ท้ายเอกสาร: QR Code ตรวจสอบความถูกต้อง */}
-        {showQr && (
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans print:hidden">
-            <div className="flex items-center gap-2">
-              <QrCode size={36} className="text-slate-700" />
-              <div>
-                <div className="font-bold text-slate-800">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
-                <div>สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณ {schoolName}</div>
+        {showQr && (() => {
+          const verifyUrl = `${window.location.origin}/?portal=verify&type=certificate&id=${encodeURIComponent(doc.id || '')}&num=${encodeURIComponent(doc.certificate_number || '')}`;
+          const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(verifyUrl)}&format=svg`;
+          return (
+            <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-[10pt] text-slate-500 font-sans print:flex">
+              <div className="flex items-center gap-2">
+                <img src={qrImgUrl} alt="QR Code" className="w-10 h-10 object-contain rounded border border-slate-200" />
+                <div>
+                  <div className="font-bold text-slate-800 text-[11px]">ตรวจสอบความถูกต้องของเอกสารราชการฉบับนี้</div>
+                  <div className="text-[10px]">สแกน QR Code หรือตรวจสอบผ่านระบบงานสารบรรณ {schoolName}</div>
+                </div>
+              </div>
+              <div className="text-right font-mono text-[9pt]">
+                DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'PREVIEW'} | {doc.certificate_number || 'AUTO-SEQ'}
               </div>
             </div>
-            <div className="text-right font-mono text-[9pt]">
-              DOC-REF: {doc.id ? doc.id.slice(0, 8) : 'PREVIEW'} | {doc.certificate_number || 'AUTO-SEQ'}
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     );
   };
@@ -2673,9 +2696,7 @@ export default function Certificates() {
         title="📱 QR Code ตรวจสอบความถูกต้องของหนังสือรับรอง"
       >
         {selectedDocForQr && (() => {
-          const verifyUrl = selectedDocForQr.file_url 
-            ? selectedDocForQr.file_url 
-            : `${window.location.origin}/#/certificates?verify=${encodeURIComponent(selectedDocForQr.id || selectedDocForQr.certificate_number)}`;
+          const verifyUrl = `${window.location.origin}/?portal=verify&type=certificate&id=${encodeURIComponent(selectedDocForQr.id || '')}&num=${encodeURIComponent(selectedDocForQr.certificate_number || '')}`;
           const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(verifyUrl)}&format=png`;
 
           return (

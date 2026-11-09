@@ -32,6 +32,7 @@ import ServiceArea from './pages/ServiceArea';
 import Athletics from './pages/Athletics';
 import KnowledgeBase from './pages/KnowledgeBase';
 import StudentGradePortal from './pages/StudentGradePortal';
+import PublicDocVerifyPortal from './pages/PublicDocVerifyPortal';
 import AnnualSarabanReport from './pages/AnnualSarabanReport';
 import Certificates from './pages/Certificates';
 import IdentityFooter from './components/IdentityFooter';
@@ -94,6 +95,21 @@ function App() {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search);
       return p.get('portal') === 'grades' || p.get('tab') === 'grades';
+    }
+    return false;
+  });
+
+  // ตรวจจับ URL สำหรับบุคคลภายนอกตรวจสอบเอกสารราชการโดยตรง (?portal=verify หรือ ?verify= หรือ hash verify)
+  const [showDocVerifyPortal, setShowDocVerifyPortal] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search);
+      const hash = window.location.hash || '';
+      return p.get('portal') === 'verify' || 
+             p.has('verify') || 
+             p.has('cert') || 
+             p.has('order') || 
+             hash.includes('verify=') || 
+             hash.includes('/verify');
     }
     return false;
   });
@@ -257,6 +273,10 @@ function App() {
     return <StudentGradePortal onBack={() => setShowGradePortal(false)} />;
   }
 
+  if (showDocVerifyPortal) {
+    return <PublicDocVerifyPortal onBack={() => setShowDocVerifyPortal(false)} />;
+  }
+
   if (!user) {
     if (showSchoolSetup || !hasProfiles) {
       return (
@@ -269,6 +289,7 @@ function App() {
       <Login 
         onManageSchools={() => setShowSchoolSetup(true)} 
         onOpenGradePortal={() => setShowGradePortal(true)}
+        onOpenDocVerify={() => setShowDocVerifyPortal(true)}
       />
     );
   }
